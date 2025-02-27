@@ -19,8 +19,6 @@ rustflags = ["-C", "target-cpu=native"]
 
 # Cargo behavior settings
 [cargo-new]
-# Use the MIT license by default for new projects
-license = "MIT"
 vcs = "git"
 
 # Configure the default alias commands
