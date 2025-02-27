@@ -127,7 +127,7 @@ fn test_add_license_performance() -> Result<()> {
 
     // Create processor and test directory
     let (processor, temp_dir) =
-        create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None, None)?;
+        create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
 
     // Generate test files without licenses
     let test_dir = temp_dir.path().join("perf_test_add");
@@ -165,7 +165,6 @@ fn test_update_year_performance() -> Result<()> {
         false,
         false, // preserve_years = false to ensure years are updated
         None,
-        None, // No save diff path
     )?;
 
     // Generate test files with outdated licenses
@@ -205,7 +204,6 @@ fn test_check_license_performance() -> Result<()> {
         true, // check_only = true
         false,
         None,
-        None, // No save diff path
     )?;
 
     // Generate test files with licenses (half with, half without)
@@ -246,7 +244,7 @@ fn test_file_size_impact() -> Result<()> {
     for &size in &file_sizes {
         // Create processor and test directory
         let (processor, temp_dir) =
-            create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None, None)?;
+            create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
 
         let test_dir = temp_dir.path().join(format!("size_test_{}", size));
         fs::create_dir_all(&test_dir)?;
@@ -286,7 +284,7 @@ fn test_thread_count_impact() -> Result<()> {
 
         // Create processor and test directory
         let (processor, temp_dir) =
-            create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None, None)?;
+            create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
 
         let test_dir = temp_dir.path().join(format!("thread_test_{}", threads));
         fs::create_dir_all(&test_dir)?;
@@ -376,7 +374,7 @@ fn benchmark_operations() -> Result<()> {
         iterations,
         || {
             let (processor, temp_dir) =
-                create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None, None)?;
+                create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
 
             let test_dir = temp_dir.path().join("bench_add");
             fs::create_dir_all(&test_dir)?;
@@ -396,7 +394,7 @@ fn benchmark_operations() -> Result<()> {
         iterations,
         || {
             let (processor, temp_dir) =
-                create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None, None)?;
+                create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
 
             let test_dir = temp_dir.path().join("bench_update");
             fs::create_dir_all(&test_dir)?;
@@ -416,7 +414,7 @@ fn benchmark_operations() -> Result<()> {
         iterations,
         || {
             let (processor, temp_dir) =
-                create_test_processor("Copyright (c) {{Year}} Test Company", vec![], true, false, None, None)?;
+                create_test_processor("Copyright (c) {{Year}} Test Company", vec![], true, false, None)?;
 
             let test_dir = temp_dir.path().join("bench_check");
             fs::create_dir_all(&test_dir)?;
