@@ -17,7 +17,7 @@ lint: ## Run clippy for linting
 lint-all: ## Run clippy with all features
 	cargo clippy --all-features -- -D warnings
 
-test: ## Run tests
+test: build ## Run tests
 	cargo test
 
 test-all: ## Run tests with all features

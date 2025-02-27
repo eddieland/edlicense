@@ -1,16 +1,18 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use git2::{Repository, StatusOptions};
 use glob::Pattern;
 use rayon::prelude::*;
 use regex::Regex;
 use walkdir::WalkDir;
 
 use crate::templates::{LicenseData, TemplateManager};
-use crate::{verbose_log, info_log};
+use crate::{info_log, verbose_log};
 
 /// Processor for handling license operations on files
 pub struct Processor {
@@ -19,6 +21,8 @@ pub struct Processor {
     ignore_patterns: Vec<Pattern>,
     check_only: bool,
     preserve_years: bool,
+    ratchet_reference: Option<String>,
+    pub changed_files: Option<HashSet<PathBuf>>,
 }
 
 impl Processor {
@@ -29,6 +33,7 @@ impl Processor {
         ignore_patterns: Vec<String>,
         check_only: bool,
         preserve_years: bool,
+        ratchet_reference: Option<String>,
     ) -> Result<Self> {
         // Compile glob patterns
         let ignore_patterns = ignore_patterns
@@ -37,13 +42,104 @@ impl Processor {
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| "Invalid glob pattern")?;
 
+        // Initialize changed_files if ratchet mode is enabled
+        let changed_files = if let Some(ref reference) = ratchet_reference {
+            Some(Self::get_changed_files(reference)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             template_manager,
             license_data,
             ignore_patterns,
             check_only,
             preserve_years,
+            ratchet_reference,
+            changed_files,
         })
+    }
+
+    /// Get the list of files that have changed relative to a git reference
+    fn get_changed_files(reference: &str) -> Result<HashSet<PathBuf>> {
+        verbose_log!("Getting changed files relative to: {}", reference);
+
+        // Open the git repository
+        let repo = Repository::open(".").with_context(|| "Failed to open git repository")?;
+
+        // Get the reference commit
+        let reference_obj = repo
+            .revparse_single(reference)
+            .with_context(|| format!("Failed to find git reference: {}", reference))?;
+
+        let reference_commit = reference_obj
+            .peel_to_commit()
+            .with_context(|| format!("Failed to get commit for reference: {}", reference))?;
+
+        // Create a diff between the reference commit and the working directory
+        let reference_tree = reference_commit
+            .tree()
+            .with_context(|| "Failed to get tree for reference commit")?;
+
+        let mut changed_files = HashSet::new();
+
+        // Get the status of files in the working directory
+        let mut status_opts = StatusOptions::new();
+        status_opts.include_untracked(true);
+
+        let statuses = repo
+            .statuses(Some(&mut status_opts))
+            .with_context(|| "Failed to get git status")?;
+
+        // Add all changed files to the set
+        for entry in statuses.iter() {
+            if let Some(path) = entry.path() {
+                let status = entry.status();
+
+                // Check if the file is modified, added, or untracked
+                if status.is_wt_modified()
+                    || status.is_wt_new()
+                    || status.is_wt_renamed()
+                    || status.is_index_modified()
+                    || status.is_index_new()
+                    || status.is_index_renamed()
+                {
+                    verbose_log!("Changed file: {}", path);
+                    changed_files.insert(PathBuf::from(path));
+                }
+            }
+        }
+
+        // Also check for files that have been modified between the reference and HEAD
+        let head_obj = repo.head().with_context(|| "Failed to get HEAD reference")?;
+
+        let head_commit = head_obj.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
+
+        let head_tree = head_commit
+            .tree()
+            .with_context(|| "Failed to get tree for HEAD commit")?;
+
+        let diff = repo
+            .diff_tree_to_tree(Some(&reference_tree), Some(&head_tree), None)
+            .with_context(|| "Failed to create diff between reference and HEAD")?;
+
+        diff.foreach(
+            &mut |delta, _| {
+                if let Some(new_file) = delta.new_file().path() {
+                    verbose_log!("Changed file (in diff): {:?}", new_file);
+                    changed_files.insert(PathBuf::from(new_file));
+                }
+                true
+            },
+            None,
+            None,
+            None,
+        )
+        .with_context(|| "Failed to process diff")?;
+
+        verbose_log!("Found {} changed files", changed_files.len());
+
+        Ok(changed_files)
     }
 
     /// Process a list of file or directory patterns
@@ -69,8 +165,7 @@ impl Processor {
                 }
             } else {
                 // Try to use the pattern as a glob
-                let entries = glob::glob(pattern)
-                    .with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+                let entries = glob::glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
 
                 for entry in entries {
                     match entry {
@@ -104,12 +199,23 @@ impl Processor {
         let has_missing_license = Arc::new(AtomicBool::new(false));
 
         // Collect all files in the directory
-        let files: Vec<_> = WalkDir::new(dir)
+        let all_files: Vec<_> = WalkDir::new(dir)
             .into_iter()
             .filter_map(Result::ok)
             .filter(|e| e.file_type().is_file())
             .map(|e| e.path().to_path_buf())
-            .filter(|p| !self.should_ignore(p))
+            .collect();
+            
+        // Filter out ignored files and log them
+        let files: Vec<_> = all_files
+            .into_iter()
+            .filter(|p| {
+                let should_ignore = self.should_ignore(p);
+                if should_ignore {
+                    verbose_log!("Skipping: {} (matches ignore pattern)", p.display());
+                }
+                !should_ignore
+            })
             .collect();
 
         // Process files in parallel
@@ -127,21 +233,29 @@ impl Processor {
     /// Process a single file
     pub fn process_file(&self, path: &Path) -> Result<()> {
         verbose_log!("Processing file: {}", path.display());
-        
+
         // Skip files that match ignore patterns
         if self.should_ignore(path) {
             verbose_log!("Skipping: {} (matches ignore pattern)", path.display());
             return Ok(());
         }
 
+        // Skip files that haven't changed in ratchet mode
+        if let Some(ref changed_files) = self.changed_files {
+            if !changed_files.contains(path) {
+                verbose_log!("Skipping: {} (unchanged in ratchet mode)", path.display());
+                return Ok(());
+            }
+            verbose_log!("Processing: {} (changed in ratchet mode)", path.display());
+        }
+
         // Read file content
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read file: {}", path.display()))?;
+        let content = fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
 
         // Check if the file already has a license
         let has_license = self.has_license(&content);
         verbose_log!("File has license: {}", has_license);
-        
+
         if self.check_only {
             if !has_license {
                 info_log!("{}", path.display());
@@ -164,27 +278,28 @@ impl Processor {
             }
         } else {
             // Add license to the file
-            let license_text = self.template_manager.render(&self.license_data)
+            let license_text = self
+                .template_manager
+                .render(&self.license_data)
                 .with_context(|| "Failed to render license template")?;
-            
+
             verbose_log!("Rendered license text:\n{}", license_text);
-            
+
             let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
-            
+
             verbose_log!("Formatted license for file type:\n{}", formatted_license);
-            
+
             // Handle shebang or other special headers
             let (prefix, content) = self.extract_prefix(&content);
-            
+
             // Combine prefix, license, and content
             let new_content = format!("{}{}{}", prefix, formatted_license, content);
-            
+
             verbose_log!("Writing updated content to: {}", path.display());
             info_log!("Added license to: {}", path.display());
-            
+
             // Write the updated content back to the file
-            fs::write(path, new_content)
-                .with_context(|| format!("Failed to write to file: {}", path.display()))?;
+            fs::write(path, new_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
         }
 
         Ok(())
@@ -193,9 +308,29 @@ impl Processor {
     /// Check if a file should be ignored based on ignore patterns
     pub fn should_ignore(&self, path: &Path) -> bool {
         if let Some(path_str) = path.to_str() {
+            // Convert to a relative path string for matching
+            let path_str = path_str.replace("\\", "/"); // Normalize for Windows paths
+            
             for pattern in &self.ignore_patterns {
-                if pattern.matches(path_str) {
+                // Try matching the pattern against the path
+                if pattern.matches(&path_str) {
+                    verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
                     return true;
+                }
+                
+                // Also try matching with ./ prefix for relative paths
+                if path_str.starts_with("./") {
+                    if pattern.matches(&path_str[2..]) {
+                        verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
+                        return true;
+                    }
+                } else {
+                    // Try with ./ prefix added
+                    let with_prefix = format!("./{}", path_str);
+                    if pattern.matches(&with_prefix) {
+                        verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
+                        return true;
+                    }
                 }
             }
         }
@@ -207,11 +342,11 @@ impl Processor {
         // Take the first 1000 characters (or less if the file is shorter)
         let check_len = std::cmp::min(content.len(), 1000);
         let check_content = &content[..check_len].to_lowercase();
-        
-        check_content.contains("copyright") || 
-            check_content.contains("mozilla public") ||
-            check_content.contains("spdx-license-identifier") ||
-            self.is_generated(content)
+
+        check_content.contains("copyright")
+            || check_content.contains("mozilla public")
+            || check_content.contains("spdx-license-identifier")
+            || self.is_generated(content)
     }
 
     /// Check if the file is generated
@@ -219,7 +354,7 @@ impl Processor {
         // Common patterns for generated files
         let go_generated = Regex::new(r"(?m)^.{1,2} Code generated .* DO NOT EDIT\.$").unwrap();
         let cargo_raze = Regex::new(r"(?m)^DO NOT EDIT! Replaced on runs of cargo-raze$").unwrap();
-        
+
         go_generated.is_match(content) || cargo_raze.is_match(content)
     }
 
@@ -227,30 +362,32 @@ impl Processor {
     pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
         // Common prefixes to preserve
         let prefixes = [
-            "#!", // shebang
-            "<?xml", // XML declaration
-            "<!doctype", // HTML doctype
-            "# encoding:", // Ruby encoding
+            "#!",                       // shebang
+            "<?xml",                    // XML declaration
+            "<!doctype",                // HTML doctype
+            "# encoding:",              // Ruby encoding
             "# frozen_string_literal:", // Ruby interpreter instruction
-            "<?php", // PHP opening tag
-            "# escape", // Dockerfile directive
-            "# syntax", // Dockerfile directive
+            "<?php",                    // PHP opening tag
+            "# escape",                 // Dockerfile directive
+            "# syntax",                 // Dockerfile directive
         ];
-        
+
         // Check if the content starts with any of the prefixes
         let first_line_end = content.find('\n').unwrap_or(content.len());
         let first_line = &content[..first_line_end].to_lowercase();
-        
+
         for prefix in &prefixes {
             if first_line.starts_with(prefix) {
                 let mut prefix_str = content[..=first_line_end].to_string();
                 if !prefix_str.ends_with('\n') {
                     prefix_str.push('\n');
                 }
+                // Add an extra newline to ensure separation between shebang and license
+                prefix_str.push('\n');
                 return (prefix_str, &content[first_line_end + 1..]);
             }
         }
-        
+
         (String::new(), content)
     }
 
@@ -260,26 +397,28 @@ impl Processor {
         // Added (?i) flag to make the regex case-insensitive
         // Modified to handle all copyright symbol formats: (c), ©, or no symbol at all
         let year_regex = Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")?;
-        
+
         let current_year = &self.license_data.year;
-        
+
         verbose_log!("Updating year to: {}", current_year);
-        
+
         // Update single year to current year
-        let content = year_regex.replace_all(content, |caps: &regex::Captures| {
-            let prefix = &caps[1];
-            let year = &caps[2];
-            let suffix = &caps[3];
-            
-            if year != current_year {
-                verbose_log!("Replacing year {} with {}", year, current_year);
-                format!("{}{}{}", prefix, current_year, suffix)
-            } else {
-                // Keep as is if already current
-                caps[0].to_string()
-            }
-        }).to_string();
-        
+        let content = year_regex
+            .replace_all(content, |caps: &regex::Captures| {
+                let prefix = &caps[1];
+                let year = &caps[2];
+                let suffix = &caps[3];
+
+                if year != current_year {
+                    verbose_log!("Replacing year {} with {}", year, current_year);
+                    format!("{}{}{}", prefix, current_year, suffix)
+                } else {
+                    // Keep as is if already current
+                    caps[0].to_string()
+                }
+            })
+            .to_string();
+
         Ok(content)
     }
 }

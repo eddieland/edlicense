@@ -1,6 +1,6 @@
+mod logging;
 mod processor;
 mod templates;
-mod logging;
 
 use std::path::PathBuf;
 use std::process;
@@ -9,9 +9,9 @@ use anyhow::{Context, Result};
 use chrono::Datelike;
 use clap::Parser;
 
+use crate::logging::set_verbose;
 use crate::processor::Processor;
 use crate::templates::{LicenseData, TemplateManager};
-use crate::logging::set_verbose;
 
 /// A tool that ensures source code files have copyright license headers
 #[derive(Parser, Debug)]
@@ -44,12 +44,16 @@ struct Args {
     /// Preserve existing years in license headers
     #[arg(long)]
     preserve_years: bool,
+
+    /// Ratchet mode: only check and format files that have changed relative to a git reference
+    #[arg(long)]
+    ratchet: Option<String>,
 }
 
 fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
-    
+
     // Set verbose mode
     set_verbose(args.verbose);
 
@@ -60,13 +64,12 @@ fn main() -> Result<()> {
     };
 
     // Create license data
-    let license_data = LicenseData {
-        year,
-    };
+    let license_data = LicenseData { year };
 
     // Create and initialize template manager
     let mut template_manager = TemplateManager::new();
-    template_manager.load_template(&args.license_file)
+    template_manager
+        .load_template(&args.license_file)
         .with_context(|| format!("Failed to load license template from {}", args.license_file.display()))?;
 
     // Create processor
@@ -76,6 +79,7 @@ fn main() -> Result<()> {
         args.ignore,
         args.check,
         args.preserve_years,
+        args.ratchet,
     )?;
 
     // Process files

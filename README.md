@@ -7,12 +7,11 @@ A tool that ensures source code files have copyright license headers by scanning
 ## Features
 
 - Recursively scan directories and add license headers to source files
-- Support for multiple license types (Apache-2.0, MIT, BSD, MPL-2.0)
 - Automatic detection of file types and appropriate comment formatting
 - Check-only mode to verify license headers without modifying files
 - Ignore patterns to exclude specific files or directories
-- SPDX identifier support
 - **Automatic year reference updates** - automatically updates copyright year references when the year changes (e.g., `(c) 2024` → `(c) 2025`)
+- **Ratchet mode** - only check and format files that have changed relative to a git reference (e.g., `origin/main`)
 
 ## Installation
 
@@ -48,6 +47,8 @@ edlicense [OPTIONS] <PATTERNS>...
 --ignore <IGNORE>...          File patterns to ignore (supports glob patterns)
 --year <YEAR>                 Copyright year [default: current year]
 --verbose                     Verbose logging
+--ratchet <REFERENCE>         Ratchet mode: only check and format files that have changed relative to a git reference
+--preserve-years              Preserve existing years in license headers
 --help                        Print help
 --version                     Print version
 ```
@@ -72,6 +73,12 @@ Use a specific year:
 edlicense --year "2020" .
 ```
 
+Only check and format files that have changed relative to origin/main:
+
+```bash
+edlicense --ratchet "origin/main" --check src/
+```
+
 ## Automatic Year Updates
 
 Unlike the original `addlicense` tool, `edlicense` can automatically update copyright year references when the year changes. For example, if a file contains:
@@ -84,6 +91,28 @@ And the current year is 2025, running `edlicense` will update it to:
 
 ```
 Copyright (c) 2025 Example Corp
+```
+
+## Ratchet Mode
+
+The ratchet mode allows you to only check and format files that have changed relative to a git reference (e.g., `origin/main`). This is particularly useful in CI/CD pipelines where you want to ensure that only new or modified files have proper license headers.
+
+When using ratchet mode, `edlicense` will:
+
+1. Identify files that have been added, modified, or renamed since the specified git reference
+2. Only process those changed files, ignoring files that haven't changed
+3. Apply the same license checking or formatting rules to the changed files
+
+This can significantly speed up processing in large repositories where only a small subset of files have changed.
+
+Example usage:
+
+```bash
+# Only check license headers in files changed since origin/main
+edlicense --ratchet "origin/main" --check src/
+
+# Add license headers to files changed since a specific commit
+edlicense --ratchet "abc123" --license-file LICENSE.txt src/
 ```
 
 ## Supported File Types

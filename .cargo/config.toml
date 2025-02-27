@@ -33,8 +33,6 @@ rr = "run --release"
 br = "build --release"
 # Clippy with all features
 clippy-all = "clippy --all-features -- -D warnings"
-# Format code
-fmt = "fmt --all"
 # Update dependencies
 up = "update"
 # Clean build artifacts

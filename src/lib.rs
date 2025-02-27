@@ -4,9 +4,9 @@
 //! in source code files. It can be used as a library or through the command-line interface.
 
 // Re-export modules for public API
+pub mod logging;
 pub mod processor;
 pub mod templates;
-pub mod logging;
 
 // Re-export macros
 // Note: We don't re-export the macros here since they're already defined in the logging module

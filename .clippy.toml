@@ -1,32 +1,14 @@
 # Clippy configuration
 # See all lints at: https://rust-lang.github.io/rust-clippy/master/
 
-# Specify the disallowed methods
-disallowed-methods = []
-
-# Configure cognitive complexity threshold
-cognitive-complexity-threshold = 25
-
-# Configure too-many-arguments threshold for functions
-too-many-arguments-threshold = 7
-
-# Configure too-many-lines threshold for functions
-too-many-lines-threshold = 100
-
-# Configure large-enum-variant size difference threshold
-enum-variant-size-threshold = 200
-
-# Configure type complexity threshold
-type-complexity-threshold = 250
-
-# Configure cyclomatic complexity threshold
-cyclomatic-complexity-threshold = 25
-
-# Configure doc valid idents
-doc-valid-idents = ["GitHub", "edlicense"]
-
-# Configure allowed duplicate blocks
-allowed-duplicate-crates = []
-
 # Configure msrv (Minimum Supported Rust Version)
 msrv = "1.70.0"
+
+disallowed-methods = []
+cyclomatic-complexity-threshold = 25
+too-many-arguments-threshold = 7
+too-many-lines-threshold = 100
+enum-variant-size-threshold = 200
+type-complexity-threshold = 250
+doc-valid-idents = ["GitHub", "edlicense"]
+allowed-duplicate-crates = []
