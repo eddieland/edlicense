@@ -27,7 +27,9 @@ Key advantages of `edlicense`:
 - Recursively scan directories and add license headers to source files
 - Automatic detection of file types and appropriate comment formatting
 - Dry run mode to verify license headers without modifying files (default behavior)
-- Ignore patterns to exclude specific files or directories
+- Ignore patterns to exclude specific files or directories (via CLI or `.licenseignore` files)
+- Support for `.licenseignore` files with gitignore-style pattern matching
+- Global ignore file support via `GLOBAL_LICENSE_IGNORE` environment variable
 - **Automatic year reference updates** - automatically updates copyright year references when the year changes (e.g., `(c) 2024` → `(c) 2025`)
 - **Ratchet mode** - only check and format files that have changed relative to a git reference (e.g., `origin/main`)
 
@@ -111,6 +113,7 @@ edlicense [OPTIONS] <PATTERNS>...
 --verbose                     Verbose logging
 --ratchet <REFERENCE>         Ratchet mode: only check and format files that have changed relative to a git reference
 --preserve-years              Preserve existing years in license headers
+--global-ignore-file <FILE>   Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
 --help                        Print help
 --version                     Print version
 ```
@@ -190,6 +193,29 @@ edlicense --ratchet "origin/main" src/
 # Add license headers to files changed since a specific commit
 edlicense --ratchet "abc123" --modify --license-file LICENSE.txt src/
 ```
+
+## Using .licenseignore Files
+
+You can use `.licenseignore` files to specify patterns for files that should be ignored during license checking and updates, similar to how `.gitignore` files work:
+
+```bash
+# Create a .licenseignore file in your project
+echo "*.json" > .licenseignore
+echo "vendor/" >> .licenseignore
+echo "**/node_modules/" >> .licenseignore
+
+# Run edlicense (it will automatically use the .licenseignore file)
+edlicense src/
+```
+
+You can also set a global ignore file using the `GLOBAL_LICENSE_IGNORE` environment variable:
+
+```bash
+export GLOBAL_LICENSE_IGNORE=/path/to/global/licenseignore
+edlicense src/
+```
+
+For more details and examples, see [.licenseignore Files](examples/licenseignore.md).
 
 ## Supported File Types
 

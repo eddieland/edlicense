@@ -1,4 +1,5 @@
 mod git;
+mod ignore;
 mod logging;
 mod processor;
 mod templates;
@@ -53,6 +54,10 @@ struct Args {
     /// Ratchet mode: only check and format files that have changed relative to a git reference
     #[arg(long)]
     ratchet: Option<String>,
+
+    /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
+    #[arg(long)]
+    global_ignore_file: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -61,6 +66,19 @@ fn main() -> Result<()> {
 
     // Set verbose mode
     set_verbose(args.verbose);
+
+    // Set global ignore file if provided
+    if let Some(ref global_ignore_file) = args.global_ignore_file {
+        if let Some(path_str) = global_ignore_file.to_str() {
+            // Set the environment variable
+            unsafe {
+                std::env::set_var("GLOBAL_LICENSE_IGNORE", path_str);
+            }
+            verbose_log!("Setting GLOBAL_LICENSE_IGNORE to {}", global_ignore_file.display());
+        } else {
+            eprintln!("Warning: Could not convert global ignore file path to string");
+        }
+    }
 
     // Determine the year to use
     let year = match args.year {

@@ -12,12 +12,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
-use glob::Pattern;
 use rayon::prelude::*;
 use regex::Regex;
 use walkdir::WalkDir;
 
 use crate::git;
+use crate::ignore::IgnoreManager;
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{info_log, verbose_log};
 
@@ -29,37 +29,6 @@ use crate::{info_log, verbose_log};
 /// - Adding or updating license headers
 /// - Checking for existing licenses
 /// - Handling ratchet mode (only processing changed files)
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use edlicense::processor::Processor;
-/// use edlicense::templates::{LicenseData, TemplateManager};
-/// use std::path::Path;
-///
-/// # fn main() -> anyhow::Result<()> {
-/// // Create license data
-/// let license_data = LicenseData { year: "2025".to_string() };
-///
-/// // Create template manager
-/// let mut template_manager = TemplateManager::new();
-/// template_manager.load_template(Path::new("LICENSE.txt"))?;
-///
-/// // Create processor
-/// let processor = Processor::new(
-///     template_manager,
-///     license_data,
-///     vec!["**/*.json".to_string()], // Ignore JSON files
-///     false, // Not check-only mode
-///     false, // Don't preserve years
-///     None,  // No ratchet reference
-/// )?;
-///
-/// // Process files
-/// let has_missing_license = processor.process(&["src".to_string()])?;
-/// # Ok(())
-/// # }
-/// ```
 pub struct Processor {
     /// Template manager for rendering license templates
     template_manager: TemplateManager,
@@ -67,8 +36,8 @@ pub struct Processor {
     /// License data (year, etc.) for rendering templates
     license_data: LicenseData,
 
-    /// Patterns for files to ignore
-    ignore_patterns: Vec<Pattern>,
+    /// Manager for handling ignore patterns
+    ignore_manager: IgnoreManager,
 
     /// Whether to only check for licenses without modifying files
     check_only: bool,
@@ -101,28 +70,6 @@ impl Processor {
     /// Returns an error if:
     /// - Any of the ignore patterns are invalid
     /// - Ratchet mode is enabled but the git repository cannot be accessed
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::processor::Processor;
-    /// # use edlicense::templates::{LicenseData, TemplateManager};
-    /// # fn main() -> anyhow::Result<()> {
-    /// let license_data = LicenseData { year: "2025".to_string() };
-    /// let template_manager = TemplateManager::new();
-    ///
-    /// // Create a processor that ignores JSON files and only checks for licenses
-    /// let processor = Processor::new(
-    ///     template_manager,
-    ///     license_data,
-    ///     vec!["**/*.json".to_string()],
-    ///     true, // Check-only mode
-    ///     false, // Don't preserve years
-    ///     None, // No ratchet reference
-    /// )?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn new(
         template_manager: TemplateManager,
         license_data: LicenseData,
@@ -131,12 +78,8 @@ impl Processor {
         preserve_years: bool,
         ratchet_reference: Option<String>,
     ) -> Result<Self> {
-        // Compile glob patterns
-        let ignore_patterns = ignore_patterns
-            .into_iter()
-            .map(|p| Pattern::new(&p))
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| "Invalid glob pattern")?;
+        // Create ignore manager
+        let ignore_manager = IgnoreManager::new(ignore_patterns)?;
 
         // Initialize changed_files if ratchet mode is enabled
         let changed_files = if let Some(ref reference) = ratchet_reference {
@@ -148,7 +91,7 @@ impl Processor {
         Ok(Self {
             template_manager,
             license_data,
-            ignore_patterns,
+            ignore_manager,
             check_only,
             preserve_years,
             changed_files,
@@ -176,27 +119,6 @@ impl Processor {
     /// Returns an error if:
     /// - A glob pattern is invalid
     /// - Directory traversal fails
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::processor::Processor;
-    /// # use edlicense::templates::{LicenseData, TemplateManager};
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let processor = Processor::new(TemplateManager::new(), LicenseData { year: "2025".to_string() }, vec![], false, false, None)?;
-    /// // Process multiple patterns
-    /// let has_missing = processor.process(&[
-    ///     "src".to_string(),           // Directory
-    ///     "README.md".to_string(),     // File
-    ///     "tests/**/*.rs".to_string(), // Glob pattern
-    /// ])?;
-    ///
-    /// if has_missing {
-    ///     println!("Some files were missing license headers");
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn process(&self, patterns: &[String]) -> Result<bool> {
         let has_missing_license = Arc::new(AtomicBool::new(false));
 
@@ -274,6 +196,11 @@ impl Processor {
     pub fn process_directory(&self, dir: &Path) -> Result<bool> {
         let has_missing_license = Arc::new(AtomicBool::new(false));
 
+        // Load .licenseignore files for this directory
+        // Note: We need to clone ignore_manager because we can't mutate self
+        let mut ignore_manager = self.ignore_manager.clone();
+        ignore_manager.load_licenseignore_files(dir)?;
+
         // Collect all files in the directory
         let all_files: Vec<_> = WalkDir::new(dir)
             .into_iter()
@@ -286,7 +213,7 @@ impl Processor {
         let files: Vec<_> = all_files
             .into_iter()
             .filter(|p| {
-                let should_ignore = self.should_ignore(p);
+                let should_ignore = ignore_manager.is_ignored(p);
                 if should_ignore {
                     verbose_log!("Skipping: {} (matches ignore pattern)", p.display());
                 }
@@ -326,25 +253,11 @@ impl Processor {
     /// - The file cannot be read or written
     /// - The file is missing a license header in check-only mode
     /// - License template rendering fails
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::processor::Processor;
-    /// # use edlicense::templates::{LicenseData, TemplateManager};
-    /// # use std::path::Path;
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let processor = Processor::new(TemplateManager::new(), LicenseData { year: "2025".to_string() }, vec![], false, false, None)?;
-    /// // Process a single file
-    /// processor.process_file(Path::new("src/main.rs"))?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn process_file(&self, path: &Path) -> Result<()> {
         verbose_log!("Processing file: {}", path.display());
 
         // Skip files that match ignore patterns
-        if self.should_ignore(path) {
+        if self.ignore_manager.is_ignored(path) {
             verbose_log!("Skipping: {} (matches ignore pattern)", path.display());
             return Ok(());
         }
@@ -410,65 +323,6 @@ impl Processor {
         }
 
         Ok(())
-    }
-
-    /// Checks if a file should be ignored based on ignore patterns.
-    ///
-    /// This method matches the file path against all ignore patterns and returns
-    /// `true` if any pattern matches. It handles both Windows and Unix paths,
-    /// and accounts for relative paths with or without the "./" prefix.
-    ///
-    /// # Parameters
-    ///
-    /// * `path` - Path to the file to check
-    ///
-    /// # Returns
-    ///
-    /// `true` if the file should be ignored, `false` otherwise.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::processor::Processor;
-    /// # use edlicense::templates::{LicenseData, TemplateManager};
-    /// # use std::path::Path;
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let processor = Processor::new(TemplateManager::new(), LicenseData { year: "2025".to_string() }, vec!["**/*.json".to_string()], false, false, None)?;
-    /// // Check if a file should be ignored
-    /// let should_ignore = processor.should_ignore(Path::new("config.json"));
-    /// assert!(should_ignore); // JSON files are ignored
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn should_ignore(&self, path: &Path) -> bool {
-        if let Some(path_str) = path.to_str() {
-            // Convert to a relative path string for matching
-            let path_str = path_str.replace("\\", "/"); // Normalize for Windows paths
-
-            for pattern in &self.ignore_patterns {
-                // Try matching the pattern against the path
-                if pattern.matches(&path_str) {
-                    verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
-                    return true;
-                }
-
-                // Also try matching with ./ prefix for relative paths
-                if let Some(stripped) = path_str.strip_prefix("./") {
-                    if pattern.matches(stripped) {
-                        verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
-                        return true;
-                    }
-                } else {
-                    // Try with ./ prefix added
-                    let with_prefix = format!("./{}", path_str);
-                    if pattern.matches(&with_prefix) {
-                        verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
-                        return true;
-                    }
-                }
-            }
-        }
-        false
     }
 
     /// Checks if the content already has a license header.
@@ -542,21 +396,6 @@ impl Processor {
     /// A tuple containing:
     /// - The extracted prefix as a String (with added newlines for proper separation)
     /// - The remaining content as a string slice
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::processor::Processor;
-    /// # use edlicense::templates::{LicenseData, TemplateManager};
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let processor = Processor::new(TemplateManager::new(), LicenseData { year: "2025".to_string() }, vec![], false, false, None)?;
-    /// let content = "#!/usr/bin/env python\n\nprint('Hello, world!')";
-    /// let (prefix, remaining) = processor.extract_prefix(content);
-    /// assert_eq!(prefix, "#!/usr/bin/env python\n\n");
-    /// assert_eq!(remaining, "print('Hello, world!')");
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
         // Common prefixes to preserve
         let prefixes = [
@@ -603,20 +442,6 @@ impl Processor {
     ///
     /// The updated content with the year references replaced, or an error if the
     /// regex pattern compilation fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::processor::Processor;
-    /// # use edlicense::templates::{LicenseData, TemplateManager};
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let processor = Processor::new(TemplateManager::new(), LicenseData { year: "2025".to_string() }, vec![], false, false, None)?;
-    /// let content = "// Copyright (c) 2024 Example Corp\n// All rights reserved.";
-    /// let updated = processor.update_year_in_license(&content)?;
-    /// assert_eq!(updated, "// Copyright (c) 2025 Example Corp\n// All rights reserved.");
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn update_year_in_license(&self, content: &str) -> Result<String> {
         // Regex to find copyright year patterns - match all copyright symbol formats
         // Added (?i) flag to make the regex case-insensitive

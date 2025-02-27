@@ -67,6 +67,7 @@
 
 // Re-export modules for public API
 pub mod git;
+pub mod ignore;
 pub mod logging;
 pub mod processor;
 pub mod templates;

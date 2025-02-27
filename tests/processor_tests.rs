@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::fs;
-use std::path::Path;
 use tempfile::tempdir;
 
 use edlicense::processor::Processor;
@@ -146,24 +145,60 @@ fn test_year_updating() -> Result<()> {
 
 #[test]
 fn test_ignore_patterns() -> Result<()> {
-    // Create a processor with ignore patterns
-    let (processor, _temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
-        vec!["*.json".to_string(), "vendor/**".to_string()],
-        false,
-        false,
-        None,
+    // Create a temporary directory
+    let temp_dir = tempdir()?;
+    let temp_path = temp_dir.path();
+
+    // Create a .licenseignore file
+    let ignore_content = "*.json\nvendor/\n";
+    fs::write(temp_path.join(".licenseignore"), ignore_content)?;
+
+    // Create test files
+    fs::write(temp_path.join("test.json"), "// Test JSON file")?;
+    fs::write(temp_path.join("test.rs"), "// Test Rust file")?;
+    fs::create_dir_all(temp_path.join("vendor"))?;
+    fs::write(temp_path.join("vendor").join("test.rs"), "// Test vendor file")?;
+    fs::create_dir_all(temp_path.join("vendor").join("subfolder"))?;
+    fs::write(
+        temp_path.join("vendor").join("subfolder").join("test.rs"),
+        "// Test subfolder file",
     )?;
+    fs::create_dir_all(temp_path.join("src"))?;
+    fs::write(temp_path.join("src").join("test.rs"), "// Test src file")?;
+    fs::write(temp_path.join("test_vendor.rs"), "// Test vendor-like file")?;
+
+    // Create an IgnoreManager and load the .licenseignore file
+    use edlicense::ignore::IgnoreManager;
+    let mut ignore_manager = IgnoreManager::new(vec![])?;
+    ignore_manager.load_licenseignore_files(temp_path)?;
 
     // Test files that should be ignored
-    assert!(processor.should_ignore(Path::new("test.json")));
-    assert!(processor.should_ignore(Path::new("vendor/test.rs")));
-    assert!(processor.should_ignore(Path::new("vendor/subfolder/test.rs")));
+    assert!(
+        ignore_manager.is_ignored(&temp_path.join("test.json")),
+        "JSON file should be ignored"
+    );
+    assert!(
+        ignore_manager.is_ignored(&temp_path.join("vendor").join("test.rs")),
+        "Vendor file should be ignored"
+    );
+    assert!(
+        ignore_manager.is_ignored(&temp_path.join("vendor").join("subfolder").join("test.rs")),
+        "Subfolder file should be ignored"
+    );
 
     // Test files that should not be ignored
-    assert!(!processor.should_ignore(Path::new("test.rs")));
-    assert!(!processor.should_ignore(Path::new("src/test.rs")));
-    assert!(!processor.should_ignore(Path::new("test_vendor.rs")));
+    assert!(
+        !ignore_manager.is_ignored(&temp_path.join("test.rs")),
+        "Rust file should not be ignored"
+    );
+    assert!(
+        !ignore_manager.is_ignored(&temp_path.join("src").join("test.rs")),
+        "Src file should not be ignored"
+    );
+    assert!(
+        !ignore_manager.is_ignored(&temp_path.join("test_vendor.rs")),
+        "Vendor-like file should not be ignored"
+    );
 
     Ok(())
 }

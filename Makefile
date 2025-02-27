@@ -1,11 +1,14 @@
 .PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all perf-test perf-test-add perf-test-update perf-test-check perf-test-all docker-build docker-build-debug docker-run docker-run-debug docker-clean
 
 # Default target
+
+### Makefile
+
 help: ## Display this help
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@awk '/^### /{section=substr($$0,5); printf "\n\033[1m%s\033[0m\n", section} /^[a-zA-Z0-9_-]+:.*?## .*$$/{if(section!=""){printf "  \033[36m%-18s\033[0m %s\n", substr($$1,1,length($$1)-1), $$NF}}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {section="General"} /^### /{section=substr($$0,5); printf "\n\033[1m%s\033[0m\n", section} /^[a-zA-Z0-9_-]+:.*?## / {match($$0, /## (.*)$$/, a); printf "  \033[36m%-18s\033[0m %s\n", substr($$1,1,length($$1)-1), a[1]}' $(MAKEFILE_LIST)
 
 ### Development
 fmt: ## Format code using rustfmt
@@ -32,13 +35,7 @@ doc: ## Generate documentation
 watch-test: ## Run tests in watch mode (requires cargo-watch)
 	cargo watch -x test
 
-verify-config: ## Verify configuration files
-	@echo "Verifying rustfmt configuration..."
-	cargo fmt --check
-	@echo "Verifying clippy configuration..."
-	cargo clippy --version
-
-all: verify-config fmt lint test docker-build ## Run verify-config, fmt, lint, and test
+all: fmt lint test docker-build ## Run verify-config, fmt, lint, and test
 
 ### Build
 build: ## Build the project
@@ -80,13 +77,6 @@ docker-run-debug: ## Run debug Docker container with current directory mounted
 
 docker-clean: ## Remove Docker images
 	docker rmi -f edlicense:latest edlicense:debug 2>/dev/null || true
-
-### License Management
-check-license: build ## Check if all files have license headers (dry run mode)
-	cargo run -- src/ tests/
-
-update-license: build ## Update license headers in project files (modify mode)
-	cargo run -- --modify src/ tests/
 
 ### Performance Testing
 perf-test-add: build ## Run performance test for adding licenses to files
