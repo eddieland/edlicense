@@ -33,7 +33,7 @@
 //!     // Create and initialize template manager
 //!     let mut template_manager = TemplateManager::new();
 //!     template_manager.load_template(Path::new("LICENSE.txt"))?;
-//!
+//! 
 //!     // Create processor with default settings
 //!     let processor = Processor::new(
 //!         template_manager,
@@ -42,6 +42,7 @@
 //!         false,  // Not check-only mode
 //!         false,  // Don't preserve years
 //!         None,   // No ratchet reference
+//!         None    // Use the default DiffManager
 //!     )?;
 //!
 //!     // Process files in the src directory
@@ -66,6 +67,7 @@
 //! [`logging`]: crate::logging
 
 // Re-export modules for public API
+pub mod diff;
 pub mod git;
 pub mod ignore;
 pub mod logging;

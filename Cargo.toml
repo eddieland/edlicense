@@ -15,6 +15,9 @@ rayon = "1.8"
 walkdir = "2.4"
 git2 = "0.18"
 ignore = "0.4"
+similar = { version = "2.4", features = ["inline"] }
+termcolor = "1.4"
+atty = "0.2"
 
 [dev-dependencies]
 tempfile = "3.8"

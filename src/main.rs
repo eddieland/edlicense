@@ -1,3 +1,4 @@
+mod diff;
 mod git;
 mod ignore;
 mod logging;
@@ -6,14 +7,37 @@ mod templates;
 
 use std::path::PathBuf;
 use std::process;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use chrono::Datelike;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
-use crate::logging::set_verbose;
+use crate::diff::DiffManager;
+use crate::logging::{ColorMode, set_color_mode, set_verbose};
 use crate::processor::Processor;
 use crate::templates::{LicenseData, TemplateManager};
+
+/// Color mode options for output
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ClapColorMode {
+    /// Automatically determine whether to use colors based on TTY detection
+    Auto,
+    /// Never use colors
+    Never,
+    /// Always use colors
+    Always,
+}
+
+impl From<ClapColorMode> for ColorMode {
+    fn from(mode: ClapColorMode) -> Self {
+        match mode {
+            ClapColorMode::Auto => ColorMode::Auto,
+            ClapColorMode::Never => ColorMode::Never,
+            ClapColorMode::Always => ColorMode::Always,
+        }
+    }
+}
 
 /// A tool that ensures source code files have copyright license headers
 #[derive(Parser, Debug)]
@@ -30,6 +54,14 @@ struct Args {
     /// Modify mode: add or update license headers in files
     #[arg(long, group = "mode")]
     modify: bool,
+
+    /// Show diff of changes in dry run mode
+    #[arg(long)]
+    show_diff: bool,
+
+    /// Save diff of changes to a file in dry run mode
+    #[arg(long)]
+    save_diff: Option<PathBuf>,
 
     /// Custom license file to use
     #[arg(long, required = true)]
@@ -58,6 +90,10 @@ struct Args {
     /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
     #[arg(long)]
     global_ignore_file: Option<PathBuf>,
+
+    /// Control when to use colored output (auto, never, always)
+    #[arg(long, value_enum, default_value = "auto")]
+    colors: ClapColorMode,
 }
 
 fn main() -> Result<()> {
@@ -66,6 +102,9 @@ fn main() -> Result<()> {
 
     // Set verbose mode
     set_verbose(args.verbose);
+
+    // Set color mode
+    set_color_mode(ColorMode::from(args.colors));
 
     // Set global ignore file if provided
     if let Some(ref global_ignore_file) = args.global_ignore_file {
@@ -98,6 +137,9 @@ fn main() -> Result<()> {
     // Determine mode (dry run is default if neither is specified or if dry_run is explicitly set)
     let check_only = args.dry_run || !args.modify;
 
+    // Create diff manager
+    let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
+
     // Create processor
     let processor = Processor::new(
         template_manager,
@@ -106,10 +148,35 @@ fn main() -> Result<()> {
         check_only,
         args.preserve_years,
         args.ratchet,
+        Some(diff_manager),
     )?;
+
+    // Start timing
+    let start_time = Instant::now();
 
     // Process files
     let has_missing_license = processor.process(&args.patterns)?;
+
+    // Calculate elapsed time
+    let elapsed = start_time.elapsed();
+
+    // Get the total number of files processed
+    let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+    // Log the results
+    if files_processed == 1 {
+        info_log!(
+            "Processed {} file in {:.2} seconds",
+            files_processed,
+            elapsed.as_secs_f64()
+        );
+    } else {
+        info_log!(
+            "Processed {} files in {:.2} seconds",
+            files_processed,
+            elapsed.as_secs_f64()
+        );
+    }
 
     // Exit with non-zero code if in dry run mode and there are missing licenses
     if check_only && has_missing_license {

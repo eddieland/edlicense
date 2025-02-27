@@ -16,6 +16,7 @@ use rayon::prelude::*;
 use regex::Regex;
 use walkdir::WalkDir;
 
+use crate::diff::DiffManager;
 use crate::git;
 use crate::ignore::IgnoreManager;
 use crate::templates::{LicenseData, TemplateManager};
@@ -29,6 +30,7 @@ use crate::{info_log, verbose_log};
 /// - Adding or updating license headers
 /// - Checking for existing licenses
 /// - Handling ratchet mode (only processing changed files)
+/// - Showing diffs in dry run mode
 pub struct Processor {
     /// Template manager for rendering license templates
     template_manager: TemplateManager,
@@ -47,6 +49,12 @@ pub struct Processor {
 
     /// Set of files that have changed (used in ratchet mode)
     pub changed_files: Option<HashSet<PathBuf>>,
+
+    /// Manager for handling diff creation and rendering
+    diff_manager: DiffManager,
+
+    /// Counter for the total number of files processed
+    pub files_processed: std::sync::atomic::AtomicUsize,
 }
 
 impl Processor {
@@ -60,6 +68,7 @@ impl Processor {
     /// * `check_only` - Whether to only check for licenses without modifying files
     /// * `preserve_years` - Whether to preserve existing years in license headers
     /// * `ratchet_reference` - Git reference for ratchet mode (only process changed files)
+    /// * `diff_manager` - Optional manager for handling diff creation and rendering. If not provided, a default one will be created.
     ///
     /// # Returns
     ///
@@ -77,6 +86,7 @@ impl Processor {
         check_only: bool,
         preserve_years: bool,
         ratchet_reference: Option<String>,
+        diff_manager: Option<DiffManager>,
     ) -> Result<Self> {
         // Create ignore manager
         let ignore_manager = IgnoreManager::new(ignore_patterns)?;
@@ -88,6 +98,9 @@ impl Processor {
             None
         };
 
+        // Use provided diff_manager or create a default one
+        let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
+
         Ok(Self {
             template_manager,
             license_data,
@@ -95,6 +108,8 @@ impl Processor {
             check_only,
             preserve_years,
             changed_files,
+            diff_manager,
+            files_processed: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -240,7 +255,9 @@ impl Processor {
     /// 2. In ratchet mode, checks if the file has changed
     /// 3. Reads the file content
     /// 4. Checks if the file already has a license header
-    /// 5. In check-only mode, returns an error if the license is missing
+    /// 5. In check-only mode:
+    ///    - If show_diff is enabled, shows a diff of what would be changed
+    ///    - Otherwise, returns an error if the license is missing
     /// 6. Otherwise, adds a license header or updates the year in an existing one
     ///
     /// # Parameters
@@ -271,6 +288,9 @@ impl Processor {
             verbose_log!("Processing: {} (changed in ratchet mode)", path.display());
         }
 
+        // Increment the files processed counter
+        self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         // Read file content
         let content = fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
 
@@ -280,8 +300,36 @@ impl Processor {
 
         if self.check_only {
             if !has_license {
-                info_log!("{}", path.display());
+                // Generate diffs if show_diff is enabled or save_diff_path is provided
+                if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
+                    // Generate what the content would look like with a license
+                    let license_text = self
+                        .template_manager
+                        .render(&self.license_data)
+                        .with_context(|| "Failed to render license template")?;
+
+                    let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+
+                    // Handle shebang or other special headers
+                    let (prefix, content_without_prefix) = self.extract_prefix(&content);
+
+                    // Combine prefix, license, and content
+                    let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
+
+                    // Generate and display/save the diff
+                    self.diff_manager.display_diff(path, &content, &new_content)?;
+                }
+
                 return Err(anyhow::anyhow!("Missing license header"));
+            } else if !self.preserve_years
+                && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())
+            {
+                // Check if we would update the year in the license
+                let updated_content = self.update_year_in_license(&content)?;
+                if updated_content != content {
+                    // Generate and display/save the diff
+                    self.diff_manager.display_diff(path, &content, &updated_content)?;
+                }
             }
             return Ok(());
         }
@@ -295,6 +343,9 @@ impl Processor {
                     verbose_log!("Updating year in: {}", path.display());
                     fs::write(path, updated_content)
                         .with_context(|| format!("Failed to write to file: {}", path.display()))?;
+
+                    // Log the updated file with colors
+                    info_log!("Updated year in: {}", path.display());
                 }
             }
         } else {
@@ -320,6 +371,9 @@ impl Processor {
 
             // Write the updated content back to the file
             fs::write(path, new_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
+
+            // Log the added license with colors
+            info_log!("Added license to: {}", path.display());
         }
 
         Ok(())

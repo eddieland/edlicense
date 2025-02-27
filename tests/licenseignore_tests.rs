@@ -384,6 +384,7 @@ fn test_processor_with_licenseignore() -> Result<()> {
         true,   // Check-only mode
         false,  // Don't preserve years
         None,   // No ratchet reference
+        None,   // Use default diff_manager
     )?;
 
     // Process the directory

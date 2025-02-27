@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::fs;
 use tempfile::tempdir;
 
+use edlicense::diff::DiffManager;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 
@@ -11,6 +12,8 @@ fn create_test_processor(
     check_only: bool,
     preserve_years: bool,
     ratchet_reference: Option<String>,
+    show_diff: Option<bool>,
+    save_diff_path: Option<std::path::PathBuf>,
 ) -> Result<(Processor, tempfile::TempDir)> {
     let temp_dir = tempdir()?;
     let template_path = temp_dir.path().join("test_template.txt");
@@ -25,6 +28,9 @@ fn create_test_processor(
         year: "2025".to_string(),
     };
 
+    // Create diff manager
+    let diff_manager = Some(DiffManager::new(show_diff.unwrap_or(false), save_diff_path));
+
     let processor = Processor::new(
         template_manager,
         license_data,
@@ -32,6 +38,7 @@ fn create_test_processor(
         check_only,
         preserve_years,
         ratchet_reference,
+        diff_manager,
     )?;
 
     Ok((processor, temp_dir))
@@ -40,8 +47,15 @@ fn create_test_processor(
 #[test]
 fn test_license_detection() -> Result<()> {
     // Create a processor
-    let (processor, _temp_dir) =
-        create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
+    let (processor, _temp_dir) = create_test_processor(
+        "Copyright (c) {{Year}} Test Company",
+        vec![],
+        false,
+        false,
+        None,
+        None,
+        None,
+    )?;
 
     // Test content with a license
     let content_with_license = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
@@ -77,8 +91,15 @@ fn test_license_detection() -> Result<()> {
 #[test]
 fn test_prefix_extraction() -> Result<()> {
     // Create a processor
-    let (processor, _temp_dir) =
-        create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
+    let (processor, _temp_dir) = create_test_processor(
+        "Copyright (c) {{Year}} Test Company",
+        vec![],
+        false,
+        false,
+        None,
+        None,
+        None,
+    )?;
 
     // Test shebang extraction
     let content_with_shebang = "#!/usr/bin/env python3\n\ndef main():\n    print('Hello, world!')";
@@ -118,8 +139,15 @@ fn test_prefix_extraction() -> Result<()> {
 #[test]
 fn test_year_updating() -> Result<()> {
     // Create a processor
-    let (processor, _temp_dir) =
-        create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
+    let (processor, _temp_dir) = create_test_processor(
+        "Copyright (c) {{Year}} Test Company",
+        vec![],
+        false,
+        false,
+        None,
+        None,
+        None,
+    )?;
 
     // Test updating a single year
     let content_with_old_year = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
@@ -206,8 +234,15 @@ fn test_ignore_patterns() -> Result<()> {
 #[test]
 fn test_process_file() -> Result<()> {
     // Create a processor
-    let (processor, temp_dir) =
-        create_test_processor("Copyright (c) {{Year}} Test Company", vec![], false, false, None)?;
+    let (processor, temp_dir) = create_test_processor(
+        "Copyright (c) {{Year}} Test Company",
+        vec![],
+        false,
+        false,
+        None,
+        None,
+        None,
+    )?;
 
     // Create a test file without a license
     let test_file_path = temp_dir.path().join("test.rs");
@@ -249,6 +284,8 @@ fn test_check_only_mode() -> Result<()> {
         true, // check_only = true
         false,
         None,
+        None,
+        None, // No save diff path
     )?;
 
     // Create a test file without a license
@@ -291,6 +328,8 @@ fn test_preserve_years() -> Result<()> {
         false,
         true, // preserve_years = true
         None,
+        None,
+        None, // No save diff path
     )?;
 
     // Create a test file with an old year
@@ -314,6 +353,8 @@ fn test_preserve_years() -> Result<()> {
         false,
         false, // preserve_years = false
         None,
+        None,
+        None, // No save diff path
     )?;
 
     // Create a test file with an old year
@@ -342,6 +383,8 @@ fn test_process_directory() -> Result<()> {
         false,
         false,
         None,
+        None,
+        None, // No save diff path
     )?;
 
     // Create a test directory structure
@@ -400,6 +443,8 @@ fn test_ratchet_mode() -> Result<()> {
         false,
         false,
         None, // No ratchet reference
+        None,
+        None, // No save diff path
     )?;
 
     // Create test files
@@ -434,6 +479,50 @@ fn test_ratchet_mode() -> Result<()> {
     // The unchanged file should not have a license
     assert!(!unchanged_content.contains("Copyright"));
     assert_eq!(unchanged_content, "fn unchanged() {}");
+
+    Ok(())
+}
+
+#[test]
+fn test_show_diff_mode() -> Result<()> {
+    // Create a processor in check-only mode with show_diff enabled
+    let (processor, temp_dir) = create_test_processor(
+        "Copyright (c) {{Year}} Test Company",
+        vec![],
+        true, // check_only = true
+        false,
+        None,
+        Some(true), // show_diff = true
+        None,       // No save diff path
+    )?;
+
+    // Create a test file without a license
+    let test_file_path = temp_dir.path().join("test.rs");
+    fs::write(&test_file_path, "fn main() {\n    println!(\"Hello, world!\");\n}")?;
+
+    // Process the file - should return an error but show a diff
+    let result = processor.process_file(&test_file_path);
+    assert!(result.is_err());
+
+    // The file should not be modified
+    let content = fs::read_to_string(&test_file_path)?;
+    assert!(!content.contains("Copyright"));
+    assert_eq!(content, "fn main() {\n    println!(\"Hello, world!\");\n}");
+
+    Ok(())
+}
+
+#[test]
+fn test_diff_manager() -> Result<()> {
+    // Create a DiffManager
+    let diff_manager = DiffManager::new(true, None);
+
+    // Test displaying a diff
+    let original = "fn main() {\n    println!(\"Hello, world!\");\n}";
+    let new = "// Copyright (c) 2025 Test Company\n\nfn main() {\n    println!(\"Hello, world!\");\n}";
+
+    // This should not panic
+    diff_manager.display_diff(std::path::Path::new("test.rs"), original, new)?;
 
     Ok(())
 }

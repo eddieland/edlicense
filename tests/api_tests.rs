@@ -1,4 +1,5 @@
 use anyhow::Result;
+use edlicense::diff::DiffManager;
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
@@ -40,6 +41,7 @@ fn test_public_api() -> Result<()> {
         false,  // Not check-only mode
         false,  // Don't preserve years
         None,   // No ratchet mode
+        None,   // Use default diff_manager
     )?;
 
     // Process a single file
@@ -115,6 +117,7 @@ fn test_api_with_check_only() -> Result<()> {
         true,   // Check-only mode
         false,  // Don't preserve years
         None,   // No ratchet mode
+        None,   // Use default diff_manager
     )?;
 
     // Process the file with license - should succeed
@@ -169,6 +172,53 @@ fn test_template_rendering_api() -> Result<()> {
     let java_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.java"));
     assert!(java_formatted.contains("/*"));
     assert!(java_formatted.contains(" * Copyright"));
+
+    Ok(())
+}
+
+#[test]
+fn test_show_diff_mode() -> Result<()> {
+    // Create a temporary directory for our test
+    let temp_dir = tempdir()?;
+
+    // Create a license template
+    let template_path = temp_dir.path().join("license_template.txt");
+    fs::write(&template_path, "Copyright (c) {{Year}} API Test Company")?;
+
+    // Create a test file without license
+    let test_file_path = temp_dir.path().join("test_file.rs");
+    fs::write(
+        &test_file_path,
+        "fn main() {\n    println!(\"Hello from API test\");\n}",
+    )?;
+
+    // Initialize the template manager
+    let mut template_manager = TemplateManager::new();
+    template_manager.load_template(&template_path)?;
+
+    // Create license data
+    let license_data = LicenseData {
+        year: "2025".to_string(),
+    };
+
+    // Create a processor in check-only mode with show_diff enabled
+    let processor = Processor::new(
+        template_manager,
+        license_data,
+        vec![], // No ignore patterns
+        true,   // Check-only mode
+        false,  // Don't preserve years
+        None,   // No ratchet mode
+        Some(DiffManager::new(true, None)),
+    )?;
+
+    // Process the file - should fail but show diff
+    let result = processor.process_file(&test_file_path);
+    assert!(result.is_err());
+
+    // The file should not be modified
+    let content = fs::read_to_string(&test_file_path)?;
+    assert!(!content.contains("Copyright"));
 
     Ok(())
 }

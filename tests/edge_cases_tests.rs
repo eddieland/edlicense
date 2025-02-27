@@ -32,6 +32,7 @@ fn test_empty_file() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     )?;
 
     // Process the empty file
@@ -71,6 +72,7 @@ fn test_binary_file() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     )?;
 
     // Process the binary file - should fail gracefully
@@ -121,6 +123,7 @@ fn test_invalid_glob_pattern() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     );
 
     assert!(result.is_err());
@@ -156,6 +159,7 @@ fn test_file_with_unusual_encoding() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     )?;
 
     // Process the UTF-16 file
@@ -196,6 +200,7 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     )?;
 
     // Process the file
@@ -238,6 +243,7 @@ fn test_file_with_unusual_year_format() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     )?;
 
     // Process the file
@@ -281,6 +287,7 @@ fn test_process_with_invalid_pattern() -> Result<()> {
         false,
         false,
         None,
+        None, // No diff manager
     )?;
 
     // Try to process with an invalid glob pattern

@@ -27,6 +27,8 @@ Key advantages of `edlicense`:
 - Recursively scan directories and add license headers to source files
 - Automatic detection of file types and appropriate comment formatting
 - Dry run mode to verify license headers without modifying files (default behavior)
+- **Show diff** - display a diff of changes that would be made in dry run mode
+- **Save diff** - save a diff of changes to a file in dry run mode for review or version control
 - Ignore patterns to exclude specific files or directories (via CLI or `.licenseignore` files)
 - Support for `.licenseignore` files with gitignore-style pattern matching
 - Global ignore file support via `GLOBAL_LICENSE_IGNORE` environment variable
@@ -107,6 +109,8 @@ edlicense [OPTIONS] <PATTERNS>...
 ```
 --dry-run                     Dry run mode: only check for license headers without modifying files (default)
 --modify                      Modify mode: add or update license headers in files
+--show-diff                   Show diff of changes in dry run mode
+--save-diff <FILE>            Save diff of changes to a file in dry run mode
 --license-file <LICENSE_FILE> Custom license file to use
 --ignore <IGNORE>...          File patterns to ignore (supports glob patterns)
 --year <YEAR>                 Copyright year [default: current year]
@@ -132,6 +136,24 @@ Or simply (since dry run is the default):
 
 ```bash
 edlicense src/ tests/
+```
+
+Show diff of changes in dry run mode:
+
+```bash
+edlicense --show-diff src/ tests/
+```
+
+Save diff of changes to a file in dry run mode:
+
+```bash
+edlicense --save-diff=changes.diff src/ tests/
+```
+
+Show and save diff of changes:
+
+```bash
+edlicense --show-diff --save-diff=changes.diff src/ tests/
 ```
 
 Ignore specific file patterns:

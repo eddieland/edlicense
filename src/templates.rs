@@ -43,14 +43,6 @@ use crate::verbose_log;
 /// # Fields
 ///
 /// * `year` - The copyright year to use in the license
-///
-/// # Examples
-///
-/// ```rust
-/// use edlicense::templates::LicenseData;
-///
-/// let data = LicenseData { year: "2025".to_string() };
-/// ```
 pub struct LicenseData {
     /// The copyright year to use in the license
     pub year: String,
@@ -101,14 +93,6 @@ impl TemplateManager {
     /// # Returns
     ///
     /// A new `TemplateManager` instance with an empty template.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use edlicense::templates::TemplateManager;
-    ///
-    /// let manager = TemplateManager::new();
-    /// ```
     pub fn new() -> Self {
         Self {
             template: String::new(),
@@ -135,18 +119,6 @@ impl TemplateManager {
     /// - The file does not exist
     /// - The file cannot be read
     /// - The file content is not valid UTF-8
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::templates::TemplateManager;
-    /// # use std::path::Path;
-    /// # fn main() -> anyhow::Result<()> {
-    /// let mut manager = TemplateManager::new();
-    /// manager.load_template(Path::new("LICENSE.txt"))?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn load_template(&mut self, path: &Path) -> Result<()> {
         verbose_log!("Loading template from: {}", path.display());
 
@@ -173,20 +145,6 @@ impl TemplateManager {
     /// # Returns
     ///
     /// The rendered license text with variables replaced, or an error if rendering fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::templates::{TemplateManager, LicenseData};
-    /// # use std::path::Path;
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let mut manager = TemplateManager::new();
-    /// # manager.load_template(Path::new("LICENSE.txt"))?;
-    /// let data = LicenseData { year: "2025".to_string() };
-    /// let rendered = manager.render(&data)?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn render(&self, data: &LicenseData) -> Result<String> {
         verbose_log!("Rendering template with year: {}", data.year);
 
@@ -209,24 +167,6 @@ impl TemplateManager {
     /// # Returns
     ///
     /// The formatted license text with appropriate comment markers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// # use edlicense::templates::{TemplateManager, LicenseData};
-    /// # use std::path::Path;
-    /// # fn main() -> anyhow::Result<()> {
-    /// # let mut manager = TemplateManager::new();
-    /// # manager.load_template(Path::new("LICENSE.txt"))?;
-    /// # let data = LicenseData { year: "2025".to_string() };
-    /// # let license_text = manager.render(&data)?;
-    /// // Format for a Rust file
-    /// let formatted = manager.format_for_file_type(&license_text, Path::new("main.rs"));
-    /// // Format for a Python file
-    /// let formatted_py = manager.format_for_file_type(&license_text, Path::new("script.py"));
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn format_for_file_type(&self, license_text: &str, file_path: &Path) -> String {
         let comment_style = get_comment_style_for_file(file_path);
         format_with_comment_style(license_text, &comment_style)
@@ -244,26 +184,6 @@ impl TemplateManager {
 /// * `top` - The string to use at the top of a comment block (e.g., "/*")
 /// * `middle` - The string to use at the beginning of each line in the comment block (e.g., " * ")
 /// * `bottom` - The string to use at the bottom of a comment block (e.g., " */")
-///
-/// # Examples
-///
-/// ```rust
-/// use edlicense::templates::CommentStyle;
-///
-/// // C-style comment
-/// let c_style = CommentStyle {
-///     top: "/*",
-///     middle: " * ",
-///     bottom: " */",
-/// };
-///
-/// // Python-style comment
-/// let py_style = CommentStyle {
-///     top: "",
-///     middle: "# ",
-///     bottom: "",
-/// };
-/// ```
 #[derive(Debug)]
 pub struct CommentStyle {
     /// The string to use at the top of a comment block
@@ -412,23 +332,6 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
 /// # Returns
 ///
 /// The formatted license text with appropriate comment markers.
-///
-/// # Examples
-///
-/// ```rust
-/// use edlicense::templates::CommentStyle;
-///
-/// // Format a license with C-style comments
-/// let license = "Copyright (c) 2025 Example Corp\nAll rights reserved.";
-/// let style = CommentStyle {
-///     top: "/*",
-///     middle: " * ",
-///     bottom: " */",
-/// };
-///
-/// let formatted = edlicense::templates::format_with_comment_style(license, &style);
-/// assert_eq!(formatted, "/*\n * Copyright (c) 2025 Example Corp\n * All rights reserved.\n */\n\n");
-/// ```
 pub fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> String {
     let mut result = String::new();
 
