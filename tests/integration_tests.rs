@@ -52,13 +52,13 @@ fn run_edlicense(args: &[&str], current_dir: &Path) -> Result<(i32, String, Stri
     let binary_path = target_dir.join("edlicense");
 
     // Print the command we're about to run for debugging
-    println!("Running: {:?} with args: {:?} in dir: {:?}", binary_path, args, current_dir);
+    println!(
+        "Running: {:?} with args: {:?} in dir: {:?}",
+        binary_path, args, current_dir
+    );
 
     // Run the binary with the provided arguments
-    let output = Command::new(binary_path)
-        .args(args)
-        .current_dir(current_dir)
-        .output()?;
+    let output = Command::new(binary_path).args(args).current_dir(current_dir).output()?;
 
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -77,7 +77,13 @@ fn test_add_license() -> Result<()> {
     let temp_dir = setup_test_environment()?;
 
     // Run edlicense to add licenses
-    let args = &["--license-file", "license_template.txt", "--verbose", "src", "script.py"];
+    let args = &[
+        "--license-file",
+        "license_template.txt",
+        "--verbose",
+        "src",
+        "script.py",
+    ];
 
     let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
 
@@ -154,7 +160,7 @@ fn test_ignore_patterns() -> Result<()> {
         "--verbose",
         ".",
     ];
-    
+
     println!("Vendor directory path: {:?}", temp_dir.path().join("vendor"));
 
     let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
@@ -165,11 +171,11 @@ fn test_ignore_patterns() -> Result<()> {
     // Print the ignore patterns and check if the vendor directory was ignored
     println!("Ignore patterns: {:?}", args);
     println!("Stderr content: {}", stderr);
-    
+
     // Check if the vendor directory was ignored
     let vendor_content = fs::read_to_string(temp_dir.path().join("vendor/external.rs"))?;
     println!("Vendor file content: {}", vendor_content);
-    
+
     // For now, let's just check that the vendor file was not modified
     assert!(!vendor_content.contains("Copyright"));
 

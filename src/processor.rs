@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
 use git2::{Repository, StatusOptions};
@@ -21,7 +21,6 @@ pub struct Processor {
     ignore_patterns: Vec<Pattern>,
     check_only: bool,
     preserve_years: bool,
-    ratchet_reference: Option<String>,
     pub changed_files: Option<HashSet<PathBuf>>,
 }
 
@@ -55,7 +54,6 @@ impl Processor {
             ignore_patterns,
             check_only,
             preserve_years,
-            ratchet_reference,
             changed_files,
         })
     }
@@ -205,7 +203,7 @@ impl Processor {
             .filter(|e| e.file_type().is_file())
             .map(|e| e.path().to_path_buf())
             .collect();
-            
+
         // Filter out ignored files and log them
         let files: Vec<_> = all_files
             .into_iter()
@@ -310,14 +308,14 @@ impl Processor {
         if let Some(path_str) = path.to_str() {
             // Convert to a relative path string for matching
             let path_str = path_str.replace("\\", "/"); // Normalize for Windows paths
-            
+
             for pattern in &self.ignore_patterns {
                 // Try matching the pattern against the path
                 if pattern.matches(&path_str) {
                     verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
                     return true;
                 }
-                
+
                 // Also try matching with ./ prefix for relative paths
                 if path_str.starts_with("./") {
                     if pattern.matches(&path_str[2..]) {

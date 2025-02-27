@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::tempdir;
 
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
@@ -345,7 +345,6 @@ fn test_process_directory() -> Result<()> {
 #[test]
 fn test_ratchet_mode() -> Result<()> {
     use std::collections::HashSet;
-    use std::path::PathBuf;
 
     // Create a processor with ratchet mode enabled
     let (mut processor, temp_dir) = create_test_processor(

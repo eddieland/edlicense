@@ -1,7 +1,6 @@
 use anyhow::Result;
 use std::fs;
-use std::path::Path;
-use tempfile::{tempdir, NamedTempFile};
+use tempfile::tempdir;
 
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
