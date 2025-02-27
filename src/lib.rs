@@ -33,7 +33,7 @@
 //!     // Create and initialize template manager
 //!     let mut template_manager = TemplateManager::new();
 //!     template_manager.load_template(Path::new("LICENSE.txt"))?;
-//! 
+//!
 //!     // Create processor with default settings
 //!     let processor = Processor::new(
 //!         template_manager,

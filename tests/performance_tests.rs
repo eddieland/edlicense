@@ -14,7 +14,6 @@ fn create_test_processor(
     check_only: bool,
     preserve_years: bool,
     ratchet_reference: Option<String>,
-    save_diff_path: Option<std::path::PathBuf>,
 ) -> Result<(Processor, tempfile::TempDir)> {
     let temp_dir = tempdir()?;
     let template_path = temp_dir.path().join("test_template.txt");
