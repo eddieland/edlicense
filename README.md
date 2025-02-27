@@ -125,3 +125,56 @@ edlicense --ratchet "abc123" --license-file LICENSE.txt src/
 - Python/Shell/YAML/Ruby: `# comment style`
 - HTML/XML/Vue: `<!-- comment style -->`
 - And many more...
+
+## Performance Testing
+
+`edlicense` includes performance tests to measure how efficiently it processes large numbers of files. These tests are useful for benchmarking and optimizing the tool's performance, especially for large codebases.
+
+### Running Performance Tests
+
+Performance tests are disabled by default since they generate and process thousands of files. To run them, use the following Makefile targets:
+
+```bash
+# Run test for adding licenses to 10,000 files
+make perf-test-add
+
+# Run test for updating license years in 10,000 files
+make perf-test-update
+
+# Run test for checking license headers in 10,000 files
+make perf-test-check
+
+# Run test with different file sizes
+make perf-test-file-size
+
+# Run test with different thread counts
+make perf-test-threads
+
+# Run comprehensive benchmark tests
+make perf-benchmark
+
+# Run all performance tests (this may take a while)
+make perf-test-all
+```
+
+Alternatively, you can run the tests directly with cargo:
+
+```bash
+# Run a specific performance test
+cargo test --release test_add_license_performance -- --ignored --nocapture
+
+# Run all performance tests
+cargo test --release -- --ignored --nocapture
+```
+
+### Performance Test Results
+
+The performance tests measure:
+
+1. **Adding licenses** to large numbers of files (10,000+)
+2. **Updating years** in existing license headers
+3. **Checking for licenses** in check-only mode
+4. Impact of **file size** on processing time
+5. Impact of **thread count** on parallel processing performance
+
+Results are displayed in the console with timing information, making it easy to identify performance bottlenecks or improvements.

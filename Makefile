@@ -1,4 +1,4 @@
-.PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all
+.PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all perf-test perf-test-add perf-test-update perf-test-check perf-test-all
 
 # Default target
 help: ## Display this help
@@ -72,3 +72,26 @@ check-license: build ## Check if all files have license headers
 
 update-license: build ## Update license headers in project files
 	cargo run -- src/ tests/
+
+### Performance Testing
+perf-test-add: build ## Run performance test for adding licenses to files
+	cargo test --release test_add_license_performance -- --ignored --nocapture
+
+perf-test-update: build ## Run performance test for updating license years
+	cargo test --release test_update_year_performance -- --ignored --nocapture
+
+perf-test-check: build ## Run performance test for checking license headers
+	cargo test --release test_check_license_performance -- --ignored --nocapture
+
+perf-test-file-size: build ## Run performance test with different file sizes
+	cargo test --release test_file_size_impact -- --ignored --nocapture
+
+perf-test-threads: build ## Run performance test with different thread counts
+	cargo test --release test_thread_count_impact -- --ignored --nocapture
+
+perf-benchmark: build ## Run comprehensive benchmark tests
+	cargo test --release benchmark_operations -- --ignored --nocapture
+
+perf-test-all: build ## Run all performance tests
+	@echo "Running all performance tests (this may take a while)..."
+	cargo test --release -- --ignored --nocapture
