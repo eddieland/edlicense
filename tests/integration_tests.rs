@@ -78,6 +78,7 @@ fn test_add_license() -> Result<()> {
 
     // Run edlicense to add licenses
     let args = &[
+        "--modify",
         "--license-file",
         "license_template.txt",
         "--verbose",
@@ -116,11 +117,11 @@ fn test_add_license() -> Result<()> {
 }
 
 #[test]
-fn test_check_only_mode() -> Result<()> {
+fn test_dry_run_mode() -> Result<()> {
     let temp_dir = setup_test_environment()?;
 
-    // Run edlicense in check-only mode
-    let args = &["--check", "--license-file", "license_template.txt", "src"];
+    // Run edlicense in dry run mode
+    let args = &["--dry-run", "--license-file", "license_template.txt", "src"];
 
     let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
 
@@ -133,16 +134,16 @@ fn test_check_only_mode() -> Result<()> {
     assert!(!main_content.contains("Copyright"));
 
     // Now add licenses to all files
-    let add_args = &["--license-file", "license_template.txt", "src"];
+    let add_args = &["--modify", "--license-file", "license_template.txt", "src"];
 
     let (add_status, _, _) = run_edlicense(add_args, temp_dir.path())?;
     assert_eq!(add_status, 0);
 
-    // Run check-only mode again
+    // Run dry run mode again
     let (check_status, _, check_stderr) = run_edlicense(args, temp_dir.path())?;
 
     // This time it should succeed
-    assert_eq!(check_status, 0, "Check command failed with stderr: {}", check_stderr);
+    assert_eq!(check_status, 0, "Dry run command failed with stderr: {}", check_stderr);
 
     Ok(())
 }
@@ -153,6 +154,7 @@ fn test_ignore_patterns() -> Result<()> {
 
     // Run edlicense with ignore patterns
     let args = &[
+        "--modify",
         "--license-file",
         "license_template.txt",
         "--ignore",
@@ -191,7 +193,13 @@ fn test_preserve_years() -> Result<()> {
     let temp_dir = setup_test_environment()?;
 
     // Run edlicense with preserve-years flag
-    let args = &["--license-file", "license_template.txt", "--preserve-years", "src"];
+    let args = &[
+        "--modify",
+        "--license-file",
+        "license_template.txt",
+        "--preserve-years",
+        "src",
+    ];
 
     let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
 
@@ -211,7 +219,14 @@ fn test_custom_year() -> Result<()> {
     let temp_dir = setup_test_environment()?;
 
     // Run edlicense with a custom year
-    let args = &["--license-file", "license_template.txt", "--year", "2030", "src"];
+    let args = &[
+        "--modify",
+        "--license-file",
+        "license_template.txt",
+        "--year",
+        "2030",
+        "src",
+    ];
 
     let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
 

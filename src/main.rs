@@ -1,3 +1,4 @@
+mod git;
 mod logging;
 mod processor;
 mod templates;
@@ -21,9 +22,13 @@ struct Args {
     #[arg(required = true)]
     patterns: Vec<String>,
 
-    /// Check only mode: verify presence of license headers and exit with non-zero code if missing
-    #[arg(long)]
-    check: bool,
+    /// Dry run mode: only check for license headers without modifying files (default)
+    #[arg(long, group = "mode")]
+    dry_run: bool,
+
+    /// Modify mode: add or update license headers in files
+    #[arg(long, group = "mode")]
+    modify: bool,
 
     /// Custom license file to use
     #[arg(long, required = true)]
@@ -72,12 +77,15 @@ fn main() -> Result<()> {
         .load_template(&args.license_file)
         .with_context(|| format!("Failed to load license template from {}", args.license_file.display()))?;
 
+    // Determine mode (dry run is default if neither is specified or if dry_run is explicitly set)
+    let check_only = args.dry_run || !args.modify;
+
     // Create processor
     let processor = Processor::new(
         template_manager,
         license_data,
         args.ignore,
-        args.check,
+        check_only,
         args.preserve_years,
         args.ratchet,
     )?;
@@ -85,8 +93,8 @@ fn main() -> Result<()> {
     // Process files
     let has_missing_license = processor.process(&args.patterns)?;
 
-    // Exit with non-zero code if check mode is enabled and there are missing licenses
-    if args.check && has_missing_license {
+    // Exit with non-zero code if in dry run mode and there are missing licenses
+    if check_only && has_missing_license {
         eprintln!("Error: Some files are missing license headers");
         process::exit(1);
     }

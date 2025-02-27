@@ -342,17 +342,29 @@ fn test_process_directory() -> Result<()> {
     Ok(())
 }
 
+mod git_test_utils {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    // This is a mock implementation for testing purposes
+    pub fn mock_get_changed_files(changed_paths: Vec<PathBuf>) -> HashSet<PathBuf> {
+        let mut changed_files = HashSet::new();
+        for path in changed_paths {
+            changed_files.insert(path);
+        }
+        changed_files
+    }
+}
+
 #[test]
 fn test_ratchet_mode() -> Result<()> {
-    use std::collections::HashSet;
-
-    // Create a processor with ratchet mode enabled
+    // Create a processor without ratchet mode initially
     let (mut processor, temp_dir) = create_test_processor(
         "Copyright (c) {{Year}} Test Company",
         vec![],
         false,
         false,
-        Some("origin/main".to_string()), // This won't actually be used since we'll override changed_files
+        None, // No ratchet reference
     )?;
 
     // Create test files
@@ -363,11 +375,12 @@ fn test_ratchet_mode() -> Result<()> {
     fs::write(&unchanged_file_path, "fn unchanged() {}")?;
 
     // Create a mock implementation of the changed_files set for testing
-    let mut changed_files = HashSet::new();
-    changed_files.insert(changed_file_path.clone());
-    changed_files.insert(temp_dir.path().join("another_changed_file.rs"));
+    let changed_files = git_test_utils::mock_get_changed_files(vec![
+        changed_file_path.clone(),
+        temp_dir.path().join("another_changed_file.rs"),
+    ]);
 
-    // Override the changed_files field with our mock data
+    // Set the changed_files field with our mock data
     processor.changed_files = Some(changed_files);
 
     // Process the changed file - should add license

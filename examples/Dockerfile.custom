@@ -1,0 +1,23 @@
+# Example downstream Dockerfile for edlicense
+# This demonstrates how to build a custom image based on the edlicense image
+
+# Use the edlicense production image as the base
+FROM edlicense:latest
+
+# Create a directory for license templates
+WORKDIR /licenses
+
+# Copy your custom license template
+COPY examples/custom_license_template.txt .
+
+# Set proper permissions for the license file
+RUN chmod 644 custom_license_template.txt
+
+# Set the working directory where files will be processed
+WORKDIR /workspace
+
+# Set default command to use your custom license template
+ENTRYPOINT ["edlicense", "--license-file", "/licenses/custom_license_template.txt"]
+
+# Default arguments (can be overridden) - dry run mode is the default
+CMD ["."]

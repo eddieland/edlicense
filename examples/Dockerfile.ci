@@ -1,0 +1,17 @@
+# Example CI/CD Dockerfile for edlicense
+# This demonstrates how to build a custom image for CI/CD pipelines
+
+FROM edlicense:latest
+
+# Copy license template and configuration script
+COPY examples/custom_license_template.txt /licenses/license-template.txt
+COPY examples/edlicense-config.sh /usr/local/bin/
+
+# Make the configuration script executable
+RUN chmod +x /usr/local/bin/edlicense-config.sh
+
+# Set the working directory where files will be processed
+WORKDIR /workspace
+
+# Set the entrypoint to the configuration script
+ENTRYPOINT ["/usr/local/bin/edlicense-config.sh"]

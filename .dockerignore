@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker files
+Dockerfile
+Dockerfile.debug
+.dockerignore
+
+# Test files and temporary files
+/tests/tmp/
+/tmp/
+
+# Documentation
+/docs/
+
+# Performance test artifacts
+perf-test-*/
+
+# Exclude the reference implementation
+/ref/

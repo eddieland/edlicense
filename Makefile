@@ -1,4 +1,4 @@
-.PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all perf-test perf-test-add perf-test-update perf-test-check perf-test-all
+.PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all perf-test perf-test-add perf-test-update perf-test-check perf-test-all docker-build docker-build-debug docker-run docker-run-debug docker-clean
 
 # Default target
 help: ## Display this help
@@ -38,10 +38,7 @@ verify-config: ## Verify configuration files
 	@echo "Verifying clippy configuration..."
 	cargo clippy --version
 
-security-audit: ## Run security audit on dependencies
-	cargo audit
-
-all: verify-config fmt lint test ## Run verify-config, fmt, lint, and test
+all: verify-config fmt lint test docker-build ## Run verify-config, fmt, lint, and test
 
 ### Build
 build: ## Build the project
@@ -66,12 +63,30 @@ install-dev-tools: ## Install development tools
 	cargo install cargo-audit
 	cargo install cargo-outdated
 
-### License Management
-check-license: build ## Check if all files have license headers
-	cargo run -- --check src/ tests/
+### Docker
+docker-build: ## Build lightweight Docker image
+	docker build -t edlicense:latest --build-arg MODE=production .
 
-update-license: build ## Update license headers in project files
+docker-build-debug: ## Build debug/development Docker image
+	docker build -t edlicense:debug --build-arg MODE=debug .
+
+docker-build-all: docker-build docker-build-debug ## Build both production and debug Docker images
+
+docker-run: ## Run Docker container with current directory mounted
+	docker run --rm -v "$(shell pwd):/workspace" -w /workspace edlicense:latest $(ARGS)
+
+docker-run-debug: ## Run debug Docker container with current directory mounted
+	docker run --rm -it -v "$(shell pwd):/usr/src/edlicense" edlicense:debug $(ARGS)
+
+docker-clean: ## Remove Docker images
+	docker rmi -f edlicense:latest edlicense:debug 2>/dev/null || true
+
+### License Management
+check-license: build ## Check if all files have license headers (dry run mode)
 	cargo run -- src/ tests/
+
+update-license: build ## Update license headers in project files (modify mode)
+	cargo run -- --modify src/ tests/
 
 ### Performance Testing
 perf-test-add: build ## Run performance test for adding licenses to files
@@ -80,7 +95,7 @@ perf-test-add: build ## Run performance test for adding licenses to files
 perf-test-update: build ## Run performance test for updating license years
 	cargo test --release test_update_year_performance -- --ignored --nocapture
 
-perf-test-check: build ## Run performance test for checking license headers
+perf-test-check: build ## Run performance test for checking license headers (dry run mode)
 	cargo test --release test_check_license_performance -- --ignored --nocapture
 
 perf-test-file-size: build ## Run performance test with different file sizes

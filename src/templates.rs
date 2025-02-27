@@ -39,7 +39,7 @@ use std::path::Path;
 use crate::verbose_log;
 
 /// Data used to fill out a license template.
-/// 
+///
 /// # Fields
 ///
 /// * `year` - The copyright year to use in the license
@@ -84,6 +84,12 @@ pub struct LicenseData {
 pub struct TemplateManager {
     /// The loaded license template content
     template: String,
+}
+
+impl Default for TemplateManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TemplateManager {
@@ -262,10 +268,10 @@ impl TemplateManager {
 pub struct CommentStyle {
     /// The string to use at the top of a comment block
     pub top: &'static str,
-    
+
     /// The string to use at the beginning of each line in the comment block
     pub middle: &'static str,
-    
+
     /// The string to use at the bottom of a comment block
     pub bottom: &'static str,
 }
@@ -366,13 +372,12 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
         },
         _ => {
             // Handle special cases based on filename
-            if file_name == "cmakelists.txt" || file_name.ends_with(".cmake.in") || file_name.ends_with(".cmake") {
-                CommentStyle {
-                    top: "",
-                    middle: "# ",
-                    bottom: "",
-                }
-            } else if file_name == "dockerfile" || file_name.ends_with(".dockerfile") {
+            if file_name == "cmakelists.txt"
+                || file_name.ends_with(".cmake.in")
+                || file_name.ends_with(".cmake")
+                || file_name == "dockerfile"
+                || file_name.ends_with(".dockerfile")
+            {
                 CommentStyle {
                     top: "",
                     middle: "# ",
@@ -424,7 +429,7 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
 /// let formatted = edlicense::templates::format_with_comment_style(license, &style);
 /// assert_eq!(formatted, "/*\n * Copyright (c) 2025 Example Corp\n * All rights reserved.\n */\n\n");
 /// ```
-fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> String {
+pub fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> String {
     let mut result = String::new();
 
     // Add top comment marker if present

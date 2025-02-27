@@ -12,12 +12,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
-use git2::{Repository, StatusOptions};
 use glob::Pattern;
 use rayon::prelude::*;
 use regex::Regex;
 use walkdir::WalkDir;
 
+use crate::git;
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{info_log, verbose_log};
 
@@ -63,19 +63,19 @@ use crate::{info_log, verbose_log};
 pub struct Processor {
     /// Template manager for rendering license templates
     template_manager: TemplateManager,
-    
+
     /// License data (year, etc.) for rendering templates
     license_data: LicenseData,
-    
+
     /// Patterns for files to ignore
     ignore_patterns: Vec<Pattern>,
-    
+
     /// Whether to only check for licenses without modifying files
     check_only: bool,
-    
+
     /// Whether to preserve existing years in license headers
     preserve_years: bool,
-    
+
     /// Set of files that have changed (used in ratchet mode)
     pub changed_files: Option<HashSet<PathBuf>>,
 }
@@ -140,7 +140,7 @@ impl Processor {
 
         // Initialize changed_files if ratchet mode is enabled
         let changed_files = if let Some(ref reference) = ratchet_reference {
-            Some(Self::get_changed_files(reference)?)
+            Some(git::get_changed_files(reference)?)
         } else {
             None
         };
@@ -153,106 +153,6 @@ impl Processor {
             preserve_years,
             changed_files,
         })
-    }
-
-    /// Gets the list of files that have changed relative to a git reference.
-    ///
-    /// This method is used in ratchet mode to identify files that have been added,
-    /// modified, or renamed since the specified git reference.
-    ///
-    /// # Parameters
-    ///
-    /// * `reference` - Git reference (branch, tag, or commit hash)
-    ///
-    /// # Returns
-    ///
-    /// A `HashSet` of file paths that have changed or an error if the git operations fail.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The git repository cannot be opened
-    /// - The specified reference cannot be found
-    /// - Git operations fail
-    fn get_changed_files(reference: &str) -> Result<HashSet<PathBuf>> {
-        verbose_log!("Getting changed files relative to: {}", reference);
-
-        // Open the git repository
-        let repo = Repository::open(".").with_context(|| "Failed to open git repository")?;
-
-        // Get the reference commit
-        let reference_obj = repo
-            .revparse_single(reference)
-            .with_context(|| format!("Failed to find git reference: {}", reference))?;
-
-        let reference_commit = reference_obj
-            .peel_to_commit()
-            .with_context(|| format!("Failed to get commit for reference: {}", reference))?;
-
-        // Create a diff between the reference commit and the working directory
-        let reference_tree = reference_commit
-            .tree()
-            .with_context(|| "Failed to get tree for reference commit")?;
-
-        let mut changed_files = HashSet::new();
-
-        // Get the status of files in the working directory
-        let mut status_opts = StatusOptions::new();
-        status_opts.include_untracked(true);
-
-        let statuses = repo
-            .statuses(Some(&mut status_opts))
-            .with_context(|| "Failed to get git status")?;
-
-        // Add all changed files to the set
-        for entry in statuses.iter() {
-            if let Some(path) = entry.path() {
-                let status = entry.status();
-
-                // Check if the file is modified, added, or untracked
-                if status.is_wt_modified()
-                    || status.is_wt_new()
-                    || status.is_wt_renamed()
-                    || status.is_index_modified()
-                    || status.is_index_new()
-                    || status.is_index_renamed()
-                {
-                    verbose_log!("Changed file: {}", path);
-                    changed_files.insert(PathBuf::from(path));
-                }
-            }
-        }
-
-        // Also check for files that have been modified between the reference and HEAD
-        let head_obj = repo.head().with_context(|| "Failed to get HEAD reference")?;
-
-        let head_commit = head_obj.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
-
-        let head_tree = head_commit
-            .tree()
-            .with_context(|| "Failed to get tree for HEAD commit")?;
-
-        let diff = repo
-            .diff_tree_to_tree(Some(&reference_tree), Some(&head_tree), None)
-            .with_context(|| "Failed to create diff between reference and HEAD")?;
-
-        diff.foreach(
-            &mut |delta, _| {
-                if let Some(new_file) = delta.new_file().path() {
-                    verbose_log!("Changed file (in diff): {:?}", new_file);
-                    changed_files.insert(PathBuf::from(new_file));
-                }
-                true
-            },
-            None,
-            None,
-            None,
-        )
-        .with_context(|| "Failed to process diff")?;
-
-        verbose_log!("Found {} changed files", changed_files.len());
-
-        Ok(changed_files)
     }
 
     /// Processes a list of file or directory patterns.
@@ -553,8 +453,8 @@ impl Processor {
                 }
 
                 // Also try matching with ./ prefix for relative paths
-                if path_str.starts_with("./") {
-                    if pattern.matches(&path_str[2..]) {
+                if let Some(stripped) = path_str.strip_prefix("./") {
+                    if pattern.matches(stripped) {
                         verbose_log!("Skipping: {} (matches ignore pattern: {})", path.display(), pattern);
                         return true;
                     }
