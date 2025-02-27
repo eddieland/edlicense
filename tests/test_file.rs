@@ -1,0 +1,21 @@
+// Copyright (c) 2024 Acme Corporation
+//
+// This software and associated documentation files (the "Software") are the
+// exclusive property of Acme Corporation. The Software is provided to you
+// under the following conditions:
+//
+// 1. You may use, copy, and modify the Software for internal purposes only.
+// 2. You may not distribute, sublicense, or make the Software available to
+//    third parties without explicit written permission from Acme Corporation.
+// 3. All copies or substantial portions of the Software must include this
+//    copyright notice and permission statement.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED. IN NO EVENT SHALL ACME CORPORATION BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+//
+// For licensing inquiries, contact: licensing@acme-example.com
+
+fn main() {
+    println!("This is a test file without a license header");
+}

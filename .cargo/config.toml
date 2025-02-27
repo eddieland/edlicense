@@ -1,0 +1,41 @@
+# Cargo configuration
+# See all options at: https://doc.rust-lang.org/cargo/reference/config.html
+
+# Build settings
+[build]
+# Enables incremental compilation
+incremental = true
+# Enables parallel compilation
+jobs = 8
+
+# Target-specific settings
+[target.'cfg(debug_assertions)']
+# Development profile optimizations
+rustflags = ["-C", "debuginfo=2"]
+
+[target.'cfg(not(debug_assertions))']
+# Release profile optimizations
+rustflags = ["-C", "target-cpu=native"]
+
+# Cargo behavior settings
+[cargo-new]
+# Use the MIT license by default for new projects
+license = "MIT"
+vcs = "git"
+
+# Configure the default alias commands
+[alias]
+b = "build"
+c = "check"
+t = "test"
+r = "run"
+rr = "run --release"
+br = "build --release"
+# Clippy with all features
+clippy-all = "clippy --all-features -- -D warnings"
+# Format code
+fmt = "fmt --all"
+# Update dependencies
+up = "update"
+# Clean build artifacts
+clean-all = "clean -p edlicense"
