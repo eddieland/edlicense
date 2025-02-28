@@ -15,6 +15,7 @@ vendor/
 ```
 
 This will ignore:
+
 - All JSON files
 - All Markdown files
 - The vendor directory

@@ -1,20 +1,35 @@
 # Docker Usage Examples
 
-This document provides examples for using the edlicense Docker images, including pulling pre-built images from GitHub Container Registry, building downstream images for specific use cases, and choosing between the standard, distroless, and debug variants.
+This document provides examples for using the edlicense Docker images, including pulling pre-built images from GitHub
+Container Registry, building downstream images for specific use cases, and choosing between the standard, distroless,
+and debug variants.
+
+## Quick Reference
+
+- **Available Architectures**: `linux/amd64`, `linux/arm64`
+- **Latest Images**: `ghcr.io/eddieland/edlicense:latest`, `ghcr.io/eddieland/edlicense:distroless-latest`
+- **BuildKit Enabled**: All builds use Docker BuildKit for improved performance and caching
 
 ## Using Pre-built Images from GitHub Container Registry
 
-Pre-built Docker images for edlicense are available from GitHub Container Registry. These images are automatically built and published whenever new code is pushed to the main branch.
+Pre-built Docker images for edlicense are available from GitHub Container Registry. These images are automatically
+built and published whenever new code is pushed to the main branch.
 
 ### Available Image Tags
 
 - **Latest Release**:
+
   - `ghcr.io/eddieland/edlicense:latest` - Standard production image
   - `ghcr.io/eddieland/edlicense:distroless-latest` - Distroless image
 
 - **Specific Versions**:
+
   - `ghcr.io/eddieland/edlicense:<commit-hash>` - Standard production image at a specific commit
   - `ghcr.io/eddieland/edlicense:distroless-<commit-hash>` - Distroless image at a specific commit
+
+- **Multi-platform Support**:
+  - All images are available for both `linux/amd64` and `linux/arm64` architectures, with Docker automatically
+    selecting the appropriate image for your system
 
 ### Pulling Images
 
@@ -63,6 +78,7 @@ make docker-run ARGS="src/"
 ### 2. Distroless Image (`edlicense:distroless`)
 
 The distroless image is based on Google's distroless container, which:
+
 - Contains only the compiled binary and essential libraries
 - Has no shell, package manager, or other unnecessary components
 - Provides the smallest possible attack surface and image size
@@ -78,6 +94,7 @@ make docker-run-distroless ARGS="src/"
 ```
 
 **Important**: The distroless image does not include a shell or common Unix utilities. This means:
+
 - You cannot execute commands inside the container with `docker exec`
 - Debugging inside the container is more limited
 - Scripts that rely on `/bin/sh` or other Unix tools will not work
@@ -172,6 +189,79 @@ docker run --rm -v "$(pwd):/workspace" my-edlicense:latest
 docker run --rm -v "$(pwd):/workspace" my-edlicense:latest --verbose src/
 ```
 
+## BuildKit Features and Optimizations
+
+edlicense Docker images use Docker BuildKit for improved build performance, better caching, and multi-architecture support. Here's how you can take advantage of these features:
+
+### Enabling BuildKit
+
+BuildKit is enabled by default for all Docker builds in our Makefile and GitHub workflows. If you're building directly with Docker commands, you can enable BuildKit with:
+
+```bash
+# Set environment variable (for current shell session)
+export DOCKER_BUILDKIT=1
+
+# Or prefix individual commands
+DOCKER_BUILDKIT=1 docker build -t edlicense:latest .
+```
+
+### Multi-Architecture Builds
+
+Our images support both AMD64 (x86_64) and ARM64 architectures. Docker will automatically select the appropriate image for your system architecture when you pull from our registry.
+
+To build multi-architecture images locally:
+
+```bash
+# Set up a buildx builder with multi-platform support
+docker buildx create --name mybuilder --use
+
+# Build for multiple architectures
+docker buildx build --platform linux/amd64,linux/arm64 -t edlicense:multiarch .
+
+# Build, load locally (single platform only) and run
+docker buildx build --platform linux/amd64 -t edlicense:multiarch --load .
+docker run --rm edlicense:multiarch
+
+# Build and push to a registry (supports multi-platform)
+docker buildx build --platform linux/amd64,linux/arm64 -t myregistry/edlicense:latest --push .
+```
+
+The Makefile includes a helper target for this:
+
+```bash
+# Build multi-architecture image
+make docker-build-multiplatform
+```
+
+### OCI Metadata and Annotations
+
+Our images include standard Open Container Initiative (OCI) annotations for improved metadata:
+
+- `org.opencontainers.image.created` - Build timestamp
+- `org.opencontainers.image.revision` - Git commit hash
+- `org.opencontainers.image.version` - Version from Cargo.toml
+- `org.opencontainers.image.source` - GitHub repository URL
+- `org.opencontainers.image.title` - Image name
+- `org.opencontainers.image.description` - Description of the tool
+
+You can view these metadata fields with:
+
+```bash
+docker inspect ghcr.io/eddieland/edlicense:latest | jq '.[0].Config.Labels'
+```
+
+### Building with Custom Labels
+
+You can pass custom build arguments to include in the image labels:
+
+```bash
+docker build \
+  --build-arg BUILD_VERSION=1.2.3 \
+  --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  --build-arg BUILD_REVISION="$(git rev-parse HEAD)" \
+  -t edlicense:custom .
+```
+
 ## File Permissions in Docker
 
 When working with Docker containers, file permissions can be tricky. Here are some best practices:
@@ -252,3 +342,4 @@ docker run --rm -v "$(pwd):/workspace" -w /workspace my-ci-edlicense src/
 
 # Modify mode
 docker run --rm -v "$(pwd):/workspace" -w /workspace my-ci-edlicense --modify src/
+```

@@ -7,12 +7,14 @@
 When git detection mode is enabled (which is the default in a git repository), `edlicense` uses your current working directory (`$CWD`) to determine whether it should only look at tracked files. For correct operation, **you should always run edlicense from inside the git repository**.
 
 If you run `edlicense` from outside your git repository while using git detection mode, it will not be able to properly identify git-tracked files, potentially leading to:
+
 - No files being processed (if the current directory isn't part of any git repository)
 - Incorrect files being processed (if the current directory is part of a different git repository)
 
 ### How It Works
 
 `edlicense` uses the following process for git detection:
+
 1. Checks if your current working directory is inside a git repository
 2. If yes, it determines which files are tracked by git relative to that directory
 3. It then filters the files to process based on this information
@@ -75,7 +77,7 @@ name: License Check
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   check-licenses:
@@ -83,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Needed for git history
+          fetch-depth: 0 # Needed for git history
 
       - name: Install edlicense
         run: cargo install edlicense

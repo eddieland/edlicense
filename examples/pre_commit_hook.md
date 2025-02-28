@@ -49,10 +49,10 @@ FILES=$(git diff --cached --name-only --diff-filter=ACM)
 if [ -n "$FILES" ]; then
   # Run edlicense in modify mode on staged files
   echo "$FILES" | xargs -I{} edlicense --modify --verbose --git-only "{}"
-  
+
   # Re-stage the files that edlicense may have modified
   echo "$FILES" | xargs git add
-  
+
   echo "License headers have been checked and fixed if needed."
 fi
 ```
@@ -70,7 +70,7 @@ repos:
         entry: edlicense
         language: system
         args: [--dry-run, --verbose]
-        types: [file]  # You may want to limit this to specific file types
+        types: [file] # You may want to limit this to specific file types
 ```
 
 For auto-fixing with the pre-commit framework:
@@ -84,7 +84,7 @@ repos:
         entry: edlicense
         language: system
         args: [--modify, --verbose]
-        types: [file]  # You may want to limit this to specific file types
+        types: [file] # You may want to limit this to specific file types
 ```
 
 ## Docker Integration
@@ -109,11 +109,11 @@ if [ -n "$FILES" ]; then
   for FILE in $FILES; do
     # Skip files that don't exist (might have been deleted)
     [ -f "$FILE" ] || continue
-    
+
     # Use relative path from repo root for Docker volume mapping
     REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$FILE")
     DIR_PATH=$(dirname "$REL_PATH")
-    
+
     docker run --rm -v "$REPO_ROOT:/workspace" -w "/workspace" \
       edlicense:latest --dry-run --verbose "$REL_PATH"
   done
@@ -140,18 +140,18 @@ if [ -n "$FILES" ]; then
   for FILE in $FILES; do
     # Skip files that don't exist (might have been deleted)
     [ -f "$FILE" ] || continue
-    
+
     # Use relative path from repo root for Docker volume mapping
     REL_PATH=$(realpath --relative-to="$REPO_ROOT" "$FILE")
-    
+
     # Run edlicense in Docker with modify mode
     docker run --rm -v "$REPO_ROOT:/workspace" -w "/workspace" \
       edlicense:latest --modify --verbose "$REL_PATH"
-    
+
     # Re-stage the file that may have been modified
     git add "$FILE"
   done
-  
+
   echo "License headers have been checked and fixed if needed."
 fi
 ```

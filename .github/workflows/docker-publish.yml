@@ -6,22 +6,34 @@ on:
     branches: [main]
     types:
       - completed
+  # Allow manual triggering
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Enable BuildKit features
+  DOCKER_BUILDKIT: 1
 
 jobs:
   build-and-push:
-    # Only run if the Rust CI workflow completed successfully
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only run if the Rust CI workflow completed successfully or if manually triggered
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper versioning
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: 'arm64,amd64'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -33,27 +45,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,format=long
-            latest
-
       - name: Extract short commit SHA
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Extract build info
+        id: build_info
+        run: |
+          echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+          echo "build_revision=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "build_version=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)" >> $GITHUB_OUTPUT
 
       # Build and push production image
       - name: Build and push production Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            MODE=production
+            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
+            BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
+            BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -63,11 +79,15 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             MODE=distroless
+            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
+            BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
+            BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:distroless-${{ steps.vars.outputs.sha_short }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:distroless-${{ steps.vars.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:distroless-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

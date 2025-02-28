@@ -60,16 +60,42 @@ install-dev-tools: ## Install development tools
 	cargo install cargo-outdated
 
 ### Docker
-docker-build: ## Build lightweight Docker image (Debian-based)
-	docker build -t edlicense:latest --build-arg MODE=production .
+# Enable BuildKit features for all Docker builds
+export DOCKER_BUILDKIT=1
 
-docker-build-distroless: ## Build minimal distroless Docker image
-	docker build -t edlicense:distroless --build-arg MODE=distroless .
+# Get Git information for image labels
+GIT_REVISION := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+VERSION := $(shell grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2 2>/dev/null || echo "dev")
+BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-docker-build-debug: ## Build debug/development Docker image
-	docker build -t edlicense:debug --build-arg MODE=debug .
+# Common build arguments for all Docker images
+DOCKER_BUILD_ARGS := --build-arg BUILD_DATE="$(BUILD_DATE)" \
+                    --build-arg BUILD_REVISION="$(GIT_REVISION)" \
+                    --build-arg BUILD_VERSION="$(VERSION)"
+
+docker-build: ## Build lightweight Docker image with BuildKit (Debian-based)
+	docker build $(DOCKER_BUILD_ARGS) \
+		--build-arg MODE=production \
+		-t edlicense:latest .
+
+docker-build-distroless: ## Build minimal distroless Docker image with BuildKit
+	docker build $(DOCKER_BUILD_ARGS) \
+		--build-arg MODE=distroless \
+		-t edlicense:distroless .
+
+docker-build-debug: ## Build debug/development Docker image with BuildKit
+	docker build $(DOCKER_BUILD_ARGS) \
+		--build-arg MODE=debug \
+		-t edlicense:debug .
 
 docker-build-all: docker-build docker-build-distroless docker-build-debug ## Build all Docker images
+
+docker-build-multiplatform: ## Build multi-platform Docker images (requires buildx setup)
+	docker buildx create --use --name multiplatform-builder 2>/dev/null || true
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		$(DOCKER_BUILD_ARGS) \
+		--build-arg MODE=production \
+		-t edlicense:multiarch .
 
 docker-run: ## Run Docker container with current directory mounted
 	docker run --rm -v "$(shell pwd):/workspace" -w /workspace edlicense:latest $(ARGS)
@@ -81,7 +107,10 @@ docker-run-debug: ## Run debug Docker container with current directory mounted
 	docker run --rm -it -v "$(shell pwd):/usr/src/edlicense" edlicense:debug $(ARGS)
 
 docker-clean: ## Remove Docker images
-	docker rmi -f edlicense:latest edlicense:distroless edlicense:debug 2>/dev/null || true
+	docker rmi -f edlicense:latest edlicense:distroless edlicense:debug edlicense:multiarch 2>/dev/null || true
+	
+docker-prune-cache: ## Prune Docker builder cache
+	docker builder prune -f --filter type=exec.cachemount
 
 ### Performance Testing
 perf-test-add: build ## Run performance test for adding licenses to files

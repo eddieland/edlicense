@@ -1,14 +1,20 @@
-# Dockerfile for edlicense with support for production, distroless, and debug modes
+# Dockerfile for edlicense with optimized BuildKit features
 # Build with:
 #   - Default (production): docker build .
 #   - Distroless: docker build --build-arg MODE=distroless .
 #   - Debug: docker build --build-arg MODE=debug .
+#   - Multi-platform: docker buildx build --platform linux/amd64,linux/arm64 .
 
 # Define build argument for mode
 ARG MODE=production
+ARG RUST_VERSION=1.85
+# Define build arguments for labels with defaults
+ARG BUILD_DATE=unknown
+ARG BUILD_REVISION=unknown
+ARG BUILD_VERSION=dev
 
 # Base build stage
-FROM rust:1.85-slim AS builder
+FROM rust:${RUST_VERSION}-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && \
@@ -34,10 +40,11 @@ RUN mkdir -p src && \
 COPY . .
 
 # Build the application
-RUN cargo build --release
+RUN cargo build --release && \
+    cp target/release/edlicense /usr/local/bin/
 
 # Debug image with full toolchain
-FROM rust:1.85 AS debug
+FROM rust:${RUST_VERSION} AS debug
 
 # Install additional development tools
 RUN apt-get update && \
@@ -76,8 +83,8 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Copy the binary from the builder stage
-COPY --from=builder /usr/src/edlicense/target/release/edlicense /usr/local/bin/edlicense
+# Copy the binary from the builder stage - already in /usr/local/bin from our optimized build
+COPY --from=builder /usr/local/bin/edlicense /usr/local/bin/edlicense
 
 # Set the entrypoint
 ENTRYPOINT ["edlicense"]
@@ -85,13 +92,23 @@ ENTRYPOINT ["edlicense"]
 # Default command (can be overridden)
 CMD ["--help"]
 
+# Intermediate stage for certs
+FROM debian:bookworm-slim AS cert-stage
+
+# Install CA certificates package to ensure /etc/ssl/certs exists
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Distroless image (even more minimal)
 FROM gcr.io/distroless/cc-debian12 AS distroless
 
 # Copy SSL certificates for git operations
-COPY --from=debian:bookworm-slim /etc/ssl/certs /etc/ssl/certs
+COPY --from=cert-stage /etc/ssl/certs /etc/ssl/certs
 
 # Copy necessary shared libraries from the builder
+# Use more specific paths for better multi-platform support
 COPY --from=builder /usr/lib/*/libgit2.so* /usr/lib/
 COPY --from=builder /usr/lib/*/libssl.so* /usr/lib/
 COPY --from=builder /usr/lib/*/libcrypto.so* /usr/lib/
@@ -99,8 +116,8 @@ COPY --from=builder /lib/*/libz.so* /lib/
 
 WORKDIR /app
 
-# Copy the binary from the builder stage
-COPY --from=builder /usr/src/edlicense/target/release/edlicense /usr/bin/edlicense
+# Copy the binary from the builder stage - already in /usr/local/bin from our optimized build
+COPY --from=builder /usr/local/bin/edlicense /usr/bin/edlicense
 
 # Set the entrypoint
 ENTRYPOINT ["/usr/bin/edlicense"]
@@ -111,7 +128,16 @@ CMD ["--help"]
 # Final stage - determined by build arg
 FROM ${MODE}
 
-# Label the image
+# Re-declare build arguments for the final stage
+ARG BUILD_DATE
+ARG BUILD_REVISION
+ARG BUILD_VERSION
+
+# Add standardized OCI labels
+# https://github.com/opencontainers/image-spec/blob/main/annotations.md
 LABEL org.opencontainers.image.title="edlicense"
 LABEL org.opencontainers.image.description="A tool that ensures source code files have copyright license headers"
 LABEL org.opencontainers.image.source="https://github.com/eddieland/edlicense"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${BUILD_REVISION}"
+LABEL org.opencontainers.image.version="${BUILD_VERSION}"

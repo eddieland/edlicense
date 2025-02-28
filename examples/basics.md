@@ -107,7 +107,7 @@ public class Hello {
  */
 
 function hello() {
-    console.log("Hello, world!");
+  console.log("Hello, world!");
 }
 ```
 
@@ -136,12 +136,12 @@ function hello() {
 
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>Hello World</title>
-</head>
-<body>
+  </head>
+  <body>
     <h1>Hello, world!</h1>
-</body>
+  </body>
 </html>
 ```
 

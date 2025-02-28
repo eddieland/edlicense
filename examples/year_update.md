@@ -78,3 +78,4 @@ If you want to disable the automatic year update feature and keep the existing y
 
 ```bash
 edlicense --preserve-years .  # This flag would need to be implemented
+```
