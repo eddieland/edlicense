@@ -68,14 +68,13 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
                     PathBuf::from(root).join(name)
                 };
 
-                let abs_path = repo
-                    .workdir()
-                    .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
-                    .ok()
-                    .map(|workdir| workdir.join(&repo_relative_path));
-
-                if let Some(abs_path) = abs_path {
-                    if let Some(rel_path) = pathdiff::diff_paths(&abs_path, &current_dir) {
+                // Convert the repository-relative path to an absolute path
+                if let Some(workdir) = repo.workdir() {
+                    let abs_path = workdir.join(&repo_relative_path);
+                    // Get path relative to current directory
+                    if let Ok(rel_path) = abs_path.strip_prefix(&current_dir) {
+                        tracked_files.insert(rel_path.to_path_buf());
+                    } else if let Some(rel_path) = pathdiff::diff_paths(&abs_path, &current_dir) {
                         tracked_files.insert(rel_path);
                     }
                 }
@@ -124,13 +123,17 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
 
     let tree = commit.tree().with_context(|| "Failed to get commit tree")?;
 
-    let parent = commit.parent(0).with_context(|| "Failed to get parent commit")?;
-
-    let parent_tree = parent.tree().with_context(|| "Failed to get parent tree")?;
-
     let mut diff_options = git2::DiffOptions::new();
+
+    // Get parent commit if it exists
+    let parent_tree = if let Ok(parent) = commit.parent(0) {
+        Some(parent.tree()?)
+    } else {
+        None
+    };
+
     let diff = repo
-        .diff_tree_to_tree(Some(&parent_tree), Some(&tree), Some(&mut diff_options))
+        .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_options))
         .with_context(|| "Failed to diff trees")?;
 
     let mut changed_files = HashSet::new();

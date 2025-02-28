@@ -469,9 +469,14 @@ impl Processor {
     pub fn has_license(&self, content: &str) -> bool {
         // Take the first 1000 characters (or less if the file is shorter)
         let check_len = std::cmp::min(content.len(), 1000);
-        let check_content = &content[..check_len].to_lowercase();
+        let check_content = &content[..check_len];
 
-        check_content.contains("copyright")
+        // Convert to lowercase for case-insensitive matching
+        let check_content_lower = check_content.to_lowercase();
+
+        // Based on addlicense's implementation, we check for common license indicators
+        // without requiring the specific year (which is too strict)
+        check_content_lower.contains("copyright")
     }
 
     /// Extracts special prefixes (like shebang) from file content.
