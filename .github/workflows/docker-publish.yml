@@ -30,11 +30,6 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for proper versioning
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: 'arm64,amd64'
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -95,7 +90,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           build-args: |
             MODE=production
@@ -147,7 +142,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           build-args: |
             MODE=distroless

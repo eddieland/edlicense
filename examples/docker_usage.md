@@ -6,7 +6,6 @@ and debug variants.
 
 ## Quick Reference
 
-- **Available Architectures**: `linux/amd64`, `linux/arm64`
 - **Latest Images**: `ghcr.io/eddieland/edlicense:latest`, `ghcr.io/eddieland/edlicense:distroless-latest`
 - **BuildKit Enabled**: All builds use Docker BuildKit for improved performance and caching
 
@@ -26,10 +25,6 @@ built and published whenever new code is pushed to the main branch.
 
   - `ghcr.io/eddieland/edlicense:<commit-hash>` - Standard production image at a specific commit
   - `ghcr.io/eddieland/edlicense:distroless-<commit-hash>` - Distroless image at a specific commit
-
-- **Multi-platform Support**:
-  - All images are available for both `linux/amd64` and `linux/arm64` architectures, with Docker automatically
-    selecting the appropriate image for your system
 
 ### Pulling Images
 
@@ -187,79 +182,6 @@ docker run --rm -v "$(pwd):/workspace" my-edlicense:latest
 
 # Override the default arguments
 docker run --rm -v "$(pwd):/workspace" my-edlicense:latest --verbose src/
-```
-
-## BuildKit Features and Optimizations
-
-edlicense Docker images use Docker BuildKit for improved build performance, better caching, and multi-architecture support. Here's how you can take advantage of these features:
-
-### Enabling BuildKit
-
-BuildKit is enabled by default for all Docker builds in our Makefile and GitHub workflows. If you're building directly with Docker commands, you can enable BuildKit with:
-
-```bash
-# Set environment variable (for current shell session)
-export DOCKER_BUILDKIT=1
-
-# Or prefix individual commands
-DOCKER_BUILDKIT=1 docker build -t edlicense:latest .
-```
-
-### Multi-Architecture Builds
-
-Our images support both AMD64 (x86_64) and ARM64 architectures. Docker will automatically select the appropriate image for your system architecture when you pull from our registry.
-
-To build multi-architecture images locally:
-
-```bash
-# Set up a buildx builder with multi-platform support
-docker buildx create --name mybuilder --use
-
-# Build for multiple architectures
-docker buildx build --platform linux/amd64,linux/arm64 -t edlicense:multiarch .
-
-# Build, load locally (single platform only) and run
-docker buildx build --platform linux/amd64 -t edlicense:multiarch --load .
-docker run --rm edlicense:multiarch
-
-# Build and push to a registry (supports multi-platform)
-docker buildx build --platform linux/amd64,linux/arm64 -t myregistry/edlicense:latest --push .
-```
-
-The Makefile includes a helper target for this:
-
-```bash
-# Build multi-architecture image
-make docker-build-multiplatform
-```
-
-### OCI Metadata and Annotations
-
-Our images include standard Open Container Initiative (OCI) annotations for improved metadata:
-
-- `org.opencontainers.image.created` - Build timestamp
-- `org.opencontainers.image.revision` - Git commit hash
-- `org.opencontainers.image.version` - Version from Cargo.toml
-- `org.opencontainers.image.source` - GitHub repository URL
-- `org.opencontainers.image.title` - Image name
-- `org.opencontainers.image.description` - Description of the tool
-
-You can view these metadata fields with:
-
-```bash
-docker inspect ghcr.io/eddieland/edlicense:latest | jq '.[0].Config.Labels'
-```
-
-### Building with Custom Labels
-
-You can pass custom build arguments to include in the image labels:
-
-```bash
-docker build \
-  --build-arg BUILD_VERSION=1.2.3 \
-  --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-  --build-arg BUILD_REVISION="$(git rev-parse HEAD)" \
-  -t edlicense:custom .
 ```
 
 ## File Permissions in Docker

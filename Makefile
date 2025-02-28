@@ -90,13 +90,6 @@ docker-build-debug: ## Build debug/development Docker image with BuildKit
 
 docker-build-all: docker-build docker-build-distroless docker-build-debug ## Build all Docker images
 
-docker-build-multiplatform: ## Build multi-platform Docker images (requires buildx setup)
-	docker buildx create --use --name multiplatform-builder 2>/dev/null || true
-	docker buildx build --platform linux/amd64,linux/arm64 \
-		$(DOCKER_BUILD_ARGS) \
-		--build-arg MODE=production \
-		-t edlicense:multiarch .
-
 docker-run: ## Run Docker container with current directory mounted
 	docker run --rm -v "$(shell pwd):/workspace" -w /workspace edlicense:latest $(ARGS)
 

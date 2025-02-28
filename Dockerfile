@@ -3,7 +3,6 @@
 #   - Default (production): docker build .
 #   - Distroless: docker build --build-arg MODE=distroless .
 #   - Debug: docker build --build-arg MODE=debug .
-#   - Multi-platform: docker buildx build --platform linux/amd64,linux/arm64 .
 
 # Define build argument for mode
 ARG MODE=production
