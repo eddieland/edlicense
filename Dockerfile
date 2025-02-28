@@ -57,7 +57,7 @@ COPY . .
 RUN cargo build
 
 # Install development tools
-RUN cargo install cargo-watch cargo-audit cargo-outdated
+RUN cargo install cargo-watch cargo-outdated
 
 # Set environment variables
 ENV RUST_BACKTRACE=1

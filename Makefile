@@ -57,7 +57,6 @@ install: ## Install edlicense locally
 install-dev-tools: ## Install development tools
 	rustup show # Ensures rust-toolchain.toml is applied
 	cargo install cargo-watch
-	cargo install cargo-audit
 	cargo install cargo-outdated
 
 ### Docker
