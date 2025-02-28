@@ -56,8 +56,42 @@ jobs:
           echo "build_revision=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "build_version=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)" >> $GITHUB_OUTPUT
 
-      # Build and push production image
-      - name: Build and push production Docker image
+      # Build, test, and push production image
+      - name: Build production Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          build-args: |
+            MODE=production
+            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
+            BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
+            BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+          tags: |
+            local-production-image:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Smoke test production image
+        run: |
+          echo "Testing production image with default --help command..."
+          output=$(docker run --rm local-production-image:latest)
+          if [ $? -ne 0 ]; then
+            echo "Production image test failed!"
+            exit 1
+          fi
+          
+          # Verify output contains help information
+          if ! echo "$output" | grep -q "Usage:"; then
+            echo "Production image doesn't show help output correctly!"
+            echo "Output received: $output"
+            exit 1
+          fi
+          
+          echo "Production image smoke test passed!"
+      
+      - name: Push production Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -74,8 +108,42 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Build and push distroless image
-      - name: Build and push distroless Docker image
+      # Build, test, and push distroless image
+      - name: Build distroless Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          build-args: |
+            MODE=distroless
+            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
+            BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
+            BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+          tags: |
+            local-distroless-image:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Smoke test distroless image
+        run: |
+          echo "Testing distroless image with default --help command..."
+          output=$(docker run --rm local-distroless-image:latest)
+          if [ $? -ne 0 ]; then
+            echo "Distroless image test failed!"
+            exit 1
+          fi
+          
+          # Verify output contains help information
+          if ! echo "$output" | grep -q "Usage:"; then
+            echo "Distroless image doesn't show help output correctly!"
+            echo "Output received: $output"
+            exit 1
+          fi
+          
+          echo "Distroless image smoke test passed!"
+      
+      - name: Push distroless Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -91,3 +159,39 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:distroless-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          
+      # Build and test debug image (but don't push)
+      - name: Build debug Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          build-args: |
+            MODE=debug
+            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
+            BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
+            BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+          tags: |
+            local-debug-image:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Smoke test debug image
+        run: |
+          echo "Testing debug image with --help command..."
+          # Override default entrypoint for debug image as it has a different default CMD
+          output=$(docker run --rm --entrypoint edlicense local-debug-image:latest --help)
+          if [ $? -ne 0 ]; then
+            echo "Debug image test failed!"
+            exit 1
+          fi
+          
+          # Verify output contains help information
+          if ! echo "$output" | grep -q "Usage:"; then
+            echo "Debug image doesn't show help output correctly!"
+            echo "Output received: $output"
+            exit 1
+          fi
+          
+          echo "Debug image smoke test passed!"
