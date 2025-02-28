@@ -93,7 +93,7 @@ struct Args {
     #[arg(long)]
     global_ignore_file: Option<PathBuf>,
 
-    /// Only consider files in the current git repository (default when in a git repository)
+    /// Only consider files in the current git repository (defaults to false even in git repositories)
     #[arg(long)]
     git_only: Option<bool>,
 
@@ -158,23 +158,18 @@ fn main() -> Result<()> {
     // Create diff manager
     let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
 
-    // Determine if we should only process git files
-    // Default to true if we're in a git repository and git_only is not explicitly set to false
-    // Note: This uses your current working directory ($CWD) to detect the git repository.
-    // You should always run edlicense from inside the git repository when git detection is enabled.
-    let is_git_repo = git::is_git_repository();
-    let git_only = match args.git_only {
-        Some(value) => value,
-        None => is_git_repo, // Default to true if in a git repo
-    };
+    if args.git_only.unwrap_or(false) {
+        // Note: This uses your current working directory ($CWD) to detect the git repository.
+        // You should always run edlicense from inside the git repository when git detection is enabled.
+        let is_git_repo = git::is_git_repository();
 
-    if git_only {
         if is_git_repo {
             info_log!("Git repository detected, only processing tracked files");
             verbose_log!("Using current working directory to determine git repository and tracked files");
         } else {
-            info_log!("Git-only mode enabled, but not in a git repository");
-            info_log!("Run edlicense from inside your git repository for correct git detection");
+            eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
+            eprintln!("When --git-only=true, you must run edlicense from inside a git repository");
+            process::exit(1);
         }
     }
 
@@ -187,7 +182,7 @@ fn main() -> Result<()> {
         args.preserve_years,
         args.ratchet,
         Some(diff_manager),
-        Some(git_only),
+        args.git_only,
     )?;
 
     // Start timing

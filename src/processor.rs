@@ -117,14 +117,11 @@ impl Processor {
         };
 
         // Determine if we should only process git files
-        // Default to true if we're in a git repository and git_only is not explicitly set to false
+        // This always defaults to false unless explicitly set to true
         // Note: This uses your current working directory ($CWD) to detect the git repository.
         // You should always run edlicense from inside the git repository when git detection is enabled.
         let is_git_repo = git::is_git_repository();
-        let git_only = match git_only {
-            Some(value) => value,
-            None => is_git_repo, // Default to true if in a git repo
-        };
+        let git_only = git_only.unwrap_or(false);
 
         // Initialize git_tracked_files if git_only is true
         // This uses your current working directory ($CWD) to determine which files are tracked.
@@ -184,7 +181,8 @@ impl Processor {
             let path = PathBuf::from(pattern);
             if path.is_file() {
                 // Process a single file
-                let result = self.process_file(&path);
+                // Load .licenseignore files from the file's parent directory
+                let result = self.process_file_with_ignore_context(&path);
                 if let Err(e) = result {
                     eprintln!("Error processing {}: {}", path.display(), e);
                     has_missing_license.store(true, Ordering::Relaxed);
@@ -203,7 +201,9 @@ impl Processor {
                     match entry {
                         Ok(path) => {
                             if path.is_file() {
-                                let result = self.process_file(&path);
+                                // Process a single file matching the glob pattern
+                                // Load .licenseignore files from the file's parent directory
+                                let result = self.process_file_with_ignore_context(&path);
                                 if let Err(e) = result {
                                     eprintln!("Error processing {}: {}", path.display(), e);
                                     has_missing_license.store(true, Ordering::Relaxed);
@@ -224,6 +224,46 @@ impl Processor {
         }
 
         Ok(has_missing_license.load(Ordering::Relaxed))
+    }
+
+    /// Process a file with ignore context from its parent directory.
+    ///
+    /// This ensures that .licenseignore files in the file's directory are
+    /// applied even to explicitly named files.
+    fn process_file_with_ignore_context(&self, path: &Path) -> Result<()> {
+        // Get the parent directory of the file
+        if let Some(parent_dir) = path.parent() {
+            // Clone the ignore manager and load .licenseignore files from parent
+            let mut ignore_manager = self.ignore_manager.clone();
+            if parent_dir.exists() {
+                ignore_manager.load_licenseignore_files(parent_dir)?;
+            }
+
+            // Check if the file should be ignored
+            if ignore_manager.is_ignored(path) {
+                verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+
+                // Add to report if collecting report data
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license: false, // We don't know, but we're skipping it
+                        action_taken: Some(FileAction::Skipped),
+                        ignored: true,
+                        ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
+                }
+
+                return Ok(());
+            }
+        }
+
+        // Process the file normally
+        self.process_file(path)
     }
 
     /// Processes a directory recursively, adding or checking license headers in all files.
@@ -380,28 +420,8 @@ impl Processor {
                 verbose_log!("Processing: {} (tracked by git)", path.display());
             } else {
                 // If git_only is true but git_tracked_files is None, we're not in a git repo
-                // In this case, we should skip all files
-                verbose_log!(
-                    "Skipping: {} (git-only mode but not in a git repository)",
-                    path.display()
-                );
-
-                // Add to report if collecting report data
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license: false, // We don't know, but we're skipping it
-                        action_taken: Some(FileAction::Skipped),
-                        ignored: true,
-                        ignored_reason: Some("Git-only mode but not in a git repository".to_string()),
-                    };
-
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
-                    }
-                }
-
-                return Ok(());
+                // This should have been caught in main.rs with an error, but just in case:
+                return Err(anyhow::anyhow!("Git-only mode is enabled, but not in a git repository"));
             }
         }
 

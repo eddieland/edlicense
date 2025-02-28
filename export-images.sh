@@ -17,7 +17,7 @@ images=(
 )
 
 # Create a directory for the exports
-export_dir="dist/exports"
+export_dir="dist/edlicense-exports"
 rm -rf "${export_dir}"
 mkdir -p "${export_dir}"
 echo "Created export directory: ${export_dir}"

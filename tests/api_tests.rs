@@ -37,12 +37,12 @@ fn test_public_api() -> Result<()> {
     let processor = Processor::new(
         template_manager,
         license_data,
-        vec![],      // No ignore patterns
-        false,       // Not check-only mode
-        false,       // Don't preserve years
-        None,        // No ratchet mode
-        None,        // Use default diff_manager
-        Some(false), // git_only = false (explicitly disable git-only mode)
+        vec![], // No ignore patterns
+        false,  // Not check-only mode
+        false,  // Don't preserve years
+        None,   // No ratchet mode
+        None,   // Use default diff_manager
+        None,   // Use default git_only (false)
     )?;
 
     // Process a single file
@@ -114,12 +114,12 @@ fn test_api_with_check_only() -> Result<()> {
     let processor = Processor::new(
         template_manager,
         license_data,
-        vec![],      // No ignore patterns
-        true,        // Check-only mode
-        false,       // Don't preserve years
-        None,        // No ratchet mode
-        None,        // Use default diff_manager
-        Some(false), // git_only = false (explicitly disable git-only mode)
+        vec![], // No ignore patterns
+        true,   // Check-only mode
+        false,  // Don't preserve years
+        None,   // No ratchet mode
+        None,   // Use default diff_manager
+        None,   // Use default git_only (false)
     )?;
 
     // Process the file with license - should succeed
@@ -212,7 +212,7 @@ fn test_show_diff_mode() -> Result<()> {
         false,  // Don't preserve years
         None,   // No ratchet mode
         Some(DiffManager::new(true, None)),
-        Some(false), // git_only = false (explicitly disable git-only mode)
+        None, // Use default git_only (false)
     )?;
 
     // Process the file - should fail but show diff

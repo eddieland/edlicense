@@ -57,7 +57,7 @@ fn test_license_detection() -> Result<()> {
         None,
         None,
         None,
-        Some(false), // git_only = false (force processing of all files)
+        None, // Use default git_only (false)
     )?;
 
     // Test content with a license
@@ -86,7 +86,7 @@ fn test_prefix_extraction() -> Result<()> {
         None,
         None,
         None,
-        Some(false), // git_only = false (force processing of all files)
+        None, // Use default git_only (false)
     )?;
 
     // Test shebang extraction
@@ -135,7 +135,7 @@ fn test_year_updating() -> Result<()> {
         None,
         None,
         None,
-        Some(false), // git_only = false (force processing of all files)
+        None, // Use default git_only (false)
     )?;
 
     // Test updating a single year
@@ -231,7 +231,7 @@ fn test_process_file() -> Result<()> {
         None,
         None,
         None,
-        Some(false), // git_only = false (force processing of all files)
+        None, // Use default git_only (false)
     )?;
 
     // Create a test file without a license - avoid using any text that might be interpreted as a license
@@ -275,8 +275,8 @@ fn test_check_only_mode() -> Result<()> {
         false,
         None,
         None,
-        None,        // No save diff path
-        Some(false), // git_only = false (force processing of all files)
+        None, // No save diff path
+        None, // Use default git_only (false)
     )?;
 
     // Create a test file without a license - avoid using any text that might be interpreted as a license
@@ -320,8 +320,8 @@ fn test_preserve_years() -> Result<()> {
         true, // preserve_years = true
         None,
         None,
-        None,        // No save diff path
-        Some(false), // git_only = false (force processing of all files)
+        None, // No save diff path
+        None, // Use default git_only (false)
     )?;
 
     // Create a test file with an old year
@@ -346,8 +346,8 @@ fn test_preserve_years() -> Result<()> {
         false, // preserve_years = false
         None,
         None,
-        None,        // No save diff path
-        Some(false), // git_only = false (force processing of all files)
+        None, // No save diff path
+        None, // Use default git_only (false)
     )?;
 
     // Create a test file with an old year
@@ -377,8 +377,8 @@ fn test_process_directory() -> Result<()> {
         false,
         None,
         None,
-        None,        // No save diff path
-        Some(false), // git_only = false (force processing of all files)
+        None, // No save diff path
+        None, // Use default git_only (false)
     )?;
 
     // Create a test directory structure
@@ -438,8 +438,8 @@ fn test_ratchet_mode() -> Result<()> {
         false,
         None, // No ratchet reference
         None,
-        None,        // No save diff path
-        Some(false), // git_only = false (force processing of all files)
+        None, // No save diff path
+        None, // Use default git_only (false)
     )?;
 
     // Create test files - avoid anything that might be interpreted as a license
@@ -487,9 +487,9 @@ fn test_show_diff_mode() -> Result<()> {
         true, // check_only = true
         false,
         None,
-        Some(true),  // show_diff = true
-        None,        // No save diff path
-        Some(false), // git_only = false (force processing of all files)
+        Some(true), // show_diff = true
+        None,       // No save diff path
+        None,       // Use default git_only (false)
     )?;
 
     // Create a test file without a license - avoid using any text that might be interpreted as a license

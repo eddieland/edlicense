@@ -411,3 +411,141 @@ fn test_processor_with_licenseignore() -> Result<()> {
 
     Ok(())
 }
+
+/// Test that explicitly named files still respect .licenseignore patterns
+#[test]
+fn test_explicit_file_names_with_licenseignore() -> Result<()> {
+    // Save the original working directory
+    let original_dir = env::current_dir()?;
+    println!("Original working directory: {:?}", original_dir);
+
+    // Create a temporary directory
+    let temp_dir = tempdir()?;
+    let temp_path = temp_dir.path();
+
+    println!("Test directory: {:?}", temp_path);
+
+    // Create a .licenseignore file to ignore .toml files
+    let ignore_content = "*.toml\n";
+    fs::write(temp_path.join(".licenseignore"), ignore_content)?;
+    println!("Created .licenseignore with content: {}", ignore_content);
+
+    // Create a test.toml file that should be ignored
+    let toml_file_path = temp_path.join("test.toml");
+    fs::write(&toml_file_path, "[package]\nname = \"test\"\nversion = \"0.1.0\"")?;
+    println!("Created TOML file at: {:?}", toml_file_path);
+
+    // Create a license template
+    let license_path = temp_path.join("LICENSE.txt");
+    fs::write(&license_path, "Copyright (c) 2025 Test")?;
+    println!("Created license template at: {:?}", license_path);
+
+    // Change working directory to the temp directory
+    env::set_current_dir(temp_path)?;
+    println!("Changed working directory to: {:?}", env::current_dir()?);
+
+    // Create and initialize template manager
+    let mut template_manager = TemplateManager::new();
+    template_manager.load_template(&license_path)?;
+
+    // Create a processor for testing .licenseignore with explicitly named files
+    // We explicitly set git_only to false to avoid git repository detection issues
+    let processor = Processor::new(
+        template_manager,
+        LicenseData {
+            year: "2025".to_string(),
+        },
+        vec![],      // No CLI ignore patterns
+        true,        // Check-only mode
+        false,       // Don't preserve years
+        None,        // No ratchet reference
+        None,        // Use default diff_manager
+        Some(false), // Explicitly disable git-only mode
+    )?;
+
+    // Store the initial files_processed count
+    let initial_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+    println!("Initial files_processed count: {}", initial_count);
+
+    // Process the TOML file directly by name - it should still be ignored
+    println!("Processing TOML file: {:?}", toml_file_path);
+    let toml_result = processor.process(&[toml_file_path.to_string_lossy().to_string()])?;
+    println!("TOML file processing result: {}", toml_result);
+
+    // Check if files_processed was incremented
+    let after_toml = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+    println!("Files processed after TOML: {}", after_toml);
+
+    // Verify that the TOML file was ignored (files_processed should not increase)
+    assert_eq!(
+        after_toml, initial_count,
+        "TOML file should be ignored due to .licenseignore pattern even when explicitly named"
+    );
+
+    // Return to original directory before creating a new temp directory
+    env::set_current_dir(&original_dir)?;
+
+    // Create a separate directory without .licenseignore and a rust file
+    let rust_dir = tempdir()?;
+    let rust_path = rust_dir.path();
+    println!("Rust file directory: {:?}", rust_path);
+
+    // Create a rust file that should NOT be ignored
+    let rust_file_path = rust_path.join("test.rs");
+    fs::write(&rust_file_path, "fn main() { println!(\"Hello world\"); }")?;
+    println!("Created Rust file at: {:?}", rust_file_path);
+
+    // Create a license template in the rust directory
+    let rust_license_path = rust_path.join("LICENSE.txt");
+    fs::write(&rust_license_path, "Copyright (c) 2025 Test")?;
+
+    // Change directory to the rust temp directory
+    env::set_current_dir(rust_path)?;
+    println!("Changed working directory to: {:?}", env::current_dir()?);
+
+    // Create a new processor just for the rust file
+    let mut rust_template_manager = TemplateManager::new();
+    rust_template_manager.load_template(&rust_license_path)?;
+
+    let rust_processor = Processor::new(
+        rust_template_manager,
+        LicenseData {
+            year: "2025".to_string(),
+        },
+        vec![],      // No CLI ignore patterns
+        true,        // Check-only mode
+        false,       // Don't preserve years
+        None,        // No ratchet reference
+        None,        // Use default diff_manager
+        Some(false), // Explicitly disable git-only mode
+    )?;
+
+    // Store the initial files_processed count for the rust processor
+    let rust_initial = rust_processor
+        .files_processed
+        .load(std::sync::atomic::Ordering::Relaxed);
+    println!("Initial files_processed count for Rust processor: {}", rust_initial);
+
+    // Process the rust file
+    println!("Processing Rust file: {:?}", rust_file_path);
+    let rust_result = rust_processor.process(&[rust_file_path.to_string_lossy().to_string()])?;
+    println!("Rust file processing result: {}", rust_result);
+
+    // Check if files_processed was incremented for the rust file
+    let after_rust = rust_processor
+        .files_processed
+        .load(std::sync::atomic::Ordering::Relaxed);
+    println!("Files processed after Rust: {}", after_rust);
+
+    // The rust file should be processed (not ignored)
+    assert_eq!(
+        after_rust,
+        rust_initial + 1,
+        "Rust file should be processed (files_processed should increment by 1)"
+    );
+
+    // Return to the original directory before the test ends
+    env::set_current_dir(&original_dir)?;
+
+    Ok(())
+}
