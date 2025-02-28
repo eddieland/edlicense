@@ -283,6 +283,8 @@ If you run `edlicense` from outside your git repository while using git detectio
 
 For more details and examples, see [Git Integration](examples/git_integration.md).
 
+For information on using edlicense in pre-commit hooks, see [Pre-commit Hooks](examples/pre_commit_hook.md).
+
 ## Supported File Types
 
 `edlicense` supports a wide range of file types and automatically formats license headers with the appropriate comment style:
