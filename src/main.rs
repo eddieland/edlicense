@@ -91,6 +91,10 @@ struct Args {
     #[arg(long)]
     global_ignore_file: Option<PathBuf>,
 
+    /// Only consider files in the current git repository (default when in a git repository)
+    #[arg(long)]
+    git_only: Option<bool>,
+
     /// Control when to use colored output (auto, never, always)
     #[arg(long, value_enum, default_value = "auto")]
     colors: ClapColorMode,
@@ -140,6 +144,22 @@ fn main() -> Result<()> {
     // Create diff manager
     let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
 
+    // Determine if we should only process git files
+    // Default to true if we're in a git repository and git_only is not explicitly set to false
+    let is_git_repo = git::is_git_repository();
+    let git_only = match args.git_only {
+        Some(value) => value,
+        None => is_git_repo, // Default to true if in a git repo
+    };
+
+    if git_only {
+        if is_git_repo {
+            info_log!("Git repository detected, only processing tracked files");
+        } else {
+            info_log!("Git-only mode enabled, but not in a git repository");
+        }
+    }
+
     // Create processor
     let processor = Processor::new(
         template_manager,
@@ -149,6 +169,7 @@ fn main() -> Result<()> {
         args.preserve_years,
         args.ratchet,
         Some(diff_manager),
+        Some(git_only),
     )?;
 
     // Start timing

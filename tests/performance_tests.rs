@@ -36,6 +36,7 @@ fn create_test_processor(
         preserve_years,
         ratchet_reference,
         None,
+        None, // git_only = None (default)
     )?;
 
     Ok((processor, temp_dir))

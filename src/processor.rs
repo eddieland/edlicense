@@ -31,6 +31,7 @@ use crate::{info_log, verbose_log};
 /// - Checking for existing licenses
 /// - Handling ratchet mode (only processing changed files)
 /// - Showing diffs in dry run mode
+/// - Filtering files based on git repository (when git_only is enabled)
 pub struct Processor {
     /// Template manager for rendering license templates
     template_manager: TemplateManager,
@@ -49,6 +50,12 @@ pub struct Processor {
 
     /// Set of files that have changed (used in ratchet mode)
     pub changed_files: Option<HashSet<PathBuf>>,
+
+    /// Whether to only process files in the git repository
+    git_only: bool,
+
+    /// Set of files tracked by git (used when git_only is true)
+    git_tracked_files: Option<HashSet<PathBuf>>,
 
     /// Manager for handling diff creation and rendering
     diff_manager: DiffManager,
@@ -79,6 +86,7 @@ impl Processor {
     /// Returns an error if:
     /// - Any of the ignore patterns are invalid
     /// - Ratchet mode is enabled but the git repository cannot be accessed
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         template_manager: TemplateManager,
         license_data: LicenseData,
@@ -87,6 +95,7 @@ impl Processor {
         preserve_years: bool,
         ratchet_reference: Option<String>,
         diff_manager: Option<DiffManager>,
+        git_only: Option<bool>,
     ) -> Result<Self> {
         // Create ignore manager
         let ignore_manager = IgnoreManager::new(ignore_patterns)?;
@@ -94,6 +103,22 @@ impl Processor {
         // Initialize changed_files if ratchet mode is enabled
         let changed_files = if let Some(ref reference) = ratchet_reference {
             Some(git::get_changed_files(reference)?)
+        } else {
+            None
+        };
+
+        // Determine if we should only process git files
+        // Default to true if we're in a git repository and git_only is not explicitly set to false
+        let is_git_repo = git::is_git_repository();
+        let git_only = match git_only {
+            Some(value) => value,
+            None => is_git_repo, // Default to true if in a git repo
+        };
+
+        // Initialize git_tracked_files if git_only is true
+        let git_tracked_files = if git_only && is_git_repo {
+            verbose_log!("Git-only mode enabled, getting tracked files");
+            Some(git::get_git_tracked_files()?)
         } else {
             None
         };
@@ -108,6 +133,8 @@ impl Processor {
             check_only,
             preserve_years,
             changed_files,
+            git_only,
+            git_tracked_files,
             diff_manager,
             files_processed: std::sync::atomic::AtomicUsize::new(0),
         })
@@ -240,8 +267,16 @@ impl Processor {
         files.par_iter().for_each(|path| {
             let result = self.process_file(path);
             if let Err(e) = result {
-                eprintln!("Error processing {}: {}", path.display(), e);
-                has_missing_license.store(true, Ordering::Relaxed);
+                // If we're in check-only mode and the error is "Missing license header",
+                // this is expected and we should set has_missing_license to true
+                if self.check_only && e.to_string().contains("Missing license header") {
+                    has_missing_license.store(true, Ordering::Relaxed);
+                } else {
+                    // For other errors, print them
+                    eprintln!("Error processing {}: {}", path.display(), e);
+                    // Still set has_missing_license to true for any error
+                    has_missing_license.store(true, Ordering::Relaxed);
+                }
             }
         });
 
@@ -279,6 +314,35 @@ impl Processor {
             return Ok(());
         }
 
+        // Skip files that aren't tracked by git when git_only is enabled
+        if self.git_only {
+            if let Some(ref git_tracked_files) = self.git_tracked_files {
+                // Check if the file is in the tracked files list
+                let is_tracked = git_tracked_files.iter().any(|tracked_path| {
+                    // Convert both paths to strings for comparison
+                    let tracked_str = tracked_path.to_string_lossy().to_string();
+                    let path_str = path.to_string_lossy().to_string();
+
+                    // Check if the path contains the tracked path or vice versa
+                    tracked_str.contains(&path_str) || path_str.contains(&tracked_str)
+                });
+
+                if !is_tracked {
+                    verbose_log!("Skipping: {} (not tracked by git)", path.display());
+                    return Ok(());
+                }
+                verbose_log!("Processing: {} (tracked by git)", path.display());
+            } else {
+                // If git_only is true but git_tracked_files is None, we're not in a git repo
+                // In this case, we should skip all files
+                verbose_log!(
+                    "Skipping: {} (git-only mode but not in a git repository)",
+                    path.display()
+                );
+                return Ok(());
+            }
+        }
+
         // Skip files that haven't changed in ratchet mode
         if let Some(ref changed_files) = self.changed_files {
             if !changed_files.contains(path) {
@@ -300,6 +364,9 @@ impl Processor {
 
         if self.check_only {
             if !has_license {
+                // In check-only mode, we need to signal that a license is missing
+                // This is used by the test_processor_with_licenseignore test
+
                 // Generate diffs if show_diff is enabled or save_diff_path is provided
                 if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
                     // Generate what the content would look like with a license
@@ -320,6 +387,8 @@ impl Processor {
                     self.diff_manager.display_diff(path, &content, &new_content)?;
                 }
 
+                // Signal that a license is missing by returning an error
+                // This will be caught by the process_directory method and set has_missing_license to true
                 return Err(anyhow::anyhow!("Missing license header"));
             } else if !self.preserve_years
                 && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())

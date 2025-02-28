@@ -15,11 +15,14 @@ A tool that ensures source code files have copyright license headers by scanning
 | Default behavior | Dry run mode (non-destructive) | Modify mode |
 | Automatic year updates | ✅ Updates copyright years automatically | ❌ No support for updating files w/ old years |
 | Ratchet mode | ✅ Process only files changed since a git reference | ❌ Not available |
+| Git integration | ✅ Option to only process git-tracked files | ❌ Not available |
 
 Key advantages of `edlicense`:
 
 1. **Safety First**: Defaults to dry run mode, preventing accidental file modifications
-2. **Git Integration**: Ratchet mode for CI/CD pipelines to process only changed files
+2. **Git Integration**:
+   - Ratchet mode for CI/CD pipelines to process only changed files
+   - Option to only process git-tracked files (default when in a git repository)
 3. **Automatic Updates**: Intelligently updates copyright years without manual intervention
 
 ## Features
@@ -34,6 +37,7 @@ Key advantages of `edlicense`:
 - Global ignore file support via `GLOBAL_LICENSE_IGNORE` environment variable
 - **Automatic year reference updates** - automatically updates copyright year references when the year changes (e.g., `(c) 2024` → `(c) 2025`)
 - **Ratchet mode** - only check and format files that have changed relative to a git reference (e.g., `origin/main`)
+- **Git repository integration** - option to only process files tracked by git (default when in a git repository)
 
 ## Installation
 
@@ -118,6 +122,7 @@ edlicense [OPTIONS] <PATTERNS>...
 --ratchet <REFERENCE>         Ratchet mode: only check and format files that have changed relative to a git reference
 --preserve-years              Preserve existing years in license headers
 --global-ignore-file <FILE>   Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
+--git-only                    Only consider files in the current git repository (default when in a git repository)
 --help                        Print help
 --version                     Print version
 ```
@@ -180,6 +185,18 @@ Add or update license headers in files that have changed relative to origin/main
 edlicense --ratchet "origin/main" --modify src/
 ```
 
+Only process files tracked by git (this is the default when in a git repository):
+
+```bash
+edlicense --git-only src/
+```
+
+Process all files, including those not tracked by git:
+
+```bash
+edlicense --git-only=false src/
+```
+
 ## Automatic Year Updates
 
 Unlike the original `addlicense` tool, `edlicense` can automatically update copyright year references when the year changes. For example, if a file contains:
@@ -238,6 +255,29 @@ edlicense src/
 ```
 
 For more details and examples, see [.licenseignore Files](examples/licenseignore.md).
+
+## Git Repository Integration
+
+By default, when running in a git repository, `edlicense` will only process files that are tracked by git. This helps ensure that only files that are part of your project get license headers, while ignoring build artifacts, temporary files, and other untracked files.
+
+You can control this behavior with the `--git-only` option:
+
+```bash
+# Only process files tracked by git (default when in a git repository)
+edlicense --git-only src/
+
+# Process all files, including those not tracked by git
+edlicense --git-only=false src/
+```
+
+This feature works well with the ratchet mode, allowing you to focus only on files that are both tracked by git and have changed since a specific reference:
+
+```bash
+# Only process files that are tracked by git and have changed since origin/main
+edlicense --git-only --ratchet "origin/main" src/
+```
+
+For more details and examples, see [Git Integration](examples/git_integration.md).
 
 ## Supported File Types
 

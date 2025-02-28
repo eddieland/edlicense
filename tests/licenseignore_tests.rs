@@ -385,12 +385,16 @@ fn test_processor_with_licenseignore() -> Result<()> {
         false,  // Don't preserve years
         None,   // No ratchet reference
         None,   // Use default diff_manager
+        None,   // git_only = None (default)
     )?;
 
     // Process the directory
     let has_missing = processor.process_directory(temp_path)?;
 
     // The Rust file should be processed and found to be missing a license
+    // Since we're in check-only mode, this should return true
+    // If this test is failing, it might be because the processor is not correctly
+    // identifying files that are missing license headers
     assert!(has_missing, "Should have found files missing license headers");
 
     Ok(())

@@ -14,6 +14,7 @@ fn create_test_processor(
     ratchet_reference: Option<String>,
     show_diff: Option<bool>,
     save_diff_path: Option<std::path::PathBuf>,
+    git_only: Option<bool>,
 ) -> Result<(Processor, tempfile::TempDir)> {
     let temp_dir = tempdir()?;
     let template_path = temp_dir.path().join("test_template.txt");
@@ -39,6 +40,7 @@ fn create_test_processor(
         preserve_years,
         ratchet_reference,
         diff_manager,
+        git_only,
     )?;
 
     Ok((processor, temp_dir))
@@ -55,6 +57,7 @@ fn test_license_detection() -> Result<()> {
         None,
         None,
         None,
+        None, // git_only = None (default)
     )?;
 
     // Test content with a license
@@ -83,6 +86,7 @@ fn test_prefix_extraction() -> Result<()> {
         None,
         None,
         None,
+        None, // git_only = None (default)
     )?;
 
     // Test shebang extraction
@@ -131,6 +135,7 @@ fn test_year_updating() -> Result<()> {
         None,
         None,
         None,
+        None, // git_only = None (default)
     )?;
 
     // Test updating a single year
@@ -226,6 +231,7 @@ fn test_process_file() -> Result<()> {
         None,
         None,
         None,
+        None, // git_only = None (default)
     )?;
 
     // Create a test file without a license
@@ -270,6 +276,7 @@ fn test_check_only_mode() -> Result<()> {
         None,
         None,
         None, // No save diff path
+        None, // git_only = None (default)
     )?;
 
     // Create a test file without a license
@@ -314,6 +321,7 @@ fn test_preserve_years() -> Result<()> {
         None,
         None,
         None, // No save diff path
+        None, // git_only = None (default)
     )?;
 
     // Create a test file with an old year
@@ -339,6 +347,7 @@ fn test_preserve_years() -> Result<()> {
         None,
         None,
         None, // No save diff path
+        None, // git_only = None (default)
     )?;
 
     // Create a test file with an old year
@@ -369,6 +378,7 @@ fn test_process_directory() -> Result<()> {
         None,
         None,
         None, // No save diff path
+        None, // git_only = None (default)
     )?;
 
     // Create a test directory structure
@@ -429,6 +439,7 @@ fn test_ratchet_mode() -> Result<()> {
         None, // No ratchet reference
         None,
         None, // No save diff path
+        None, // git_only = None (default)
     )?;
 
     // Create test files
@@ -478,6 +489,7 @@ fn test_show_diff_mode() -> Result<()> {
         None,
         Some(true), // show_diff = true
         None,       // No save diff path
+        None,       // git_only = None (default)
     )?;
 
     // Create a test file without a license

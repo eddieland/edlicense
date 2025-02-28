@@ -32,7 +32,8 @@ fn test_empty_file() -> Result<()> {
         false,
         false,
         None,
-        None, // No diff manager
+        None,        // No diff manager
+        Some(false), // git_only = false (explicitly disable git-only mode)
     )?;
 
     // Process the empty file
@@ -72,7 +73,8 @@ fn test_binary_file() -> Result<()> {
         false,
         false,
         None,
-        None, // No diff manager
+        None,        // No diff manager
+        Some(false), // git_only = false (explicitly disable git-only mode)
     )?;
 
     // Process the binary file - should fail gracefully
@@ -124,6 +126,7 @@ fn test_invalid_glob_pattern() -> Result<()> {
         false,
         None,
         None, // No diff manager
+        None, // git_only = None (default)
     );
 
     assert!(result.is_err());
@@ -159,7 +162,8 @@ fn test_file_with_unusual_encoding() -> Result<()> {
         false,
         false,
         None,
-        None, // No diff manager
+        None,        // No diff manager
+        Some(false), // git_only = false
     )?;
 
     // Process the UTF-16 file
@@ -200,7 +204,8 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
         false,
         false,
         None,
-        None, // No diff manager
+        None,        // No diff manager
+        Some(false), // git_only = false
     )?;
 
     // Process the file
@@ -243,7 +248,8 @@ fn test_file_with_unusual_year_format() -> Result<()> {
         false,
         false,
         None,
-        None, // No diff manager
+        None,        // No diff manager
+        Some(false), // git_only = false
     )?;
 
     // Process the file
@@ -287,7 +293,8 @@ fn test_process_with_invalid_pattern() -> Result<()> {
         false,
         false,
         None,
-        None, // No diff manager
+        None,        // No diff manager
+        Some(false), // git_only = false
     )?;
 
     // Try to process with an invalid glob pattern
