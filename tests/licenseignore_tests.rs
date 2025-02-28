@@ -372,119 +372,119 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
     // Create root .licenseignore
     let root_ignore_content = "*.js\n";
     fs::write(temp_path.join(".licenseignore"), root_ignore_content)?;
-    
+
     // Create level1 directory
     let level1_path = temp_path.join("level1");
     fs::create_dir(&level1_path)?;
-    
+
     // Create level1 .licenseignore
     let level1_ignore_content = "*.py\n";
     fs::write(level1_path.join(".licenseignore"), level1_ignore_content)?;
-    
+
     // Create level2 directory
     let level2_path = level1_path.join("level2");
     fs::create_dir(&level2_path)?;
-    
+
     // Create test files at each level
     fs::write(temp_path.join("test.js"), "// Root JS file")?;
     fs::write(temp_path.join("test.py"), "# Root Python file")?;
-    
+
     fs::write(level1_path.join("test.js"), "// Level1 JS file")?;
     fs::write(level1_path.join("test.py"), "# Level1 Python file")?;
-    
+
     fs::write(level2_path.join("test.js"), "// Level2 JS file")?;
     fs::write(level2_path.join("test.py"), "# Level2 Python file")?;
     fs::write(level2_path.join("test.txt"), "Level2 Text file")?;
-    
+
     // Test loading .licenseignore files from level2 (deepest directory)
     // This should load both level1 and root .licenseignore files
     let mut ignore_manager = IgnoreManager::new(vec![])?;
     ignore_manager.load_licenseignore_files(&level2_path)?;
-    
+
     // Verify that patterns from both .licenseignore files are applied
     // Root .licenseignore ignores .js files
     assert!(
         ignore_manager.is_ignored(&level2_path.join("test.js")),
         "JS file in level2 should be ignored (from root .licenseignore)"
     );
-    
+
     // Level1 .licenseignore ignores .py files
     assert!(
         ignore_manager.is_ignored(&level2_path.join("test.py")),
         "Python file in level2 should be ignored (from level1 .licenseignore)"
     );
-    
+
     // No .licenseignore ignores .txt files
     assert!(
         !ignore_manager.is_ignored(&level2_path.join("test.txt")),
         "Text file in level2 should NOT be ignored"
     );
-    
+
     // Verify patterns are applied to parent directories (upward propagation not applicable)
     assert!(
         !ignore_manager.is_ignored(&level1_path.join("test.js")),
         "JS file in level1 should NOT be ignored when loading from level2"
     );
-    
+
     // Test loading from level1
     let mut level1_ignore_manager = IgnoreManager::new(vec![])?;
     level1_ignore_manager.load_licenseignore_files(&level1_path)?;
-    
+
     // Verify patterns from both .licenseignore files when loading from level1
     assert!(
         level1_ignore_manager.is_ignored(&level1_path.join("test.js")),
         "JS file in level1 should be ignored (from root .licenseignore)"
     );
-    
+
     assert!(
         level1_ignore_manager.is_ignored(&level1_path.join("test.py")),
         "Python file in level1 should be ignored (from level1 .licenseignore)"
     );
-    
+
     assert!(
         level1_ignore_manager.is_ignored(&level2_path.join("test.js")),
         "JS file in level2 should be ignored (from root .licenseignore)"
     );
-    
+
     assert!(
         level1_ignore_manager.is_ignored(&level2_path.join("test.py")),
         "Python file in level2 should be ignored (from level1 .licenseignore)"
     );
-    
+
     // Test pattern precedence with conflicting rules
     // Create a new temp directory structure with conflicting patterns
     let conflict_dir = tempdir()?;
     let conflict_path = conflict_dir.path();
-    
+
     // Create parent directory with .licenseignore that ignores *.txt
     let parent_ignore_content = "*.txt\n";
     fs::write(conflict_path.join(".licenseignore"), parent_ignore_content)?;
-    
+
     // Create child directory with .licenseignore that explicitly allows important.txt
     let child_path = conflict_path.join("child");
     fs::create_dir(&child_path)?;
     let child_ignore_content = "!important.txt\n";
     fs::write(child_path.join(".licenseignore"), child_ignore_content)?;
-    
+
     // Create test files
     fs::write(child_path.join("regular.txt"), "Regular text file")?;
     fs::write(child_path.join("important.txt"), "Important text file")?;
-    
+
     // Load .licenseignore files from child directory
     let mut conflict_manager = IgnoreManager::new(vec![])?;
     conflict_manager.load_licenseignore_files(&child_path)?;
-    
+
     // Verify that negation pattern in child directory takes precedence
     assert!(
         conflict_manager.is_ignored(&child_path.join("regular.txt")),
         "Regular text file should be ignored (from parent .licenseignore)"
     );
-    
+
     assert!(
         !conflict_manager.is_ignored(&child_path.join("important.txt")),
         "Important text file should NOT be ignored (negated in child .licenseignore)"
     );
-    
+
     Ok(())
 }
 

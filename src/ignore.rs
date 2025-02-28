@@ -130,7 +130,7 @@ impl IgnoreManager {
         // We load them starting from the root and moving down to ensure proper pattern precedence
         let mut licenseignore_files = Vec::new();
         let mut current_dir = dir.to_path_buf();
-        
+
         // First, collect all .licenseignore files going up to the root
         loop {
             let ignore_path = current_dir.join(".licenseignore");
@@ -143,12 +143,12 @@ impl IgnoreManager {
                 break;
             }
         }
-        
+
         // Reverse the collection so we process from root down to the target directory
         // This ensures proper precedence where patterns in directories closer to the
         // target directory override those from higher up
         licenseignore_files.reverse();
-        
+
         // Now load each .licenseignore file in order from root to target dir
         for (dir_path, ignore_path) in licenseignore_files {
             verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
