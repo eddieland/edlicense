@@ -14,6 +14,10 @@ use crate::verbose_log;
 
 /// Checks if the current directory is inside a git repository.
 ///
+/// This function uses the current working directory (`$CWD`) to determine if
+/// we are inside a git repository. It's important that edlicense is run from
+/// within the git repository when git detection mode is enabled.
+///
 /// # Returns
 ///
 /// `true` if the current directory is inside a git repository, `false` otherwise.
@@ -33,6 +37,9 @@ pub fn is_git_repository() -> bool {
 ///
 /// This function is used to limit processing to only files that are tracked by git.
 /// It works correctly even when called from a subdirectory of the git repository.
+/// The function uses your current working directory (`$CWD`) to determine the git repository
+/// and which files are tracked. You should always run edlicense from inside the git repository
+/// when git detection mode is enabled.
 ///
 /// # Returns
 ///

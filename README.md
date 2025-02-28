@@ -260,6 +260,8 @@ For more details and examples, see [.licenseignore Files](examples/licenseignore
 
 By default, when running in a git repository, `edlicense` will only process files that are tracked by git. This helps ensure that only files that are part of your project get license headers, while ignoring build artifacts, temporary files, and other untracked files.
 
+> **Important**: When git detection mode is enabled, `edlicense` uses your current working directory (`$CWD`) to determine whether it should only look at tracked files. You should always run edlicense from inside the git repository for correct operation.
+
 You can control this behavior with the `--git-only` option:
 
 ```bash
@@ -276,6 +278,8 @@ This feature works well with the ratchet mode, allowing you to focus only on fil
 # Only process files that are tracked by git and have changed since origin/main
 edlicense --git-only --ratchet "origin/main" src/
 ```
+
+If you run `edlicense` from outside your git repository while using git detection mode, it will not be able to properly identify git-tracked files, which may result in no files being processed or incorrect files being processed.
 
 For more details and examples, see [Git Integration](examples/git_integration.md).
 

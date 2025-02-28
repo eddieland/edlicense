@@ -109,6 +109,8 @@ impl Processor {
 
         // Determine if we should only process git files
         // Default to true if we're in a git repository and git_only is not explicitly set to false
+        // Note: This uses your current working directory ($CWD) to detect the git repository.
+        // You should always run edlicense from inside the git repository when git detection is enabled.
         let is_git_repo = git::is_git_repository();
         let git_only = match git_only {
             Some(value) => value,
@@ -116,6 +118,7 @@ impl Processor {
         };
 
         // Initialize git_tracked_files if git_only is true
+        // This uses your current working directory ($CWD) to determine which files are tracked.
         let git_tracked_files = if git_only && is_git_repo {
             verbose_log!("Git-only mode enabled, getting tracked files");
             Some(git::get_git_tracked_files()?)

@@ -146,6 +146,8 @@ fn main() -> Result<()> {
 
     // Determine if we should only process git files
     // Default to true if we're in a git repository and git_only is not explicitly set to false
+    // Note: This uses your current working directory ($CWD) to detect the git repository.
+    // You should always run edlicense from inside the git repository when git detection is enabled.
     let is_git_repo = git::is_git_repository();
     let git_only = match args.git_only {
         Some(value) => value,
@@ -155,8 +157,10 @@ fn main() -> Result<()> {
     if git_only {
         if is_git_repo {
             info_log!("Git repository detected, only processing tracked files");
+            verbose_log!("Using current working directory to determine git repository and tracked files");
         } else {
             info_log!("Git-only mode enabled, but not in a git repository");
+            info_log!("Run edlicense from inside your git repository for correct git detection");
         }
     }
 
