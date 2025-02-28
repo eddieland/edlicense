@@ -50,7 +50,7 @@ fn create_test_processor(
 fn test_license_detection() -> Result<()> {
     // Create a processor
     let (processor, _temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false,
@@ -79,7 +79,7 @@ fn test_license_detection() -> Result<()> {
 fn test_prefix_extraction() -> Result<()> {
     // Create a processor
     let (processor, _temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false,
@@ -128,7 +128,7 @@ fn test_prefix_extraction() -> Result<()> {
 fn test_year_updating() -> Result<()> {
     // Create a processor
     let (processor, _temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false,
@@ -224,7 +224,7 @@ fn test_ignore_patterns() -> Result<()> {
 fn test_process_file() -> Result<()> {
     // Create a processor
     let (processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false,
@@ -269,7 +269,7 @@ fn test_process_file() -> Result<()> {
 fn test_check_only_mode() -> Result<()> {
     // Create a processor in check-only mode
     let (processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         true, // check_only = true
         false,
@@ -314,7 +314,7 @@ fn test_check_only_mode() -> Result<()> {
 fn test_preserve_years() -> Result<()> {
     // Create a processor with preserve_years = true
     let (processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         true, // preserve_years = true
@@ -340,7 +340,7 @@ fn test_preserve_years() -> Result<()> {
 
     // Create a processor with preserve_years = false
     let (processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false, // preserve_years = false
@@ -371,7 +371,7 @@ fn test_preserve_years() -> Result<()> {
 fn test_process_directory() -> Result<()> {
     // Create a processor
     let (processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec!["*.json".to_string()], // Ignore JSON files
         false,
         false,
@@ -432,7 +432,7 @@ mod git_test_utils {
 fn test_ratchet_mode() -> Result<()> {
     // Create a processor without ratchet mode initially
     let (mut processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false,
@@ -482,7 +482,7 @@ fn test_ratchet_mode() -> Result<()> {
 fn test_show_diff_mode() -> Result<()> {
     // Create a processor in check-only mode with show_diff enabled
     let (processor, temp_dir) = create_test_processor(
-        "Copyright (c) {{Year}} Test Company",
+        "Copyright (c) {{year}} Test Company",
         vec![],
         true, // check_only = true
         false,

@@ -9,7 +9,7 @@ fn setup_test_environment() -> Result<tempfile::TempDir> {
     let temp_dir = tempdir()?;
 
     // Create a license template
-    let template_content = "Copyright (c) {{Year}} Test Company\nAll rights reserved.";
+    let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
     fs::write(temp_dir.path().join("license_template.txt"), template_content)?;
 
     // Create a test directory structure

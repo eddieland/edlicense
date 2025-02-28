@@ -11,7 +11,7 @@ fn test_template_loading() -> Result<()> {
     let template_path = temp_dir.path().join("test_template.txt");
 
     // Create a test template
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     let mut template_manager = TemplateManager::new();
     template_manager.load_template(&template_path)?;
@@ -35,7 +35,7 @@ fn test_comment_formatting() -> Result<()> {
     // Create a test template
     fs::write(
         &template_path,
-        "Copyright (c) {{Year}} Test Company\nAll rights reserved.",
+        "Copyright (c) {{year}} Test Company\nAll rights reserved.",
     )?;
 
     let mut template_manager = TemplateManager::new();
@@ -89,7 +89,7 @@ fn test_special_filenames() -> Result<()> {
     let template_path = temp_dir.path().join("test_template.txt");
 
     // Create a test template
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     let mut template_manager = TemplateManager::new();
     template_manager.load_template(&template_path)?;

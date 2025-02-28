@@ -15,7 +15,7 @@ fn test_public_api() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} API Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} API Test Company")?;
 
     // Create a test file
     let test_file_path = temp_dir.path().join("test_file.rs");
@@ -89,7 +89,7 @@ fn test_api_with_check_only() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} API Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} API Test Company")?;
 
     // Create test files - one with license, one without
     let file_with_license = temp_dir.path().join("with_license.rs");
@@ -149,7 +149,7 @@ fn test_template_rendering_api() -> Result<()> {
 
     // Create a license template with multiple placeholders
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} API Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} API Test Company")?;
 
     // Initialize the template manager
     let mut template_manager = TemplateManager::new();
@@ -185,7 +185,7 @@ fn test_show_diff_mode() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} API Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} API Test Company")?;
 
     // Create a test file without license
     let test_file_path = temp_dir.path().join("test_file.rs");

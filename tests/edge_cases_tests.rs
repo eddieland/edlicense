@@ -12,7 +12,7 @@ fn test_empty_file() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Create an empty file
     let empty_file_path = temp_dir.path().join("empty.rs");
@@ -53,7 +53,7 @@ fn test_binary_file() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Create a binary file (just some non-UTF8 bytes)
     let binary_file_path = temp_dir.path().join("binary.bin");
@@ -109,7 +109,7 @@ fn test_invalid_glob_pattern() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Initialize the template manager
     let mut template_manager = TemplateManager::new();
@@ -141,7 +141,7 @@ fn test_file_with_unusual_encoding() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Create a file with UTF-16 BOM
     let utf16_file_path = temp_dir.path().join("utf16.rs");
@@ -183,7 +183,7 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Create a file with multiple shebang-like lines
     let multi_shebang_path = temp_dir.path().join("multi_shebang.py");
@@ -227,7 +227,7 @@ fn test_file_with_unusual_year_format() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Create a file with an unusual year format
     let unusual_year_path = temp_dir.path().join("unusual_year.rs");
@@ -277,7 +277,7 @@ fn test_process_with_invalid_pattern() -> Result<()> {
 
     // Create a license template
     let template_path = temp_dir.path().join("license_template.txt");
-    fs::write(&template_path, "Copyright (c) {{Year}} Test Company")?;
+    fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
     // Initialize the template manager
     let mut template_manager = TemplateManager::new();

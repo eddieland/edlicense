@@ -135,7 +135,7 @@ impl TemplateManager {
     /// Renders a license template with the given data.
     ///
     /// This method replaces template variables with actual values from the
-    /// provided license data. Currently, it supports the `{{Year}}` variable
+    /// provided license data. Currently, it supports the `{{year}}` variable
     /// which is replaced with the year from the license data.
     ///
     /// # Parameters
@@ -149,7 +149,7 @@ impl TemplateManager {
         verbose_log!("Rendering template with year: {}", data.year);
 
         // Simple string replacement
-        let rendered = self.template.replace("{{Year}}", &data.year);
+        let rendered = self.template.replace("{{year}}", &data.year);
 
         Ok(rendered)
     }
