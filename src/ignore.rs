@@ -85,7 +85,7 @@ impl IgnoreManager {
         })
     }
 
-    /// Loads .licenseignore files from the specified directory and its parents.
+    /// Loads .licenseignore files from the specified directory and its parents up to the root directory.
     ///
     /// This method also loads the global ignore file specified by the
     /// GLOBAL_LICENSE_IGNORE environment variable, if set.
@@ -126,28 +126,41 @@ impl IgnoreManager {
             }
         }
 
-        // Find and load .licenseignore files
+        // Find and load .licenseignore files from the current directory all the way up to the root
+        // We load them starting from the root and moving down to ensure proper pattern precedence
+        let mut licenseignore_files = Vec::new();
         let mut current_dir = dir.to_path_buf();
+        
+        // First, collect all .licenseignore files going up to the root
         loop {
             let ignore_path = current_dir.join(".licenseignore");
             if ignore_path.exists() {
-                verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
-                let content = fs::read_to_string(&ignore_path)
-                    .with_context(|| format!("Failed to read .licenseignore file: {}", ignore_path.display()))?;
-
-                let current_path = current_dir.clone();
-                for line in content.lines() {
-                    if !line.trim().is_empty() && !line.trim().starts_with('#') {
-                        builder.add_line(Some(current_path.clone()), line).with_context(|| {
-                            format!("Failed to add line from .licenseignore file: {}", ignore_path.display())
-                        })?;
-                    }
-                }
+                licenseignore_files.push((current_dir.clone(), ignore_path));
             }
 
             // Move up to parent directory
             if !current_dir.pop() {
                 break;
+            }
+        }
+        
+        // Reverse the collection so we process from root down to the target directory
+        // This ensures proper precedence where patterns in directories closer to the
+        // target directory override those from higher up
+        licenseignore_files.reverse();
+        
+        // Now load each .licenseignore file in order from root to target dir
+        for (dir_path, ignore_path) in licenseignore_files {
+            verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
+            let content = fs::read_to_string(&ignore_path)
+                .with_context(|| format!("Failed to read .licenseignore file: {}", ignore_path.display()))?;
+
+            for line in content.lines() {
+                if !line.trim().is_empty() && !line.trim().starts_with('#') {
+                    builder.add_line(Some(dir_path.clone()), line).with_context(|| {
+                        format!("Failed to add line from .licenseignore file: {}", ignore_path.display())
+                    })?;
+                }
             }
         }
 
