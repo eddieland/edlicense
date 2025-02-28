@@ -50,7 +50,7 @@ cargo install edlicense
 ### From source
 
 ```bash
-git clone https://github.com/omenien/edlicense.git
+git clone https://github.com/eddieland/edlicense.git
 cd edlicense
 cargo install --path .
 ```
@@ -59,22 +59,52 @@ cargo install --path .
 
 edlicense is available as a Docker image, making it easy to run without installing Rust or any dependencies.
 
-#### Building the Docker image
+#### Using Pre-built Images from GitHub Container Registry
 
-The project uses a single Dockerfile that can build both production and debug images:
+Pre-built Docker images are automatically published to GitHub Container Registry when code is pushed to the main branch.
 
 ```bash
-# Build the lightweight production image
+# Pull the latest production image
+docker pull ghcr.io/eddieland/edlicense:latest
+
+# Pull the latest distroless image
+docker pull ghcr.io/eddieland/edlicense:distroless-latest
+
+# Run using the production image
+docker run --rm -v "$(pwd):/workspace" -w /workspace ghcr.io/eddieland/edlicense:latest src/
+
+# Run using the distroless image
+docker run --rm -v "$(pwd):/workspace" -w /workspace ghcr.io/eddieland/edlicense:distroless-latest src/
+
+# Run in modify mode
+docker run --rm -v "$(pwd):/workspace" -w /workspace ghcr.io/eddieland/edlicense:latest --modify src/
+```
+
+Available image tags:
+- `ghcr.io/eddieland/edlicense:latest` - Standard production image (latest version)
+- `ghcr.io/eddieland/edlicense:distroless-latest` - Distroless image (latest version)
+- `ghcr.io/eddieland/edlicense:<commit-hash>` - Production image at a specific commit
+- `ghcr.io/eddieland/edlicense:distroless-<commit-hash>` - Distroless image at a specific commit
+
+#### Building the Docker image locally
+
+The project uses a single Dockerfile that can build production, distroless, and debug images:
+
+```bash
+# Build the lightweight production image (Debian-based)
 make docker-build
+
+# Build the minimal distroless image
+make docker-build-distroless
 
 # Build the debug/development image
 make docker-build-debug
 
-# Build both images
+# Build all images
 make docker-build-all
 ```
 
-#### Running with Docker
+#### Running with locally built Docker images
 
 ```bash
 # Run edlicense on files in the current directory (dry run mode)
@@ -83,6 +113,9 @@ docker run --rm -v "$(pwd):/workspace" -w /workspace edlicense:latest src/
 # Using the make target (equivalent to above)
 make docker-run ARGS="src/"
 
+# Run with the distroless image (smaller and more secure)
+make docker-run-distroless ARGS="src/"
+
 # Run edlicense in modify mode
 docker run --rm -v "$(pwd):/workspace" -w /workspace edlicense:latest --modify src/
 
@@ -90,11 +123,13 @@ docker run --rm -v "$(pwd):/workspace" -w /workspace edlicense:latest --modify s
 make docker-run-debug ARGS="cargo test"
 ```
 
-The Docker setup provides two image tags from the same Dockerfile:
+The Docker setup provides three image tags from the same Dockerfile:
 
-1. **Lightweight image** (`edlicense:latest`): A minimal image containing only the compiled binary, optimized for CI/CD pipelines and production use.
+1. **Lightweight image** (`edlicense:latest`): A Debian-based image containing only the compiled binary and minimal dependencies, optimized for CI/CD pipelines and general production use.
 
-2. **Debug image** (`edlicense:debug`): A development image containing the full Rust toolchain, source code, and development tools, useful for debugging and development.
+2. **Distroless image** (`edlicense:distroless`): An ultra-minimal image based on Google's distroless container, containing only the compiled binary and essential libraries with no shell or package manager. This provides the smallest possible attack surface and image size, ideal for security-sensitive deployments.
+
+3. **Debug image** (`edlicense:debug`): A development image containing the full Rust toolchain, source code, and development tools, useful for debugging and development.
 
 For advanced Docker usage, including building downstream images and handling file permissions, see [Docker Usage Examples](examples/docker_usage.md).
 

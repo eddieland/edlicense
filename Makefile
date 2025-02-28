@@ -1,4 +1,4 @@
-.PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all perf-test perf-test-add perf-test-update perf-test-check perf-test-all docker-build docker-build-debug docker-run docker-run-debug docker-clean
+.PHONY: help fmt lint test build clean check doc install install-dev-tools check-license update-license all perf-test perf-test-add perf-test-update perf-test-check perf-test-all docker-build docker-build-debug docker-build-distroless docker-run docker-run-debug docker-run-distroless docker-clean
 
 # Default target
 
@@ -61,22 +61,28 @@ install-dev-tools: ## Install development tools
 	cargo install cargo-outdated
 
 ### Docker
-docker-build: ## Build lightweight Docker image
+docker-build: ## Build lightweight Docker image (Debian-based)
 	docker build -t edlicense:latest --build-arg MODE=production .
+
+docker-build-distroless: ## Build minimal distroless Docker image
+	docker build -t edlicense:distroless --build-arg MODE=distroless .
 
 docker-build-debug: ## Build debug/development Docker image
 	docker build -t edlicense:debug --build-arg MODE=debug .
 
-docker-build-all: docker-build docker-build-debug ## Build both production and debug Docker images
+docker-build-all: docker-build docker-build-distroless docker-build-debug ## Build all Docker images
 
 docker-run: ## Run Docker container with current directory mounted
 	docker run --rm -v "$(shell pwd):/workspace" -w /workspace edlicense:latest $(ARGS)
+
+docker-run-distroless: ## Run distroless Docker container with current directory mounted
+	docker run --rm -v "$(shell pwd):/workspace" -w /workspace edlicense:distroless $(ARGS)
 
 docker-run-debug: ## Run debug Docker container with current directory mounted
 	docker run --rm -it -v "$(shell pwd):/usr/src/edlicense" edlicense:debug $(ARGS)
 
 docker-clean: ## Remove Docker images
-	docker rmi -f edlicense:latest edlicense:debug 2>/dev/null || true
+	docker rmi -f edlicense:latest edlicense:distroless edlicense:debug 2>/dev/null || true
 
 ### Performance Testing
 perf-test-add: build ## Run performance test for adding licenses to files

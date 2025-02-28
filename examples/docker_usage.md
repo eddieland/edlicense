@@ -1,12 +1,104 @@
 # Docker Usage Examples
 
-This document provides examples for using the edlicense Docker image, including building downstream images for specific use cases.
+This document provides examples for using the edlicense Docker images, including pulling pre-built images from GitHub Container Registry, building downstream images for specific use cases, and choosing between the standard, distroless, and debug variants.
+
+## Using Pre-built Images from GitHub Container Registry
+
+Pre-built Docker images for edlicense are available from GitHub Container Registry. These images are automatically built and published whenever new code is pushed to the main branch.
+
+### Available Image Tags
+
+- **Latest Release**:
+  - `ghcr.io/eddieland/edlicense:latest` - Standard production image
+  - `ghcr.io/eddieland/edlicense:distroless-latest` - Distroless image
+
+- **Specific Versions**:
+  - `ghcr.io/eddieland/edlicense:<commit-hash>` - Standard production image at a specific commit
+  - `ghcr.io/eddieland/edlicense:distroless-<commit-hash>` - Distroless image at a specific commit
+
+### Pulling Images
+
+To pull the latest production image:
+
+```bash
+docker pull ghcr.io/eddieland/edlicense:latest
+```
+
+To pull the latest distroless image:
+
+```bash
+docker pull ghcr.io/eddieland/edlicense:distroless-latest
+```
+
+### Running Pre-built Images
+
+To run the latest production image:
+
+```bash
+docker run --rm -v "$(pwd):/app" ghcr.io/eddieland/edlicense:latest --help
+```
+
+To run the latest distroless image:
+
+```bash
+docker run --rm -v "$(pwd):/app" ghcr.io/eddieland/edlicense:distroless-latest --help
+```
+
+## Choosing Between Image Variants
+
+edlicense provides three Docker image variants, each designed for different use cases:
+
+### 1. Standard Image (`edlicense:latest`)
+
+The standard Debian-based image contains the edlicense binary and minimal dependencies. This is a good general-purpose image for most use cases.
+
+```bash
+# Build the standard image
+make docker-build
+
+# Run the standard image
+make docker-run ARGS="src/"
+```
+
+### 2. Distroless Image (`edlicense:distroless`)
+
+The distroless image is based on Google's distroless container, which:
+- Contains only the compiled binary and essential libraries
+- Has no shell, package manager, or other unnecessary components
+- Provides the smallest possible attack surface and image size
+
+This image is ideal for security-sensitive deployments or when you want the smallest possible container size.
+
+```bash
+# Build the distroless image
+make docker-build-distroless
+
+# Run the distroless image
+make docker-run-distroless ARGS="src/"
+```
+
+**Important**: The distroless image does not include a shell or common Unix utilities. This means:
+- You cannot execute commands inside the container with `docker exec`
+- Debugging inside the container is more limited
+- Scripts that rely on `/bin/sh` or other Unix tools will not work
+
+### 3. Debug Image (`edlicense:debug`)
+
+The debug image contains the full Rust toolchain, source code, and development tools. It's useful for development and debugging purposes.
+
+```bash
+# Build the debug image
+make docker-build-debug
+
+# Run the debug image
+make docker-run-debug ARGS="cargo test"
+```
 
 ## Building a Downstream Docker Image
 
 You can create your own Docker image based on the edlicense image to customize it for your specific needs. This is particularly useful for CI/CD pipelines or when you want to distribute a pre-configured version of edlicense.
 
-### Example Dockerfile for a Downstream Image
+### Example Dockerfile for a Downstream Image (Standard)
 
 ```dockerfile
 # Use the edlicense production image as the base
@@ -31,6 +123,37 @@ ENTRYPOINT ["edlicense", "--license-file", "/licenses/my-license-template.txt"]
 # Default arguments (can be overridden)
 CMD ["."]  # Dry run mode is the default
 ```
+
+### Example Dockerfile for a Downstream Image (Distroless)
+
+```dockerfile
+# Use the edlicense distroless image as the base
+FROM edlicense:distroless
+
+# Create a multi-stage build to prepare files
+FROM debian:bookworm-slim AS prep
+
+# Create directory for license templates
+WORKDIR /licenses
+COPY my-license-template.txt .
+
+# Back to distroless image
+FROM edlicense:distroless
+
+# Copy license templates from prep stage
+COPY --from=prep /licenses /licenses
+
+# Set the working directory where files will be processed
+WORKDIR /workspace
+
+# Set default command to use your custom license template
+ENTRYPOINT ["/usr/bin/edlicense", "--license-file", "/licenses/my-license-template.txt"]
+
+# Default arguments (can be overridden)
+CMD ["."]  # Dry run mode is the default
+```
+
+Note: With distroless images, you need to use multi-stage builds for operations that would normally use a shell (like chmod). Also, be sure to use the full path to the edlicense binary (`/usr/bin/edlicense`).
 
 ### Building the Downstream Image
 
