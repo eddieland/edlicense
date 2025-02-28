@@ -1,8 +1,8 @@
 [toolchain]
 channel = "stable"
 components = [
-    "rustfmt",
     "clippy",
+    "rustfmt",
     "rust-src"
 ]
 profile = "default"
