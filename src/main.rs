@@ -3,6 +3,7 @@ mod git;
 mod ignore;
 mod logging;
 mod processor;
+mod report;
 mod templates;
 
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ use clap::{Parser, ValueEnum};
 use crate::diff::DiffManager;
 use crate::logging::{ColorMode, set_color_mode, set_verbose};
 use crate::processor::Processor;
+use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
 
 /// Color mode options for output
@@ -98,6 +100,18 @@ struct Args {
     /// Control when to use colored output (auto, never, always)
     #[arg(long, value_enum, default_value = "auto")]
     colors: ClapColorMode,
+
+    /// Generate an HTML report of license status and save to the specified path
+    #[arg(long)]
+    report_html: Option<PathBuf>,
+
+    /// Generate a JSON report of license status and save to the specified path
+    #[arg(long)]
+    report_json: Option<PathBuf>,
+
+    /// Generate a CSV report of license status and save to the specified path
+    #[arg(long)]
+    report_csv: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -201,6 +215,47 @@ fn main() -> Result<()> {
             files_processed,
             elapsed.as_secs_f64()
         );
+    }
+
+    // Get file reports from processor for report generation
+    let file_reports = if let Ok(reports) = processor.file_reports.lock() {
+        reports.clone()
+    } else {
+        eprintln!("Warning: Failed to access file reports for report generation");
+        Vec::new()
+    };
+
+    // Create report summary
+    let summary = ProcessingSummary::from_reports(&file_reports, elapsed);
+
+    // Generate HTML report if requested
+    if let Some(output_path) = args.report_html {
+        let report_generator = ReportGenerator::new(ReportFormat::Html, output_path.clone());
+        if let Err(e) = report_generator.generate(&file_reports, &summary) {
+            eprintln!("Error generating HTML report: {}", e);
+        } else {
+            info_log!("Generated HTML report at {}", output_path.display());
+        }
+    }
+
+    // Generate JSON report if requested
+    if let Some(output_path) = args.report_json {
+        let report_generator = ReportGenerator::new(ReportFormat::Json, output_path.clone());
+        if let Err(e) = report_generator.generate(&file_reports, &summary) {
+            eprintln!("Error generating JSON report: {}", e);
+        } else {
+            info_log!("Generated JSON report at {}", output_path.display());
+        }
+    }
+
+    // Generate CSV report if requested
+    if let Some(output_path) = args.report_csv {
+        let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path.clone());
+        if let Err(e) = report_generator.generate(&file_reports, &summary) {
+            eprintln!("Error generating CSV report: {}", e);
+        } else {
+            info_log!("Generated CSV report at {}", output_path.display());
+        }
     }
 
     // Exit with non-zero code if in dry run mode and there are missing licenses

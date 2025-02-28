@@ -21,4 +21,5 @@ pub mod git;
 pub mod ignore;
 pub mod logging;
 pub mod processor;
+pub mod report;
 pub mod templates;

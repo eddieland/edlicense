@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
@@ -19,6 +20,7 @@ use walkdir::WalkDir;
 use crate::diff::DiffManager;
 use crate::git;
 use crate::ignore::IgnoreManager;
+use crate::report::{FileAction, FileReport};
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{info_log, verbose_log};
 
@@ -32,6 +34,7 @@ use crate::{info_log, verbose_log};
 /// - Handling ratchet mode (only processing changed files)
 /// - Showing diffs in dry run mode
 /// - Filtering files based on git repository (when git_only is enabled)
+/// - Collecting report data about processed files
 pub struct Processor {
     /// Template manager for rendering license templates
     template_manager: TemplateManager,
@@ -62,6 +65,12 @@ pub struct Processor {
 
     /// Counter for the total number of files processed
     pub files_processed: std::sync::atomic::AtomicUsize,
+
+    /// Collection of file reports for generating reports
+    pub file_reports: Arc<Mutex<Vec<FileReport>>>,
+
+    /// Whether to collect report data
+    collect_report_data: bool,
 }
 
 impl Processor {
@@ -140,6 +149,8 @@ impl Processor {
             git_tracked_files,
             diff_manager,
             files_processed: std::sync::atomic::AtomicUsize::new(0),
+            file_reports: Arc::new(Mutex::new(Vec::new())),
+            collect_report_data: true, // Enable report data collection by default
         })
     }
 
@@ -314,6 +325,22 @@ impl Processor {
         // Skip files that match ignore patterns
         if self.ignore_manager.is_ignored(path) {
             verbose_log!("Skipping: {} (matches ignore pattern)", path.display());
+
+            // Add to report if collecting report data
+            if self.collect_report_data {
+                let file_report = FileReport {
+                    path: path.to_path_buf(),
+                    has_license: false, // We don't know, but we're skipping it
+                    action_taken: Some(FileAction::Skipped),
+                    ignored: true,
+                    ignored_reason: Some("Matches ignore pattern".to_string()),
+                };
+
+                if let Ok(mut reports) = self.file_reports.lock() {
+                    reports.push(file_report);
+                }
+            }
+
             return Ok(());
         }
 
@@ -332,6 +359,22 @@ impl Processor {
 
                 if !is_tracked {
                     verbose_log!("Skipping: {} (not tracked by git)", path.display());
+
+                    // Add to report if collecting report data
+                    if self.collect_report_data {
+                        let file_report = FileReport {
+                            path: path.to_path_buf(),
+                            has_license: false, // We don't know, but we're skipping it
+                            action_taken: Some(FileAction::Skipped),
+                            ignored: true,
+                            ignored_reason: Some("Not tracked by git".to_string()),
+                        };
+
+                        if let Ok(mut reports) = self.file_reports.lock() {
+                            reports.push(file_report);
+                        }
+                    }
+
                     return Ok(());
                 }
                 verbose_log!("Processing: {} (tracked by git)", path.display());
@@ -342,6 +385,22 @@ impl Processor {
                     "Skipping: {} (git-only mode but not in a git repository)",
                     path.display()
                 );
+
+                // Add to report if collecting report data
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license: false, // We don't know, but we're skipping it
+                        action_taken: Some(FileAction::Skipped),
+                        ignored: true,
+                        ignored_reason: Some("Git-only mode but not in a git repository".to_string()),
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
+                }
+
                 return Ok(());
             }
         }
@@ -350,6 +409,22 @@ impl Processor {
         if let Some(ref changed_files) = self.changed_files {
             if !changed_files.contains(path) {
                 verbose_log!("Skipping: {} (unchanged in ratchet mode)", path.display());
+
+                // Add to report if collecting report data
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license: false, // We don't know, but we're skipping it
+                        action_taken: Some(FileAction::Skipped),
+                        ignored: true,
+                        ignored_reason: Some("Unchanged in ratchet mode".to_string()),
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
+                }
+
                 return Ok(());
             }
             verbose_log!("Processing: {} (changed in ratchet mode)", path.display());
@@ -390,6 +465,21 @@ impl Processor {
                     self.diff_manager.display_diff(path, &content, &new_content)?;
                 }
 
+                // Add to report if collecting report data
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license,
+                        action_taken: None, // No action taken in check mode
+                        ignored: false,
+                        ignored_reason: None,
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
+                }
+
                 // Signal that a license is missing by returning an error
                 // This will be caught by the process_directory method and set has_missing_license to true
                 return Err(anyhow::anyhow!("Missing license header"));
@@ -401,6 +491,36 @@ impl Processor {
                 if updated_content != content {
                     // Generate and display/save the diff
                     self.diff_manager.display_diff(path, &content, &updated_content)?;
+                }
+
+                // Add to report if collecting report data
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license,
+                        action_taken: None, // No action taken in check mode, but would update year
+                        ignored: false,
+                        ignored_reason: None,
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
+                }
+            } else {
+                // File has license and we wouldn't update it
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license,
+                        action_taken: Some(FileAction::NoActionNeeded),
+                        ignored: false,
+                        ignored_reason: None,
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
                 }
             }
             return Ok(());
@@ -418,6 +538,51 @@ impl Processor {
 
                     // Log the updated file with colors
                     info_log!("Updated year in: {}", path.display());
+
+                    // Add to report if collecting report data
+                    if self.collect_report_data {
+                        let file_report = FileReport {
+                            path: path.to_path_buf(),
+                            has_license: true,
+                            action_taken: Some(FileAction::YearUpdated),
+                            ignored: false,
+                            ignored_reason: None,
+                        };
+
+                        if let Ok(mut reports) = self.file_reports.lock() {
+                            reports.push(file_report);
+                        }
+                    }
+                } else {
+                    // No changes needed - add to report
+                    if self.collect_report_data {
+                        let file_report = FileReport {
+                            path: path.to_path_buf(),
+                            has_license: true,
+                            action_taken: Some(FileAction::NoActionNeeded),
+                            ignored: false,
+                            ignored_reason: None,
+                        };
+
+                        if let Ok(mut reports) = self.file_reports.lock() {
+                            reports.push(file_report);
+                        }
+                    }
+                }
+            } else {
+                // Preserve years mode enabled - add to report
+                if self.collect_report_data {
+                    let file_report = FileReport {
+                        path: path.to_path_buf(),
+                        has_license: true,
+                        action_taken: Some(FileAction::NoActionNeeded),
+                        ignored: false,
+                        ignored_reason: None,
+                    };
+
+                    if let Ok(mut reports) = self.file_reports.lock() {
+                        reports.push(file_report);
+                    }
                 }
             }
         } else {
@@ -446,6 +611,21 @@ impl Processor {
 
             // Log the added license with colors
             info_log!("Added license to: {}", path.display());
+
+            // Add to report if collecting report data
+            if self.collect_report_data {
+                let file_report = FileReport {
+                    path: path.to_path_buf(),
+                    has_license: true, // Now it has a license
+                    action_taken: Some(FileAction::Added),
+                    ignored: false,
+                    ignored_reason: None,
+                };
+
+                if let Ok(mut reports) = self.file_reports.lock() {
+                    reports.push(file_report);
+                }
+            }
         }
 
         Ok(())
