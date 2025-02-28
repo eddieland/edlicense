@@ -287,12 +287,27 @@ For more details and examples, see [Git Integration](examples/git_integration.md
 
 `edlicense` supports a wide range of file types and automatically formats license headers with the appropriate comment style:
 
-- C/C++/C#/Go/Rust/Swift/Dart: `// comment style`
-- Java/Scala/Kotlin: `/* comment style */`
-- JavaScript/TypeScript/CSS: `/** comment style */`
-- Python/Shell/YAML/Ruby: `# comment style`
-- HTML/XML/Vue: `<!-- comment style -->`
-- And many more...
+### File Extensions by Comment Type
+
+| Comment Style | File Extensions and Types |
+|---------------|---------------------------|
+| Block comments<br>`/* ... */` | `.c`, `.h`, `.gv`, `.java`, `.scala`, `.kt`, `.kts` |
+| JSDoc comments<br>`/** ... */` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.tsx`, `.css`, `.scss`, `.sass`, `.ts` |
+| Line comments<br>`// ...` | `.cc`, `.cpp`, `.cs`, `.go`, `.hcl`, `.hh`, `.hpp`, `.m`, `.mm`, `.proto`, `.rs`, `.swift`, `.dart`, `.groovy`, `.v`, `.sv` |
+| Hash comments<br>`# ...` | `.py`, `.sh`, `.yaml`, `.yml`, `.rb`, `.tcl`, `.tf`, `.bzl`, `.pl`, `.pp`, `.toml` |
+| Lisp comments<br>`;; ...` | `.el`, `.lisp` |
+| Erlang comments<br>`% ...` | `.erl` |
+| SQL/Haskell comments<br>`-- ...` | `.hs`, `.sql`, `.sdl` |
+| HTML comments<br>`<!-- ... -->` | `.html`, `.xml`, `.vue`, `.wxi`, `.wxl`, `.wxs` |
+| Jinja2 comments<br>`{# ... #}` | `.j2` |
+| OCaml comments<br>`(** ... *)` | `.ml`, `.mli`, `.mll`, `.mly` |
+
+### Special File Handling
+
+In addition to extensions, `edlicense` also handles special file types by name:
+
+- `cmakelists.txt`, `*.cmake.in`, `*.cmake`: Hash comments (`# ...`)
+- `dockerfile`, `*.dockerfile`: Hash comments (`# ...`)
 
 ## Performance Testing
 
