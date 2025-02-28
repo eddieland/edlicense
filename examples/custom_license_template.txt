@@ -1,4 +1,4 @@
-Copyright (c) {{Year}} Acme Corporation
+Copyright (c) {{year}} Acme Corporation
 
 This software and associated documentation files (the "Software") are the
 exclusive property of Acme Corporation. The Software is provided to you

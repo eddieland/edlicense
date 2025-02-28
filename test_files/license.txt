@@ -1,1 +1,1 @@
-Copyright (c) {{Year}} Test Company
+Copyright (c) {{year}} Test Company
