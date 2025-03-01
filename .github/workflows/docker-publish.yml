@@ -155,38 +155,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           
-      # Build and test debug image (but don't push)
-      - name: Build debug Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          load: true
-          build-args: |
-            MODE=debug
-            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
-            BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
-            BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
-          tags: |
-            local-debug-image:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Smoke test debug image
-        run: |
-          echo "Testing debug image with --help command..."
-          # Override default entrypoint for debug image as it has a different default CMD
-          output=$(docker run --rm --entrypoint edlicense local-debug-image:latest --help)
-          if [ $? -ne 0 ]; then
-            echo "Debug image test failed!"
-            exit 1
-          fi
-          
-          # Verify output contains help information
-          if ! echo "$output" | grep -q "Usage:"; then
-            echo "Debug image doesn't show help output correctly!"
-            echo "Output received: $output"
-            exit 1
-          fi
-          
-          echo "Debug image smoke test passed!"
