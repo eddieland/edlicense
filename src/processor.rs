@@ -36,646 +36,643 @@ use crate::{info_log, verbose_log};
 /// - Filtering files based on git repository (when git_only is enabled)
 /// - Collecting report data about processed files
 pub struct Processor {
-    /// Template manager for rendering license templates
-    template_manager: TemplateManager,
+  /// Template manager for rendering license templates
+  template_manager: TemplateManager,
 
-    /// License data (year, etc.) for rendering templates
-    license_data: LicenseData,
+  /// License data (year, etc.) for rendering templates
+  license_data: LicenseData,
 
-    /// Composite file filter for determining which files to process
-    file_filter: CompositeFilter,
+  /// Composite file filter for determining which files to process
+  file_filter: CompositeFilter,
 
-    /// Manager for handling ignore patterns (used for directory-specific ignore patterns)
-    ignore_manager: IgnoreManager,
+  /// Manager for handling ignore patterns (used for directory-specific ignore patterns)
+  ignore_manager: IgnoreManager,
 
-    /// Whether to only check for licenses without modifying files
-    check_only: bool,
+  /// Whether to only check for licenses without modifying files
+  check_only: bool,
 
-    /// Whether to preserve existing years in license headers
-    preserve_years: bool,
+  /// Whether to preserve existing years in license headers
+  preserve_years: bool,
 
-    /// Manager for handling diff creation and rendering
-    diff_manager: DiffManager,
+  /// Manager for handling diff creation and rendering
+  diff_manager: DiffManager,
 
-    /// Counter for the total number of files processed
-    pub files_processed: std::sync::atomic::AtomicUsize,
+  /// Counter for the total number of files processed
+  pub files_processed: std::sync::atomic::AtomicUsize,
 
-    /// Collection of file reports for generating reports
-    pub file_reports: Arc<Mutex<Vec<FileReport>>>,
+  /// Collection of file reports for generating reports
+  pub file_reports: Arc<Mutex<Vec<FileReport>>>,
 
-    /// Whether to collect report data
-    collect_report_data: bool,
+  /// Whether to collect report data
+  collect_report_data: bool,
 
-    /// License detector for checking if files have license headers
-    license_detector: Box<dyn LicenseDetector>,
+  /// License detector for checking if files have license headers
+  license_detector: Box<dyn LicenseDetector>,
 }
 
 impl Processor {
-    /// Creates a new processor with the specified configuration.
-    ///
-    /// # Parameters
-    ///
-    /// * `template_manager` - Manager for license templates
-    /// * `license_data` - Data for rendering license templates (year, etc.)
-    /// * `ignore_patterns` - Glob patterns for files to ignore
-    /// * `check_only` - Whether to only check for licenses without modifying files
-    /// * `preserve_years` - Whether to preserve existing years in license headers
-    /// * `ratchet_reference` - Git reference for ratchet mode (only process changed files)
-    /// * `diff_manager` - Optional manager for handling diff creation and rendering. If not provided, a default one will be created.
-    ///
-    /// # Returns
-    ///
-    /// A new `Processor` instance or an error if initialization fails.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Any of the ignore patterns are invalid
-    /// - Ratchet mode is enabled but the git repository cannot be accessed
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        template_manager: TemplateManager,
-        license_data: LicenseData,
-        ignore_patterns: Vec<String>,
-        check_only: bool,
-        preserve_years: bool,
-        ratchet_reference: Option<String>,
-        diff_manager: Option<DiffManager>,
-        git_only: Option<bool>,
-    ) -> Result<Self> {
-        // Create ignore manager for base ignore patterns
-        let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
+  /// Creates a new processor with the specified configuration.
+  ///
+  /// # Parameters
+  ///
+  /// * `template_manager` - Manager for license templates
+  /// * `license_data` - Data for rendering license templates (year, etc.)
+  /// * `ignore_patterns` - Glob patterns for files to ignore
+  /// * `check_only` - Whether to only check for licenses without modifying files
+  /// * `preserve_years` - Whether to preserve existing years in license headers
+  /// * `ratchet_reference` - Git reference for ratchet mode (only process changed files)
+  /// * `diff_manager` - Optional manager for handling diff creation and rendering. If not provided, a default one will be created.
+  ///
+  /// # Returns
+  ///
+  /// A new `Processor` instance or an error if initialization fails.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if:
+  /// - Any of the ignore patterns are invalid
+  /// - Ratchet mode is enabled but the git repository cannot be accessed
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(
+    template_manager: TemplateManager,
+    license_data: LicenseData,
+    ignore_patterns: Vec<String>,
+    check_only: bool,
+    preserve_years: bool,
+    ratchet_reference: Option<String>,
+    diff_manager: Option<DiffManager>,
+    git_only: Option<bool>,
+  ) -> Result<Self> {
+    // Create ignore manager for base ignore patterns
+    let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
 
-        // Create a composite file filter with all filtering conditions
-        let file_filter = create_default_filter(ignore_patterns, git_only, ratchet_reference)?;
+    // Create a composite file filter with all filtering conditions
+    let file_filter = create_default_filter(ignore_patterns, git_only, ratchet_reference)?;
 
-        // Use provided diff_manager or create a default one
-        let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
+    // Use provided diff_manager or create a default one
+    let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
-        // Create default license detector
-        let license_detector = Box::new(SimpleLicenseDetector::new());
+    // Create default license detector
+    let license_detector = Box::new(SimpleLicenseDetector::new());
 
-        Ok(Self {
-            template_manager,
-            license_data,
-            file_filter,
-            ignore_manager,
-            check_only,
-            preserve_years,
-            diff_manager,
-            files_processed: std::sync::atomic::AtomicUsize::new(0),
-            file_reports: Arc::new(Mutex::new(Vec::new())),
-            collect_report_data: true, // Enable report data collection by default
-            license_detector,
-        })
-    }
+    Ok(Self {
+      template_manager,
+      license_data,
+      file_filter,
+      ignore_manager,
+      check_only,
+      preserve_years,
+      diff_manager,
+      files_processed: std::sync::atomic::AtomicUsize::new(0),
+      file_reports: Arc::new(Mutex::new(Vec::new())),
+      collect_report_data: true, // Enable report data collection by default
+      license_detector,
+    })
+  }
 
-    /// Processes a list of file or directory patterns.
-    ///
-    /// This is the main entry point for processing files. It handles:
-    /// - Individual files
-    /// - Directories (recursively)
-    /// - Glob patterns
-    ///
-    /// # Parameters
-    ///
-    /// * `patterns` - A slice of strings representing file paths, directory paths, or glob patterns
-    ///
-    /// # Returns
-    ///
-    /// `true` if any files were missing license headers, `false` otherwise.
-    /// In check-only mode, this can be used to determine if the check passed or failed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - A glob pattern is invalid
-    /// - Directory traversal fails
-    pub fn process(&self, patterns: &[String]) -> Result<bool> {
-        let has_missing_license = Arc::new(AtomicBool::new(false));
+  /// Processes a list of file or directory patterns.
+  ///
+  /// This is the main entry point for processing files. It handles:
+  /// - Individual files
+  /// - Directories (recursively)
+  /// - Glob patterns
+  ///
+  /// # Parameters
+  ///
+  /// * `patterns` - A slice of strings representing file paths, directory paths, or glob patterns
+  ///
+  /// # Returns
+  ///
+  /// `true` if any files were missing license headers, `false` otherwise.
+  /// In check-only mode, this can be used to determine if the check passed or failed.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if:
+  /// - A glob pattern is invalid
+  /// - Directory traversal fails
+  pub fn process(&self, patterns: &[String]) -> Result<bool> {
+    let has_missing_license = Arc::new(AtomicBool::new(false));
 
-        // Process each pattern
-        for pattern in patterns {
-            // Check if the pattern is a file or directory
-            let path = PathBuf::from(pattern);
-            if path.is_file() {
-                // Process a single file
+    // Process each pattern
+    for pattern in patterns {
+      // Check if the pattern is a file or directory
+      let path = PathBuf::from(pattern);
+      if path.is_file() {
+        // Process a single file
+        // Load .licenseignore files from the file's parent directory
+        let result = self.process_file_with_ignore_context(&path);
+        if let Err(e) = result {
+          eprintln!("Error processing {}: {}", path.display(), e);
+          has_missing_license.store(true, Ordering::Relaxed);
+        }
+      } else if path.is_dir() {
+        // Process a directory recursively
+        let has_missing = self.process_directory(&path)?;
+        if has_missing {
+          has_missing_license.store(true, Ordering::Relaxed);
+        }
+      } else {
+        // Try to use the pattern as a glob
+        let entries = glob::glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+
+        for entry in entries {
+          match entry {
+            Ok(path) => {
+              if path.is_file() {
+                // Process a single file matching the glob pattern
                 // Load .licenseignore files from the file's parent directory
                 let result = self.process_file_with_ignore_context(&path);
                 if let Err(e) = result {
-                    eprintln!("Error processing {}: {}", path.display(), e);
-                    has_missing_license.store(true, Ordering::Relaxed);
+                  eprintln!("Error processing {}: {}", path.display(), e);
+                  has_missing_license.store(true, Ordering::Relaxed);
                 }
-            } else if path.is_dir() {
-                // Process a directory recursively
+              } else if path.is_dir() {
                 let has_missing = self.process_directory(&path)?;
                 if has_missing {
-                    has_missing_license.store(true, Ordering::Relaxed);
+                  has_missing_license.store(true, Ordering::Relaxed);
                 }
-            } else {
-                // Try to use the pattern as a glob
-                let entries = glob::glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
-
-                for entry in entries {
-                    match entry {
-                        Ok(path) => {
-                            if path.is_file() {
-                                // Process a single file matching the glob pattern
-                                // Load .licenseignore files from the file's parent directory
-                                let result = self.process_file_with_ignore_context(&path);
-                                if let Err(e) = result {
-                                    eprintln!("Error processing {}: {}", path.display(), e);
-                                    has_missing_license.store(true, Ordering::Relaxed);
-                                }
-                            } else if path.is_dir() {
-                                let has_missing = self.process_directory(&path)?;
-                                if has_missing {
-                                    has_missing_license.store(true, Ordering::Relaxed);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Error with glob pattern: {}", e);
-                        }
-                    }
-                }
+              }
             }
+            Err(e) => {
+              eprintln!("Error with glob pattern: {}", e);
+            }
+          }
         }
-
-        Ok(has_missing_license.load(Ordering::Relaxed))
+      }
     }
 
-    /// Process a file with ignore context from its parent directory.
-    ///
-    /// This ensures that .licenseignore files in the file's directory are
-    /// applied even to explicitly named files.
-    fn process_file_with_ignore_context(&self, path: &Path) -> Result<()> {
-        // Get the parent directory of the file to load directory-specific ignore patterns
-        if let Some(parent_dir) = path.parent() {
-            // Create a temporary ignore filter with the parent directory's ignore patterns
-            if parent_dir.exists() {
-                let mut ignore_manager = self.ignore_manager.clone();
-                ignore_manager.load_licenseignore_files(parent_dir)?;
+    Ok(has_missing_license.load(Ordering::Relaxed))
+  }
 
-                // Check if the file is ignored by the parent directory-specific patterns
-                if ignore_manager.is_ignored(path) {
-                    verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
-
-                    // Add to report if collecting report data
-                    if self.collect_report_data {
-                        let file_report = FileReport {
-                            path: path.to_path_buf(),
-                            has_license: false, // We don't know, but we're skipping it
-                            action_taken: Some(FileAction::Skipped),
-                            ignored: true,
-                            ignored_reason: Some("Matches .licenseignore pattern".to_string()),
-                        };
-
-                        if let Ok(mut reports) = self.file_reports.lock() {
-                            reports.push(file_report);
-                        }
-                    }
-
-                    return Ok(());
-                }
-            }
-        }
-
-        // Process the file normally - this will still use the composite filter for other checks
-        self.process_file(path)
-    }
-
-    /// Processes a directory recursively, adding or checking license headers in all files.
-    ///
-    /// This method:
-    /// 1. Recursively finds all files in the directory
-    /// 2. Filters out files that match ignore patterns
-    /// 3. Processes each file in parallel using Rayon
-    ///
-    /// # Parameters
-    ///
-    /// * `dir` - Path to the directory to process
-    ///
-    /// # Returns
-    ///
-    /// `true` if any files were missing license headers, `false` otherwise.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if directory traversal fails or if file processing fails.
-    ///
-    /// # Performance
-    ///
-    /// This method uses parallel processing via Rayon to improve performance
-    /// when dealing with large directories.
-    pub fn process_directory(&self, dir: &Path) -> Result<bool> {
-        let has_missing_license = Arc::new(AtomicBool::new(false));
-
-        // Load .licenseignore files for this directory
-        // Note: We need to clone ignore_manager because we can't mutate self
+  /// Process a file with ignore context from its parent directory.
+  ///
+  /// This ensures that .licenseignore files in the file's directory are
+  /// applied even to explicitly named files.
+  fn process_file_with_ignore_context(&self, path: &Path) -> Result<()> {
+    // Get the parent directory of the file to load directory-specific ignore patterns
+    if let Some(parent_dir) = path.parent() {
+      // Create a temporary ignore filter with the parent directory's ignore patterns
+      if parent_dir.exists() {
         let mut ignore_manager = self.ignore_manager.clone();
-        ignore_manager.load_licenseignore_files(dir)?;
+        ignore_manager.load_licenseignore_files(parent_dir)?;
 
-        // Collect all files in the directory
-        let all_files: Vec<_> = WalkDir::new(dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-            .map(|e| e.path().to_path_buf())
-            .collect();
+        // Check if the file is ignored by the parent directory-specific patterns
+        if ignore_manager.is_ignored(path) {
+          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
 
-        // Use our enhanced ignore manager with directory-specific patterns
-        // to pre-filter files before processing
-        let files: Vec<_> = all_files
-            .into_iter()
-            .filter(|p| {
-                let should_ignore = ignore_manager.is_ignored(p);
-                if should_ignore {
-                    verbose_log!("Skipping: {} (matches ignore pattern)", p.display());
-                }
-                !should_ignore
-            })
-            .collect();
+          // Add to report if collecting report data
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: false, // We don't know, but we're skipping it
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+            };
 
-        // Process files in parallel
-        files.par_iter().for_each(|path| {
-            let result = self.process_file(path);
-            if let Err(e) = result {
-                // If we're in check-only mode and the error is "Missing license header",
-                // this is expected and we should set has_missing_license to true
-                if self.check_only && e.to_string().contains("Missing license header") {
-                    has_missing_license.store(true, Ordering::Relaxed);
-                } else {
-                    // For other errors, print them
-                    eprintln!("Error processing {}: {}", path.display(), e);
-                    // Still set has_missing_license to true for any error
-                    has_missing_license.store(true, Ordering::Relaxed);
-                }
+            if let Ok(mut reports) = self.file_reports.lock() {
+              reports.push(file_report);
             }
-        });
+          }
 
-        Ok(has_missing_license.load(Ordering::Relaxed))
+          return Ok(());
+        }
+      }
     }
 
-    /// Processes a single file, adding or checking a license header.
-    ///
-    /// This method:
-    /// 1. Checks if the file should be ignored
-    /// 2. In ratchet mode, checks if the file has changed
-    /// 3. Reads the file content
-    /// 4. Checks if the file already has a license header
-    /// 5. In check-only mode:
-    ///    - If show_diff is enabled, shows a diff of what would be changed
-    ///    - Otherwise, returns an error if the license is missing
-    /// 6. Otherwise, adds a license header or updates the year in an existing one
-    ///
-    /// # Parameters
-    ///
-    /// * `path` - Path to the file to process
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the file was processed successfully, or an error if:
-    /// - The file cannot be read or written
-    /// - The file is missing a license header in check-only mode
-    /// - License template rendering fails
-    pub fn process_file(&self, path: &Path) -> Result<()> {
-        verbose_log!("Processing file: {}", path.display());
+    // Process the file normally - this will still use the composite filter for other checks
+    self.process_file(path)
+  }
 
-        // Use our composite file filter to determine if we should process this file
-        let filter_result = self.file_filter.should_process(path)?;
-        if !filter_result.should_process {
-            let reason = filter_result
-                .reason
-                .clone()
-                .unwrap_or_else(|| "Unknown reason".to_string());
-            verbose_log!("Skipping: {} ({})", path.display(), reason);
+  /// Processes a directory recursively, adding or checking license headers in all files.
+  ///
+  /// This method:
+  /// 1. Recursively finds all files in the directory
+  /// 2. Filters out files that match ignore patterns
+  /// 3. Processes each file in parallel using Rayon
+  ///
+  /// # Parameters
+  ///
+  /// * `dir` - Path to the directory to process
+  ///
+  /// # Returns
+  ///
+  /// `true` if any files were missing license headers, `false` otherwise.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if directory traversal fails or if file processing fails.
+  ///
+  /// # Performance
+  ///
+  /// This method uses parallel processing via Rayon to improve performance
+  /// when dealing with large directories.
+  pub fn process_directory(&self, dir: &Path) -> Result<bool> {
+    let has_missing_license = Arc::new(AtomicBool::new(false));
 
-            // Add to report if collecting report data
-            if self.collect_report_data {
-                let file_report = FileReport {
-                    path: path.to_path_buf(),
-                    has_license: false, // We don't know, but we're skipping it
-                    action_taken: Some(FileAction::Skipped),
-                    ignored: true,
-                    ignored_reason: filter_result.reason,
-                };
+    // Load .licenseignore files for this directory
+    // Note: We need to clone ignore_manager because we can't mutate self
+    let mut ignore_manager = self.ignore_manager.clone();
+    ignore_manager.load_licenseignore_files(dir)?;
 
-                if let Ok(mut reports) = self.file_reports.lock() {
-                    reports.push(file_report);
-                }
-            }
+    // Collect all files in the directory
+    let all_files: Vec<_> = WalkDir::new(dir)
+      .into_iter()
+      .filter_map(Result::ok)
+      .filter(|e| e.file_type().is_file())
+      .map(|e| e.path().to_path_buf())
+      .collect();
 
-            return Ok(());
+    // Use our enhanced ignore manager with directory-specific patterns
+    // to pre-filter files before processing
+    let files: Vec<_> = all_files
+      .into_iter()
+      .filter(|p| {
+        let should_ignore = ignore_manager.is_ignored(p);
+        if should_ignore {
+          verbose_log!("Skipping: {} (matches ignore pattern)", p.display());
         }
+        !should_ignore
+      })
+      .collect();
 
-        // Increment the files processed counter
-        self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        // Read file content
-        let content = fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
-
-        // Check if the file already has a license
-        let has_license = self.has_license(&content);
-        verbose_log!("File has license: {}", has_license);
-
-        if self.check_only {
-            if !has_license {
-                // In check-only mode, we need to signal that a license is missing
-                // This is used by the test_processor_with_licenseignore test
-
-                // Generate diffs if show_diff is enabled or save_diff_path is provided
-                if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
-                    // Generate what the content would look like with a license
-                    let license_text = self
-                        .template_manager
-                        .render(&self.license_data)
-                        .with_context(|| "Failed to render license template")?;
-
-                    let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
-
-                    // Handle shebang or other special headers
-                    let (prefix, content_without_prefix) = self.extract_prefix(&content);
-
-                    // Combine prefix, license, and content
-                    let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
-
-                    // Generate and display/save the diff
-                    self.diff_manager.display_diff(path, &content, &new_content)?;
-                }
-
-                // Add to report if collecting report data
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license,
-                        action_taken: None, // No action taken in check mode
-                        ignored: false,
-                        ignored_reason: None,
-                    };
-
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
-                    }
-                }
-
-                // Signal that a license is missing by returning an error
-                // This will be caught by the process_directory method and set has_missing_license to true
-                return Err(anyhow::anyhow!("Missing license header"));
-            } else if !self.preserve_years
-                && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())
-            {
-                // Check if we would update the year in the license
-                let updated_content = self.update_year_in_license(&content)?;
-                if updated_content != content {
-                    // Generate and display/save the diff
-                    self.diff_manager.display_diff(path, &content, &updated_content)?;
-                }
-
-                // Add to report if collecting report data
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license,
-                        action_taken: None, // No action taken in check mode, but would update year
-                        ignored: false,
-                        ignored_reason: None,
-                    };
-
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
-                    }
-                }
-            } else {
-                // File has license and we wouldn't update it
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license,
-                        action_taken: Some(FileAction::NoActionNeeded),
-                        ignored: false,
-                        ignored_reason: None,
-                    };
-
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
-                    }
-                }
-            }
-            return Ok(());
-        }
-
-        if has_license {
-            // If the file has a license and we're not in preserve_years mode,
-            // check if we need to update the year
-            if !self.preserve_years {
-                let updated_content = self.update_year_in_license(&content)?;
-                if updated_content != content {
-                    verbose_log!("Updating year in: {}", path.display());
-                    fs::write(path, updated_content)
-                        .with_context(|| format!("Failed to write to file: {}", path.display()))?;
-
-                    // Log the updated file with colors
-                    info_log!("Updated year in: {}", path.display());
-
-                    // Add to report if collecting report data
-                    if self.collect_report_data {
-                        let file_report = FileReport {
-                            path: path.to_path_buf(),
-                            has_license: true,
-                            action_taken: Some(FileAction::YearUpdated),
-                            ignored: false,
-                            ignored_reason: None,
-                        };
-
-                        if let Ok(mut reports) = self.file_reports.lock() {
-                            reports.push(file_report);
-                        }
-                    }
-                } else {
-                    // No changes needed - add to report
-                    if self.collect_report_data {
-                        let file_report = FileReport {
-                            path: path.to_path_buf(),
-                            has_license: true,
-                            action_taken: Some(FileAction::NoActionNeeded),
-                            ignored: false,
-                            ignored_reason: None,
-                        };
-
-                        if let Ok(mut reports) = self.file_reports.lock() {
-                            reports.push(file_report);
-                        }
-                    }
-                }
-            } else {
-                // Preserve years mode enabled - add to report
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license: true,
-                        action_taken: Some(FileAction::NoActionNeeded),
-                        ignored: false,
-                        ignored_reason: None,
-                    };
-
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
-                    }
-                }
-            }
+    // Process files in parallel
+    files.par_iter().for_each(|path| {
+      let result = self.process_file(path);
+      if let Err(e) = result {
+        // If we're in check-only mode and the error is "Missing license header",
+        // this is expected and we should set has_missing_license to true
+        if self.check_only && e.to_string().contains("Missing license header") {
+          has_missing_license.store(true, Ordering::Relaxed);
         } else {
-            // Add license to the file
-            let license_text = self
-                .template_manager
-                .render(&self.license_data)
-                .with_context(|| "Failed to render license template")?;
+          // For other errors, print them
+          eprintln!("Error processing {}: {}", path.display(), e);
+          // Still set has_missing_license to true for any error
+          has_missing_license.store(true, Ordering::Relaxed);
+        }
+      }
+    });
 
-            verbose_log!("Rendered license text:\n{}", license_text);
+    Ok(has_missing_license.load(Ordering::Relaxed))
+  }
 
-            let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+  /// Processes a single file, adding or checking a license header.
+  ///
+  /// This method:
+  /// 1. Checks if the file should be ignored
+  /// 2. In ratchet mode, checks if the file has changed
+  /// 3. Reads the file content
+  /// 4. Checks if the file already has a license header
+  /// 5. In check-only mode:
+  ///    - If show_diff is enabled, shows a diff of what would be changed
+  ///    - Otherwise, returns an error if the license is missing
+  /// 6. Otherwise, adds a license header or updates the year in an existing one
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to process
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if the file was processed successfully, or an error if:
+  /// - The file cannot be read or written
+  /// - The file is missing a license header in check-only mode
+  /// - License template rendering fails
+  pub fn process_file(&self, path: &Path) -> Result<()> {
+    verbose_log!("Processing file: {}", path.display());
 
-            verbose_log!("Formatted license for file type:\n{}", formatted_license);
+    // Use our composite file filter to determine if we should process this file
+    let filter_result = self.file_filter.should_process(path)?;
+    if !filter_result.should_process {
+      let reason = filter_result
+        .reason
+        .clone()
+        .unwrap_or_else(|| "Unknown reason".to_string());
+      verbose_log!("Skipping: {} ({})", path.display(), reason);
 
-            // Handle shebang or other special headers
-            let (prefix, content) = self.extract_prefix(&content);
+      // Add to report if collecting report data
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false, // We don't know, but we're skipping it
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: filter_result.reason,
+        };
 
-            // Combine prefix, license, and content
-            let new_content = format!("{}{}{}", prefix, formatted_license, content);
+        if let Ok(mut reports) = self.file_reports.lock() {
+          reports.push(file_report);
+        }
+      }
 
-            verbose_log!("Writing updated content to: {}", path.display());
+      return Ok(());
+    }
 
-            // Write the updated content back to the file
-            fs::write(path, new_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
+    // Increment the files processed counter
+    self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-            // Log the added license with colors
-            info_log!("Added license to: {}", path.display());
+    // Read file content
+    let content = fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
 
-            // Add to report if collecting report data
-            if self.collect_report_data {
-                let file_report = FileReport {
-                    path: path.to_path_buf(),
-                    has_license: true, // Now it has a license
-                    action_taken: Some(FileAction::Added),
-                    ignored: false,
-                    ignored_reason: None,
-                };
+    // Check if the file already has a license
+    let has_license = self.has_license(&content);
+    verbose_log!("File has license: {}", has_license);
 
-                if let Ok(mut reports) = self.file_reports.lock() {
-                    reports.push(file_report);
-                }
-            }
+    if self.check_only {
+      if !has_license {
+        // In check-only mode, we need to signal that a license is missing
+        // This is used by the test_processor_with_licenseignore test
+
+        // Generate diffs if show_diff is enabled or save_diff_path is provided
+        if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
+          // Generate what the content would look like with a license
+          let license_text = self
+            .template_manager
+            .render(&self.license_data)
+            .with_context(|| "Failed to render license template")?;
+
+          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+
+          // Handle shebang or other special headers
+          let (prefix, content_without_prefix) = self.extract_prefix(&content);
+
+          // Combine prefix, license, and content
+          let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
+
+          // Generate and display/save the diff
+          self.diff_manager.display_diff(path, &content, &new_content)?;
         }
 
-        Ok(())
-    }
+        // Add to report if collecting report data
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: None, // No action taken in check mode
+            ignored: false,
+            ignored_reason: None,
+          };
 
-    /// Checks if the content already has a license header.
-    ///
-    /// This method delegates to the configured license detector to determine
-    /// if a file already contains a license header.
-    ///
-    /// # Parameters
-    ///
-    /// * `content` - The file content to check
-    ///
-    /// # Returns
-    ///
-    /// `true` if the content appears to have a license header, `false` otherwise.
-    pub fn has_license(&self, content: &str) -> bool {
-        self.license_detector.has_license(content)
-    }
-
-    /// Extracts special prefixes (like shebang) from file content.
-    ///
-    /// This method identifies and preserves special file prefixes such as:
-    /// - Shebangs (#!)
-    /// - XML declarations (<?xml)
-    /// - HTML doctypes (<!doctype)
-    /// - Ruby encoding comments (# encoding:)
-    /// - PHP opening tags (<?php)
-    /// - Dockerfile directives (# escape, # syntax)
-    ///
-    /// # Parameters
-    ///
-    /// * `content` - The file content to process
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    /// - The extracted prefix as a String (with added newlines for proper separation)
-    /// - The remaining content as a string slice
-    pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
-        // Common prefixes to preserve
-        let prefixes = [
-            "#!",                       // shebang
-            "<?xml",                    // XML declaration
-            "<!doctype",                // HTML doctype
-            "# encoding:",              // Ruby encoding
-            "# frozen_string_literal:", // Ruby interpreter instruction
-            "<?php",                    // PHP opening tag
-            "# escape",                 // Dockerfile directive
-            "# syntax",                 // Dockerfile directive
-        ];
-
-        // Check if the content starts with any of the prefixes
-        let first_line_end = content.find('\n').unwrap_or(content.len());
-        let first_line = &content[..first_line_end].to_lowercase();
-
-        for prefix in &prefixes {
-            if first_line.starts_with(prefix) {
-                let mut prefix_str = content[..=first_line_end].to_string();
-                if !prefix_str.ends_with('\n') {
-                    prefix_str.push('\n');
-                }
-                // Add an extra newline to ensure separation between shebang and license
-                prefix_str.push('\n');
-                return (prefix_str, &content[first_line_end + 1..]);
-            }
+          if let Ok(mut reports) = self.file_reports.lock() {
+            reports.push(file_report);
+          }
         }
 
-        (String::new(), content)
+        // Signal that a license is missing by returning an error
+        // This will be caught by the process_directory method and set has_missing_license to true
+        return Err(anyhow::anyhow!("Missing license header"));
+      } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
+        // Check if we would update the year in the license
+        let updated_content = self.update_year_in_license(&content)?;
+        if updated_content != content {
+          // Generate and display/save the diff
+          self.diff_manager.display_diff(path, &content, &updated_content)?;
+        }
+
+        // Add to report if collecting report data
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: None, // No action taken in check mode, but would update year
+            ignored: false,
+            ignored_reason: None,
+          };
+
+          if let Ok(mut reports) = self.file_reports.lock() {
+            reports.push(file_report);
+          }
+        }
+      } else {
+        // File has license and we wouldn't update it
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: Some(FileAction::NoActionNeeded),
+            ignored: false,
+            ignored_reason: None,
+          };
+
+          if let Ok(mut reports) = self.file_reports.lock() {
+            reports.push(file_report);
+          }
+        }
+      }
+      return Ok(());
     }
 
-    /// Updates the year in existing license headers.
-    ///
-    /// This method finds copyright year references in license headers and updates
-    /// them to the current year specified in the license data. It handles various
-    /// copyright symbol formats including "(c)", "©", or no symbol at all.
-    ///
-    /// # Parameters
-    ///
-    /// * `content` - The file content to process
-    ///
-    /// # Returns
-    ///
-    /// The updated content with the year references replaced, or an error if the
-    /// regex pattern compilation fails.
-    pub fn update_year_in_license(&self, content: &str) -> Result<String> {
-        // Regex to find copyright year patterns - match all copyright symbol formats
-        let year_regex = Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")?;
+    if has_license {
+      // If the file has a license and we're not in preserve_years mode,
+      // check if we need to update the year
+      if !self.preserve_years {
+        let updated_content = self.update_year_in_license(&content)?;
+        if updated_content != content {
+          verbose_log!("Updating year in: {}", path.display());
+          fs::write(path, updated_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
-        let current_year = &self.license_data.year;
+          // Log the updated file with colors
+          info_log!("Updated year in: {}", path.display());
 
-        verbose_log!("Updating year to: {}", current_year);
+          // Add to report if collecting report data
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: true,
+              action_taken: Some(FileAction::YearUpdated),
+              ignored: false,
+              ignored_reason: None,
+            };
 
-        // Update single year to current year
-        let content = year_regex
-            .replace_all(content, |caps: &regex::Captures| {
-                let prefix = &caps[1];
-                let year = &caps[2];
-                let suffix = &caps[3];
+            if let Ok(mut reports) = self.file_reports.lock() {
+              reports.push(file_report);
+            }
+          }
+        } else {
+          // No changes needed - add to report
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: true,
+              action_taken: Some(FileAction::NoActionNeeded),
+              ignored: false,
+              ignored_reason: None,
+            };
 
-                if year != current_year {
-                    verbose_log!("Replacing year {} with {}", year, current_year);
-                    format!("{}{}{}", prefix, current_year, suffix)
-                } else {
-                    // Keep as is if already current
-                    caps[0].to_string()
-                }
-            })
-            .to_string();
+            if let Ok(mut reports) = self.file_reports.lock() {
+              reports.push(file_report);
+            }
+          }
+        }
+      } else {
+        // Preserve years mode enabled - add to report
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: true,
+            action_taken: Some(FileAction::NoActionNeeded),
+            ignored: false,
+            ignored_reason: None,
+          };
 
-        Ok(content)
+          if let Ok(mut reports) = self.file_reports.lock() {
+            reports.push(file_report);
+          }
+        }
+      }
+    } else {
+      // Add license to the file
+      let license_text = self
+        .template_manager
+        .render(&self.license_data)
+        .with_context(|| "Failed to render license template")?;
+
+      verbose_log!("Rendered license text:\n{}", license_text);
+
+      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+
+      verbose_log!("Formatted license for file type:\n{}", formatted_license);
+
+      // Handle shebang or other special headers
+      let (prefix, content) = self.extract_prefix(&content);
+
+      // Combine prefix, license, and content
+      let new_content = format!("{}{}{}", prefix, formatted_license, content);
+
+      verbose_log!("Writing updated content to: {}", path.display());
+
+      // Write the updated content back to the file
+      fs::write(path, new_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
+
+      // Log the added license with colors
+      info_log!("Added license to: {}", path.display());
+
+      // Add to report if collecting report data
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: true, // Now it has a license
+          action_taken: Some(FileAction::Added),
+          ignored: false,
+          ignored_reason: None,
+        };
+
+        if let Ok(mut reports) = self.file_reports.lock() {
+          reports.push(file_report);
+        }
+      }
     }
+
+    Ok(())
+  }
+
+  /// Checks if the content already has a license header.
+  ///
+  /// This method delegates to the configured license detector to determine
+  /// if a file already contains a license header.
+  ///
+  /// # Parameters
+  ///
+  /// * `content` - The file content to check
+  ///
+  /// # Returns
+  ///
+  /// `true` if the content appears to have a license header, `false` otherwise.
+  pub fn has_license(&self, content: &str) -> bool {
+    self.license_detector.has_license(content)
+  }
+
+  /// Extracts special prefixes (like shebang) from file content.
+  ///
+  /// This method identifies and preserves special file prefixes such as:
+  /// - Shebangs (#!)
+  /// - XML declarations (<?xml)
+  /// - HTML doctypes (<!doctype)
+  /// - Ruby encoding comments (# encoding:)
+  /// - PHP opening tags (<?php)
+  /// - Dockerfile directives (# escape, # syntax)
+  ///
+  /// # Parameters
+  ///
+  /// * `content` - The file content to process
+  ///
+  /// # Returns
+  ///
+  /// A tuple containing:
+  /// - The extracted prefix as a String (with added newlines for proper separation)
+  /// - The remaining content as a string slice
+  pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
+    // Common prefixes to preserve
+    let prefixes = [
+      "#!",                       // shebang
+      "<?xml",                    // XML declaration
+      "<!doctype",                // HTML doctype
+      "# encoding:",              // Ruby encoding
+      "# frozen_string_literal:", // Ruby interpreter instruction
+      "<?php",                    // PHP opening tag
+      "# escape",                 // Dockerfile directive
+      "# syntax",                 // Dockerfile directive
+    ];
+
+    // Check if the content starts with any of the prefixes
+    let first_line_end = content.find('\n').unwrap_or(content.len());
+    let first_line = &content[..first_line_end].to_lowercase();
+
+    for prefix in &prefixes {
+      if first_line.starts_with(prefix) {
+        let mut prefix_str = content[..=first_line_end].to_string();
+        if !prefix_str.ends_with('\n') {
+          prefix_str.push('\n');
+        }
+        // Add an extra newline to ensure separation between shebang and license
+        prefix_str.push('\n');
+        return (prefix_str, &content[first_line_end + 1..]);
+      }
+    }
+
+    (String::new(), content)
+  }
+
+  /// Updates the year in existing license headers.
+  ///
+  /// This method finds copyright year references in license headers and updates
+  /// them to the current year specified in the license data. It handles various
+  /// copyright symbol formats including "(c)", "©", or no symbol at all.
+  ///
+  /// # Parameters
+  ///
+  /// * `content` - The file content to process
+  ///
+  /// # Returns
+  ///
+  /// The updated content with the year references replaced, or an error if the
+  /// regex pattern compilation fails.
+  pub fn update_year_in_license(&self, content: &str) -> Result<String> {
+    // Regex to find copyright year patterns - match all copyright symbol formats
+    let year_regex = Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")?;
+
+    let current_year = &self.license_data.year;
+
+    verbose_log!("Updating year to: {}", current_year);
+
+    // Update single year to current year
+    let content = year_regex
+      .replace_all(content, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let year = &caps[2];
+        let suffix = &caps[3];
+
+        if year != current_year {
+          verbose_log!("Replacing year {} with {}", year, current_year);
+          format!("{}{}{}", prefix, current_year, suffix)
+        } else {
+          // Keep as is if already current
+          caps[0].to_string()
+        }
+      })
+      .to_string();
+
+    Ok(content)
+  }
 }

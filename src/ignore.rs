@@ -46,274 +46,272 @@ use crate::verbose_log;
 /// ```
 #[derive(Clone)]
 pub struct IgnoreManager {
-    /// Patterns from command-line arguments
-    cli_patterns: Vec<Pattern>,
+  /// Patterns from command-line arguments
+  cli_patterns: Vec<Pattern>,
 
-    /// Gitignore matcher for .licenseignore files
-    gitignore: Option<Gitignore>,
+  /// Gitignore matcher for .licenseignore files
+  gitignore: Option<Gitignore>,
 
-    /// Path to the root directory where .licenseignore was found
-    root_dir: Option<PathBuf>,
+  /// Path to the root directory where .licenseignore was found
+  root_dir: Option<PathBuf>,
 }
 
 impl IgnoreManager {
-    /// Creates a new ignore manager with the specified command-line ignore patterns.
-    ///
-    /// # Parameters
-    ///
-    /// * `cli_patterns` - Glob patterns from command-line arguments
-    ///
-    /// # Returns
-    ///
-    /// A new `IgnoreManager` instance or an error if initialization fails.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any of the command-line patterns are invalid.
-    pub fn new(cli_patterns: Vec<String>) -> Result<Self> {
-        // Compile glob patterns from command-line
-        let cli_patterns = cli_patterns
-            .into_iter()
-            .map(|p| Pattern::new(&p))
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| "Invalid glob pattern")?;
+  /// Creates a new ignore manager with the specified command-line ignore patterns.
+  ///
+  /// # Parameters
+  ///
+  /// * `cli_patterns` - Glob patterns from command-line arguments
+  ///
+  /// # Returns
+  ///
+  /// A new `IgnoreManager` instance or an error if initialization fails.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any of the command-line patterns are invalid.
+  pub fn new(cli_patterns: Vec<String>) -> Result<Self> {
+    // Compile glob patterns from command-line
+    let cli_patterns = cli_patterns
+      .into_iter()
+      .map(|p| Pattern::new(&p))
+      .collect::<Result<Vec<_>, _>>()
+      .with_context(|| "Invalid glob pattern")?;
 
-        Ok(Self {
-            cli_patterns,
-            gitignore: None,
-            root_dir: None,
-        })
+    Ok(Self {
+      cli_patterns,
+      gitignore: None,
+      root_dir: None,
+    })
+  }
+
+  /// Loads .licenseignore files from the specified directory and its parents up to the root directory.
+  ///
+  /// This method also loads the global ignore file specified by the
+  /// GLOBAL_LICENSE_IGNORE environment variable, if set.
+  ///
+  /// # Parameters
+  ///
+  /// * `dir` - Directory to start searching for .licenseignore files
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if successful, or an error if loading fails.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if:
+  /// - The .licenseignore file exists but cannot be read
+  /// - The global ignore file exists but cannot be read
+  pub fn load_licenseignore_files(&mut self, dir: &Path) -> Result<()> {
+    let mut builder = GitignoreBuilder::new(dir);
+
+    // Add global ignore file if specified by environment variable
+    if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
+      let global_path = PathBuf::from(global_ignore_path);
+      if global_path.exists() {
+        verbose_log!("Loading global ignore file: {}", global_path.display());
+        let content = fs::read_to_string(&global_path)
+          .with_context(|| format!("Failed to read global ignore file: {}", global_path.display()))?;
+
+        for line in content.lines() {
+          if !line.trim().is_empty() && !line.trim().starts_with('#') {
+            builder
+              .add_line(None, line)
+              .with_context(|| format!("Failed to add line from global ignore file: {}", global_path.display()))?;
+          }
+        }
+      } else {
+        verbose_log!("Global ignore file not found: {}", global_path.display());
+      }
     }
 
-    /// Loads .licenseignore files from the specified directory and its parents up to the root directory.
-    ///
-    /// This method also loads the global ignore file specified by the
-    /// GLOBAL_LICENSE_IGNORE environment variable, if set.
-    ///
-    /// # Parameters
-    ///
-    /// * `dir` - Directory to start searching for .licenseignore files
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if successful, or an error if loading fails.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The .licenseignore file exists but cannot be read
-    /// - The global ignore file exists but cannot be read
-    pub fn load_licenseignore_files(&mut self, dir: &Path) -> Result<()> {
-        let mut builder = GitignoreBuilder::new(dir);
+    // Find and load .licenseignore files from the current directory all the way up to the root
+    // We load them starting from the root and moving down to ensure proper pattern precedence
+    let mut licenseignore_files = Vec::new();
+    let mut current_dir = dir.to_path_buf();
 
-        // Add global ignore file if specified by environment variable
-        if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
-            let global_path = PathBuf::from(global_ignore_path);
-            if global_path.exists() {
-                verbose_log!("Loading global ignore file: {}", global_path.display());
-                let content = fs::read_to_string(&global_path)
-                    .with_context(|| format!("Failed to read global ignore file: {}", global_path.display()))?;
+    // First, collect all .licenseignore files going up to the root
+    loop {
+      let ignore_path = current_dir.join(".licenseignore");
+      if ignore_path.exists() {
+        licenseignore_files.push((current_dir.clone(), ignore_path));
+      }
 
-                for line in content.lines() {
-                    if !line.trim().is_empty() && !line.trim().starts_with('#') {
-                        builder.add_line(None, line).with_context(|| {
-                            format!("Failed to add line from global ignore file: {}", global_path.display())
-                        })?;
-                    }
-                }
-            } else {
-                verbose_log!("Global ignore file not found: {}", global_path.display());
-            }
-        }
-
-        // Find and load .licenseignore files from the current directory all the way up to the root
-        // We load them starting from the root and moving down to ensure proper pattern precedence
-        let mut licenseignore_files = Vec::new();
-        let mut current_dir = dir.to_path_buf();
-
-        // First, collect all .licenseignore files going up to the root
-        loop {
-            let ignore_path = current_dir.join(".licenseignore");
-            if ignore_path.exists() {
-                licenseignore_files.push((current_dir.clone(), ignore_path));
-            }
-
-            // Move up to parent directory
-            if !current_dir.pop() {
-                break;
-            }
-        }
-
-        // Reverse the collection so we process from root down to the target directory
-        // This ensures proper precedence where patterns in directories closer to the
-        // target directory override those from higher up
-        licenseignore_files.reverse();
-
-        // Now load each .licenseignore file in order from root to target dir
-        for (dir_path, ignore_path) in licenseignore_files {
-            verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
-            let content = fs::read_to_string(&ignore_path)
-                .with_context(|| format!("Failed to read .licenseignore file: {}", ignore_path.display()))?;
-
-            for line in content.lines() {
-                if !line.trim().is_empty() && !line.trim().starts_with('#') {
-                    builder.add_line(Some(dir_path.clone()), line).with_context(|| {
-                        format!("Failed to add line from .licenseignore file: {}", ignore_path.display())
-                    })?;
-                }
-            }
-        }
-
-        // Build the gitignore matcher
-        let gitignore = builder.build().with_context(|| "Failed to build gitignore matcher")?;
-
-        self.gitignore = Some(gitignore);
-        self.root_dir = Some(dir.to_path_buf());
-
-        Ok(())
+      // Move up to parent directory
+      if !current_dir.pop() {
+        break;
+      }
     }
 
-    /// Checks if a file should be ignored based on all ignore patterns.
-    ///
-    /// This method combines checks from:
-    /// - Command-line ignore patterns
-    /// - .licenseignore files
-    /// - Global ignore file
-    ///
-    /// # Parameters
-    ///
-    /// * `path` - Path to the file to check
-    ///
-    /// # Returns
-    ///
-    /// `true` if the file should be ignored, `false` otherwise.
-    pub fn is_ignored(&self, path: &Path) -> bool {
-        // First check command-line patterns
-        if self.is_ignored_by_cli_patterns(path) {
+    // Reverse the collection so we process from root down to the target directory
+    // This ensures proper precedence where patterns in directories closer to the
+    // target directory override those from higher up
+    licenseignore_files.reverse();
+
+    // Now load each .licenseignore file in order from root to target dir
+    for (dir_path, ignore_path) in licenseignore_files {
+      verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
+      let content = fs::read_to_string(&ignore_path)
+        .with_context(|| format!("Failed to read .licenseignore file: {}", ignore_path.display()))?;
+
+      for line in content.lines() {
+        if !line.trim().is_empty() && !line.trim().starts_with('#') {
+          builder
+            .add_line(Some(dir_path.clone()), line)
+            .with_context(|| format!("Failed to add line from .licenseignore file: {}", ignore_path.display()))?;
+        }
+      }
+    }
+
+    // Build the gitignore matcher
+    let gitignore = builder.build().with_context(|| "Failed to build gitignore matcher")?;
+
+    self.gitignore = Some(gitignore);
+    self.root_dir = Some(dir.to_path_buf());
+
+    Ok(())
+  }
+
+  /// Checks if a file should be ignored based on all ignore patterns.
+  ///
+  /// This method combines checks from:
+  /// - Command-line ignore patterns
+  /// - .licenseignore files
+  /// - Global ignore file
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to check
+  ///
+  /// # Returns
+  ///
+  /// `true` if the file should be ignored, `false` otherwise.
+  pub fn is_ignored(&self, path: &Path) -> bool {
+    // First check command-line patterns
+    if self.is_ignored_by_cli_patterns(path) {
+      return true;
+    }
+
+    // Then check .licenseignore patterns
+    if let Some(ref gitignore) = self.gitignore {
+      if let Some(ref root_dir) = self.root_dir {
+        // Get the path relative to the root directory
+        if let Ok(rel_path) = path.strip_prefix(root_dir) {
+          let match_result = gitignore.matched_path_or_any_parents(rel_path, false);
+          if match_result.is_ignore() {
+            verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
             return true;
+          }
         }
-
-        // Then check .licenseignore patterns
-        if let Some(ref gitignore) = self.gitignore {
-            if let Some(ref root_dir) = self.root_dir {
-                // Get the path relative to the root directory
-                if let Ok(rel_path) = path.strip_prefix(root_dir) {
-                    let match_result = gitignore.matched_path_or_any_parents(rel_path, false);
-                    if match_result.is_ignore() {
-                        verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
-                        return true;
-                    }
-                }
-            }
-        }
-
-        false
+      }
     }
 
-    /// Checks if a file should be ignored based on command-line ignore patterns.
-    ///
-    /// # Parameters
-    ///
-    /// * `path` - Path to the file to check
-    ///
-    /// # Returns
-    ///
-    /// `true` if the file should be ignored, `false` otherwise.
-    fn is_ignored_by_cli_patterns(&self, path: &Path) -> bool {
-        if let Some(path_str) = path.to_str() {
-            // Convert to a relative path string for matching
-            let path_str = path_str.replace("\\", "/"); // Normalize for Windows paths
+    false
+  }
 
-            // Get the file name and parent directories for more targeted matching
-            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+  /// Checks if a file should be ignored based on command-line ignore patterns.
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to check
+  ///
+  /// # Returns
+  ///
+  /// `true` if the file should be ignored, `false` otherwise.
+  fn is_ignored_by_cli_patterns(&self, path: &Path) -> bool {
+    if let Some(path_str) = path.to_str() {
+      // Convert to a relative path string for matching
+      let path_str = path_str.replace("\\", "/"); // Normalize for Windows paths
 
-            // Extract the last few components of the path for matching
-            // This helps with patterns like "vendor/" that should match regardless of the full path
-            let components: Vec<_> = path.components().collect();
-            let mut partial_paths = Vec::new();
+      // Get the file name and parent directories for more targeted matching
+      let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-            // Build partial paths from the components
-            for i in 0..components.len() {
-                let partial_path = components[i..].iter().fold(String::new(), |mut acc, c| {
-                    if !acc.is_empty() {
-                        acc.push('/');
-                    }
-                    acc.push_str(c.as_os_str().to_str().unwrap_or(""));
-                    acc
-                });
-                partial_paths.push(partial_path);
+      // Extract the last few components of the path for matching
+      // This helps with patterns like "vendor/" that should match regardless of the full path
+      let components: Vec<_> = path.components().collect();
+      let mut partial_paths = Vec::new();
+
+      // Build partial paths from the components
+      for i in 0..components.len() {
+        let partial_path = components[i..].iter().fold(String::new(), |mut acc, c| {
+          if !acc.is_empty() {
+            acc.push('/');
+          }
+          acc.push_str(c.as_os_str().to_str().unwrap_or(""));
+          acc
+        });
+        partial_paths.push(partial_path);
+      }
+
+      for pattern in &self.cli_patterns {
+        let pattern_str = pattern.as_str();
+
+        // Special handling for directory patterns (ending with /)
+        if let Some(dir_pattern) = pattern_str.strip_suffix('/') {
+          // Check if any partial path matches the directory pattern
+          for partial_path in &partial_paths {
+            if partial_path.starts_with(dir_pattern)
+              && (partial_path.len() == dir_pattern.len() || partial_path[dir_pattern.len()..].starts_with('/'))
+            {
+              verbose_log!(
+                "Skipping: {} (matches CLI directory pattern: {})",
+                path.display(),
+                pattern
+              );
+              return true;
             }
-
-            for pattern in &self.cli_patterns {
-                let pattern_str = pattern.as_str();
-
-                // Special handling for directory patterns (ending with /)
-                if let Some(dir_pattern) = pattern_str.strip_suffix('/') {
-                    // Check if any partial path matches the directory pattern
-                    for partial_path in &partial_paths {
-                        if partial_path.starts_with(dir_pattern)
-                            && (partial_path.len() == dir_pattern.len()
-                                || partial_path[dir_pattern.len()..].starts_with('/'))
-                        {
-                            verbose_log!(
-                                "Skipping: {} (matches CLI directory pattern: {})",
-                                path.display(),
-                                pattern
-                            );
-                            return true;
-                        }
-                    }
-                }
-
-                // Try matching the pattern against the path
-                if pattern.matches(&path_str) {
-                    verbose_log!("Skipping: {} (matches CLI ignore pattern: {})", path.display(), pattern);
-                    return true;
-                }
-
-                // Try matching against file name
-                if pattern.matches(file_name) {
-                    verbose_log!(
-                        "Skipping: {} (matches CLI ignore pattern for file name: {})",
-                        path.display(),
-                        pattern
-                    );
-                    return true;
-                }
-
-                // Try matching against partial paths
-                for partial_path in &partial_paths {
-                    if pattern.matches(partial_path) {
-                        verbose_log!(
-                            "Skipping: {} (matches CLI ignore pattern for partial path: {})",
-                            path.display(),
-                            pattern
-                        );
-                        return true;
-                    }
-                }
-
-                // Special handling for directory patterns without trailing slash
-                // This handles patterns like "vendor" or "vendor/**"
-                if !pattern_str.contains('*') && !pattern_str.contains('?') && !pattern_str.ends_with('/') {
-                    // Check if any partial path starts with the pattern
-                    for partial_path in &partial_paths {
-                        if partial_path.starts_with(pattern_str)
-                            && (partial_path.len() == pattern_str.len()
-                                || partial_path[pattern_str.len()..].starts_with('/'))
-                        {
-                            verbose_log!(
-                                "Skipping: {} (matches CLI directory name pattern: {})",
-                                path.display(),
-                                pattern
-                            );
-                            return true;
-                        }
-                    }
-                }
-            }
+          }
         }
 
-        false
+        // Try matching the pattern against the path
+        if pattern.matches(&path_str) {
+          verbose_log!("Skipping: {} (matches CLI ignore pattern: {})", path.display(), pattern);
+          return true;
+        }
+
+        // Try matching against file name
+        if pattern.matches(file_name) {
+          verbose_log!(
+            "Skipping: {} (matches CLI ignore pattern for file name: {})",
+            path.display(),
+            pattern
+          );
+          return true;
+        }
+
+        // Try matching against partial paths
+        for partial_path in &partial_paths {
+          if pattern.matches(partial_path) {
+            verbose_log!(
+              "Skipping: {} (matches CLI ignore pattern for partial path: {})",
+              path.display(),
+              pattern
+            );
+            return true;
+          }
+        }
+
+        // Special handling for directory patterns without trailing slash
+        // This handles patterns like "vendor" or "vendor/**"
+        if !pattern_str.contains('*') && !pattern_str.contains('?') && !pattern_str.ends_with('/') {
+          // Check if any partial path starts with the pattern
+          for partial_path in &partial_paths {
+            if partial_path.starts_with(pattern_str)
+              && (partial_path.len() == pattern_str.len() || partial_path[pattern_str.len()..].starts_with('/'))
+            {
+              verbose_log!(
+                "Skipping: {} (matches CLI directory name pattern: {})",
+                path.display(),
+                pattern
+              );
+              return true;
+            }
+          }
+        }
+      }
     }
+
+    false
+  }
 }

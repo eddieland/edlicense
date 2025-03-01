@@ -2,7 +2,7 @@
 name = "edlicense"
 version = "0.1.0"
 edition = "2024"
-description = "A tool that ensures source code files have copyright license headers"
+description = "A high-performance Rust tool that ensures source code files have copyright license headers. Features Git integration and automatic year updates. Recursively scans codebases with performance optimizations for large projects - a modern alternative to addlicense."
 
 [dependencies]
 anyhow = "1.0"

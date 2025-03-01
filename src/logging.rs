@@ -45,50 +45,50 @@ static COLOR_MODE: AtomicU8 = AtomicU8::new(0);
 /// Enum representing the color mode options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorMode {
-    /// Automatically determine whether to use colors based on TTY detection
-    Auto = 0,
-    /// Never use colors
-    Never = 1,
-    /// Always use colors
-    Always = 2,
+  /// Automatically determine whether to use colors based on TTY detection
+  Auto = 0,
+  /// Never use colors
+  Never = 1,
+  /// Always use colors
+  Always = 2,
 }
 
 impl ColorMode {
-    /// Convert from a string to ColorMode (for potential future use)
-    #[allow(dead_code)]
-    fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "auto" => Ok(ColorMode::Auto),
-            "never" => Ok(ColorMode::Never),
-            "always" => Ok(ColorMode::Always),
-            _ => Err(format!("Invalid color mode: {}", s)),
-        }
+  /// Convert from a string to ColorMode (for potential future use)
+  #[allow(dead_code)]
+  fn from_str(s: &str) -> Result<Self, String> {
+    match s.to_lowercase().as_str() {
+      "auto" => Ok(ColorMode::Auto),
+      "never" => Ok(ColorMode::Never),
+      "always" => Ok(ColorMode::Always),
+      _ => Err(format!("Invalid color mode: {}", s)),
     }
+  }
 
-    /// Convert from u8 to ColorMode
-    fn from_u8(value: u8) -> Self {
-        match value {
-            0 => ColorMode::Auto,
-            1 => ColorMode::Never,
-            2 => ColorMode::Always,
-            _ => ColorMode::Auto, // Default to Auto for invalid values
-        }
+  /// Convert from u8 to ColorMode
+  fn from_u8(value: u8) -> Self {
+    match value {
+      0 => ColorMode::Auto,
+      1 => ColorMode::Never,
+      2 => ColorMode::Always,
+      _ => ColorMode::Auto, // Default to Auto for invalid values
     }
+  }
 
-    /// Convert to termcolor::ColorChoice
-    fn to_color_choice(self) -> ColorChoice {
-        match self {
-            ColorMode::Auto => {
-                if atty::is(atty::Stream::Stdout) {
-                    ColorChoice::Auto
-                } else {
-                    ColorChoice::Never
-                }
-            }
-            ColorMode::Never => ColorChoice::Never,
-            ColorMode::Always => ColorChoice::Always,
+  /// Convert to termcolor::ColorChoice
+  fn to_color_choice(self) -> ColorChoice {
+    match self {
+      ColorMode::Auto => {
+        if atty::is(atty::Stream::Stdout) {
+          ColorChoice::Auto
+        } else {
+          ColorChoice::Never
         }
+      }
+      ColorMode::Never => ColorChoice::Never,
+      ColorMode::Always => ColorChoice::Always,
     }
+  }
 }
 
 /// Sets the global verbose logging flag.
@@ -100,7 +100,7 @@ impl ColorMode {
 ///
 /// * `verbose` - `true` to enable verbose logging, `false` to disable it
 pub fn set_verbose(verbose: bool) {
-    VERBOSE.store(verbose, Ordering::SeqCst);
+  VERBOSE.store(verbose, Ordering::SeqCst);
 }
 
 /// Sets the global color mode.
@@ -111,7 +111,7 @@ pub fn set_verbose(verbose: bool) {
 ///
 /// * `mode` - The color mode to use
 pub fn set_color_mode(mode: ColorMode) {
-    COLOR_MODE.store(mode as u8, Ordering::SeqCst);
+  COLOR_MODE.store(mode as u8, Ordering::SeqCst);
 }
 
 /// Gets the current color mode.
@@ -120,7 +120,7 @@ pub fn set_color_mode(mode: ColorMode) {
 ///
 /// The current color mode.
 pub fn get_color_mode() -> ColorMode {
-    ColorMode::from_u8(COLOR_MODE.load(Ordering::SeqCst))
+  ColorMode::from_u8(COLOR_MODE.load(Ordering::SeqCst))
 }
 
 /// Checks if verbose logging is currently enabled.
@@ -132,7 +132,7 @@ pub fn get_color_mode() -> ColorMode {
 ///
 /// `true` if verbose logging is enabled, `false` otherwise.
 pub fn is_verbose() -> bool {
-    VERBOSE.load(Ordering::SeqCst)
+  VERBOSE.load(Ordering::SeqCst)
 }
 
 /// Logs a message to stderr if verbose mode is enabled.
@@ -169,21 +169,21 @@ macro_rules! info_log {
 ///
 /// * `message` - The message to print
 pub fn print_info_log(message: &str) {
-    let color_mode = get_color_mode();
-    let color_choice = color_mode.to_color_choice();
+  let color_mode = get_color_mode();
+  let color_choice = color_mode.to_color_choice();
 
-    let mut stdout = StandardStream::stdout(color_choice);
+  let mut stdout = StandardStream::stdout(color_choice);
 
-    if let Err(e) = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))) {
-        eprintln!("Error setting color: {}", e);
-    }
+  if let Err(e) = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))) {
+    eprintln!("Error setting color: {}", e);
+  }
 
-    if let Err(e) = writeln!(&mut stdout, "{}", message) {
-        eprintln!("Error writing to stdout: {}", e);
-    }
+  if let Err(e) = writeln!(&mut stdout, "{}", message) {
+    eprintln!("Error writing to stdout: {}", e);
+  }
 
-    // Reset colors
-    if let Err(e) = stdout.reset() {
-        eprintln!("Error resetting colors: {}", e);
-    }
+  // Reset colors
+  if let Err(e) = stdout.reset() {
+    eprintln!("Error resetting colors: {}", e);
+  }
 }

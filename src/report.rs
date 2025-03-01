@@ -15,75 +15,75 @@ use std::path::PathBuf;
 /// Information about a processed file for reporting
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileReport {
-    /// Path to the file
-    #[serde(with = "path_serialization")]
-    pub path: PathBuf,
-    /// Whether the file has a license header
-    pub has_license: bool,
-    /// Action taken on the file, if any
-    pub action_taken: Option<FileAction>,
-    /// Whether the file was ignored
-    pub ignored: bool,
-    /// Reason the file was ignored, if applicable
-    pub ignored_reason: Option<String>,
+  /// Path to the file
+  #[serde(with = "path_serialization")]
+  pub path: PathBuf,
+  /// Whether the file has a license header
+  pub has_license: bool,
+  /// Action taken on the file, if any
+  pub action_taken: Option<FileAction>,
+  /// Whether the file was ignored
+  pub ignored: bool,
+  /// Reason the file was ignored, if applicable
+  pub ignored_reason: Option<String>,
 }
 
 /// Possible actions taken on a file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileAction {
-    /// License header was added to the file
-    Added,
-    /// License year was updated
-    #[serde(rename = "updated")]
-    YearUpdated,
-    /// No action was needed (file already had correct license)
-    #[serde(rename = "none")]
-    NoActionNeeded,
-    /// File was skipped for some other reason
-    Skipped,
+  /// License header was added to the file
+  Added,
+  /// License year was updated
+  #[serde(rename = "updated")]
+  YearUpdated,
+  /// No action was needed (file already had correct license)
+  #[serde(rename = "none")]
+  NoActionNeeded,
+  /// File was skipped for some other reason
+  Skipped,
 }
 
 /// Helper module for serializing/deserializing PathBuf
 mod path_serialization {
-    use serde::{Deserialize, Deserializer, Serializer};
-    use std::path::PathBuf;
+  use serde::{Deserialize, Deserializer, Serializer};
+  use std::path::PathBuf;
 
-    pub fn serialize<S>(path: &std::path::Path, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&path.to_string_lossy())
-    }
+  pub fn serialize<S>(path: &std::path::Path, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    serializer.serialize_str(&path.to_string_lossy())
+  }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(PathBuf::from(s))
-    }
+  pub fn deserialize<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    let s = String::deserialize(deserializer)?;
+    Ok(PathBuf::from(s))
+  }
 }
 
 /// Supported report formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportFormat {
-    /// HTML format with styled output
-    Html,
-    /// JSON format for machine readability
-    Json,
-    /// CSV format for spreadsheet compatibility
-    Csv,
+  /// HTML format with styled output
+  Html,
+  /// JSON format for machine readability
+  Json,
+  /// CSV format for spreadsheet compatibility
+  Csv,
 }
 
 impl std::fmt::Display for ReportFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReportFormat::Html => write!(f, "HTML"),
-            ReportFormat::Json => write!(f, "JSON"),
-            ReportFormat::Csv => write!(f, "CSV"),
-        }
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      ReportFormat::Html => write!(f, "HTML"),
+      ReportFormat::Json => write!(f, "JSON"),
+      ReportFormat::Csv => write!(f, "CSV"),
     }
+  }
 }
 
 /// Error returned when parsing a string into a ReportFormat fails
@@ -92,65 +92,65 @@ impl std::fmt::Display for ReportFormat {
 pub struct ParseReportFormatError(pub String);
 
 impl std::str::FromStr for ReportFormat {
-    type Err = ParseReportFormatError;
+  type Err = ParseReportFormatError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "html" => Ok(ReportFormat::Html),
-            "json" => Ok(ReportFormat::Json),
-            "csv" => Ok(ReportFormat::Csv),
-            _ => Err(ParseReportFormatError(s.to_string())),
-        }
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s.to_lowercase().as_str() {
+      "html" => Ok(ReportFormat::Html),
+      "json" => Ok(ReportFormat::Json),
+      "csv" => Ok(ReportFormat::Csv),
+      _ => Err(ParseReportFormatError(s.to_string())),
     }
+  }
 }
 
 /// Report Generator for creating license reports
 pub struct ReportGenerator {
-    /// Format of the report to generate
-    format: ReportFormat,
-    /// Path where the report will be saved
-    output_path: PathBuf,
+  /// Format of the report to generate
+  format: ReportFormat,
+  /// Path where the report will be saved
+  output_path: PathBuf,
 }
 
 impl ReportGenerator {
-    /// Create a new report generator
-    ///
-    /// # Parameters
-    ///
-    /// * `format` - The format to use for the report
-    /// * `output_path` - The path where the report will be saved
-    pub fn new(format: ReportFormat, output_path: PathBuf) -> Self {
-        Self { format, output_path }
-    }
+  /// Create a new report generator
+  ///
+  /// # Parameters
+  ///
+  /// * `format` - The format to use for the report
+  /// * `output_path` - The path where the report will be saved
+  pub fn new(format: ReportFormat, output_path: PathBuf) -> Self {
+    Self { format, output_path }
+  }
 
-    /// Generate a report from a collection of file reports
-    ///
-    /// # Parameters
-    ///
-    /// * `files` - List of file reports to include
-    /// * `summary` - Processing summary information
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the report was generated successfully, or an error if the report
-    /// couldn't be generated or written to disk.
-    pub fn generate(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<()> {
-        let content = match self.format {
-            ReportFormat::Html => self.generate_html(files, summary)?,
-            ReportFormat::Json => self.generate_json(files, summary)?,
-            ReportFormat::Csv => self.generate_csv(files, summary)?,
-        };
+  /// Generate a report from a collection of file reports
+  ///
+  /// # Parameters
+  ///
+  /// * `files` - List of file reports to include
+  /// * `summary` - Processing summary information
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if the report was generated successfully, or an error if the report
+  /// couldn't be generated or written to disk.
+  pub fn generate(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<()> {
+    let content = match self.format {
+      ReportFormat::Html => self.generate_html(files, summary)?,
+      ReportFormat::Json => self.generate_json(files, summary)?,
+      ReportFormat::Csv => self.generate_csv(files, summary)?,
+    };
 
-        fs::write(&self.output_path, content)
-            .with_context(|| format!("Failed to write report to {}", self.output_path.display()))
-    }
+    fs::write(&self.output_path, content)
+      .with_context(|| format!("Failed to write report to {}", self.output_path.display()))
+  }
 
-    /// Generate HTML report content
-    fn generate_html(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<String> {
-        let date = Local::now().format("%Y-%m-%d %H:%M:%S");
+  /// Generate HTML report content
+  fn generate_html(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<String> {
+    let date = Local::now().format("%Y-%m-%d %H:%M:%S");
 
-        let mut html = format!(
-            r#"<!DOCTYPE html>
+    let mut html = format!(
+      r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -239,259 +239,259 @@ impl ReportGenerator {
             <th>Notes</th>
         </tr>
 "#,
-            summary.total_files,
-            summary.files_with_license,
-            summary.files_without_license,
-            summary.files_ignored,
-            summary.licenses_added,
-            summary.licenses_updated,
-            summary.processing_time.as_secs_f64()
-        );
+      summary.total_files,
+      summary.files_with_license,
+      summary.files_without_license,
+      summary.files_ignored,
+      summary.licenses_added,
+      summary.licenses_updated,
+      summary.processing_time.as_secs_f64()
+    );
 
-        for file in files {
-            let path_display = file.path.display();
+    for file in files {
+      let path_display = file.path.display();
 
-            let status_class = if file.has_license {
-                "status-with"
-            } else {
-                "status-without"
-            };
+      let status_class = if file.has_license {
+        "status-with"
+      } else {
+        "status-without"
+      };
 
-            let status_text = if file.has_license { "Has license" } else { "No license" };
+      let status_text = if file.has_license { "Has license" } else { "No license" };
 
-            let (action_class, action_text) = if file.ignored {
-                ("ignored", "Ignored")
-            } else if let Some(action) = &file.action_taken {
-                match action {
-                    FileAction::Added => ("action-added", "Added license"),
-                    FileAction::YearUpdated => ("action-updated", "Updated year"),
-                    FileAction::NoActionNeeded => ("action-none", "None needed"),
-                    FileAction::Skipped => ("ignored", "Skipped"),
-                }
-            } else {
-                ("action-none", "None")
-            };
+      let (action_class, action_text) = if file.ignored {
+        ("ignored", "Ignored")
+      } else if let Some(action) = &file.action_taken {
+        match action {
+          FileAction::Added => ("action-added", "Added license"),
+          FileAction::YearUpdated => ("action-updated", "Updated year"),
+          FileAction::NoActionNeeded => ("action-none", "None needed"),
+          FileAction::Skipped => ("ignored", "Skipped"),
+        }
+      } else {
+        ("action-none", "None")
+      };
 
-            let note = if file.ignored {
-                if let Some(reason) = &file.ignored_reason {
-                    reason
-                } else {
-                    "Matched ignore pattern"
-                }
-            } else {
-                ""
-            };
+      let note = if file.ignored {
+        if let Some(reason) = &file.ignored_reason {
+          reason
+        } else {
+          "Matched ignore pattern"
+        }
+      } else {
+        ""
+      };
 
-            html.push_str(&format!(
+      html.push_str(&format!(
                 "        <tr>\n            <td>{}</td>\n            <td class=\"{}\">{}</td>\n            <td class=\"{}\">{}</td>\n            <td>{}</td>\n        </tr>\n",
                 path_display, status_class, status_text, action_class, action_text, note
             ));
-        }
-
-        html.push_str("    </table>\n</body>\n</html>");
-
-        Ok(html)
     }
 
-    /// Generate JSON report content
-    fn generate_json(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<String> {
-        use serde_json::{Map, Value, json, to_string_pretty};
+    html.push_str("    </table>\n</body>\n</html>");
 
-        // Manually build files to ensure correct key format
-        let mut files_array = Vec::new();
-        for file in files {
-            let mut file_map = Map::new();
-            file_map.insert(
-                "path".to_string(),
-                Value::String(file.path.to_string_lossy().to_string()),
-            );
-            file_map.insert("has_license".to_string(), Value::Bool(file.has_license));
+    Ok(html)
+  }
 
-            // Handle action
-            let action_str = if file.ignored {
-                "ignored".to_string()
-            } else if let Some(action) = &file.action_taken {
-                match action {
-                    FileAction::Added => "added".to_string(),
-                    FileAction::YearUpdated => "updated".to_string(),
-                    FileAction::NoActionNeeded => "none".to_string(),
-                    FileAction::Skipped => "skipped".to_string(),
-                }
-            } else {
-                "none".to_string()
-            };
-            file_map.insert("action".to_string(), Value::String(action_str));
+  /// Generate JSON report content
+  fn generate_json(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<String> {
+    use serde_json::{Map, Value, json, to_string_pretty};
 
-            // Add ignore reason if applicable
-            if file.ignored && file.ignored_reason.is_some() {
-                file_map.insert(
-                    "ignored_reason".to_string(),
-                    Value::String(file.ignored_reason.clone().unwrap_or_default()),
-                );
-            }
+    // Manually build files to ensure correct key format
+    let mut files_array = Vec::new();
+    for file in files {
+      let mut file_map = Map::new();
+      file_map.insert(
+        "path".to_string(),
+        Value::String(file.path.to_string_lossy().to_string()),
+      );
+      file_map.insert("has_license".to_string(), Value::Bool(file.has_license));
 
-            files_array.push(Value::Object(file_map));
+      // Handle action
+      let action_str = if file.ignored {
+        "ignored".to_string()
+      } else if let Some(action) = &file.action_taken {
+        match action {
+          FileAction::Added => "added".to_string(),
+          FileAction::YearUpdated => "updated".to_string(),
+          FileAction::NoActionNeeded => "none".to_string(),
+          FileAction::Skipped => "skipped".to_string(),
         }
+      } else {
+        "none".to_string()
+      };
+      file_map.insert("action".to_string(), Value::String(action_str));
 
-        // Create summary object
-        let mut summary_map = Map::new();
-        summary_map.insert("total_files".to_string(), Value::Number(summary.total_files.into()));
-        summary_map.insert(
-            "files_with_license".to_string(),
-            Value::Number(summary.files_with_license.into()),
+      // Add ignore reason if applicable
+      if file.ignored && file.ignored_reason.is_some() {
+        file_map.insert(
+          "ignored_reason".to_string(),
+          Value::String(file.ignored_reason.clone().unwrap_or_default()),
         );
-        summary_map.insert(
-            "files_without_license".to_string(),
-            Value::Number(summary.files_without_license.into()),
-        );
-        summary_map.insert("files_ignored".to_string(), Value::Number(summary.files_ignored.into()));
-        summary_map.insert(
-            "licenses_added".to_string(),
-            Value::Number(summary.licenses_added.into()),
-        );
-        summary_map.insert(
-            "licenses_updated".to_string(),
-            Value::Number(summary.licenses_updated.into()),
-        );
-        summary_map.insert(
-            "processing_time_seconds".to_string(),
-            Value::Number(serde_json::Number::from_f64(summary.processing_time.as_secs_f64()).unwrap()),
-        );
+      }
 
-        // Create the final report
-        let report = json!({
-            "summary": summary_map,
-            "files": files_array
-        });
-
-        // Format the JSON with pretty-printing
-        Ok(to_string_pretty(&report)?)
+      files_array.push(Value::Object(file_map));
     }
 
-    /// Generate CSV report content
-    fn generate_csv(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<String> {
-        let mut csv = String::new();
+    // Create summary object
+    let mut summary_map = Map::new();
+    summary_map.insert("total_files".to_string(), Value::Number(summary.total_files.into()));
+    summary_map.insert(
+      "files_with_license".to_string(),
+      Value::Number(summary.files_with_license.into()),
+    );
+    summary_map.insert(
+      "files_without_license".to_string(),
+      Value::Number(summary.files_without_license.into()),
+    );
+    summary_map.insert("files_ignored".to_string(), Value::Number(summary.files_ignored.into()));
+    summary_map.insert(
+      "licenses_added".to_string(),
+      Value::Number(summary.licenses_added.into()),
+    );
+    summary_map.insert(
+      "licenses_updated".to_string(),
+      Value::Number(summary.licenses_updated.into()),
+    );
+    summary_map.insert(
+      "processing_time_seconds".to_string(),
+      Value::Number(serde_json::Number::from_f64(summary.processing_time.as_secs_f64()).unwrap()),
+    );
 
-        // Add header
-        csv.push_str("file_path,has_license,action_taken,notes\n");
+    // Create the final report
+    let report = json!({
+        "summary": summary_map,
+        "files": files_array
+    });
 
-        // Add file details
-        for file in files {
-            let path = file.path.to_string_lossy().replace(',', "%2C"); // Escape commas in path
+    // Format the JSON with pretty-printing
+    Ok(to_string_pretty(&report)?)
+  }
 
-            let action = if file.ignored {
-                "Ignored"
-            } else if let Some(action) = &file.action_taken {
-                match action {
-                    FileAction::Added => "Added",
-                    FileAction::YearUpdated => "Updated",
-                    FileAction::NoActionNeeded => "None",
-                    FileAction::Skipped => "Skipped",
-                }
-            } else {
-                "None"
-            };
+  /// Generate CSV report content
+  fn generate_csv(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<String> {
+    let mut csv = String::new();
 
-            let note = if file.ignored {
-                if let Some(reason) = &file.ignored_reason {
-                    reason.replace(',', "%2C") // Escape commas in note
-                } else {
-                    "Matched ignore pattern".to_string()
-                }
-            } else {
-                String::new()
-            };
+    // Add header
+    csv.push_str("file_path,has_license,action_taken,notes\n");
 
-            csv.push_str(&format!("{},{},{},{}\n", path, file.has_license, action, note));
+    // Add file details
+    for file in files {
+      let path = file.path.to_string_lossy().replace(',', "%2C"); // Escape commas in path
+
+      let action = if file.ignored {
+        "Ignored"
+      } else if let Some(action) = &file.action_taken {
+        match action {
+          FileAction::Added => "Added",
+          FileAction::YearUpdated => "Updated",
+          FileAction::NoActionNeeded => "None",
+          FileAction::Skipped => "Skipped",
         }
+      } else {
+        "None"
+      };
 
-        // Add summary at the end
-        csv.push_str("\n# Summary\n");
-        csv.push_str(&format!("Total files processed,{}\n", summary.total_files));
-        csv.push_str(&format!("Files with license,{}\n", summary.files_with_license));
-        csv.push_str(&format!("Files without license,{}\n", summary.files_without_license));
-        csv.push_str(&format!("Files ignored,{}\n", summary.files_ignored));
-        csv.push_str(&format!("License headers added,{}\n", summary.licenses_added));
-        csv.push_str(&format!("License headers updated,{}\n", summary.licenses_updated));
-        csv.push_str(&format!(
-            "Processing time (seconds),{:.2}\n",
-            summary.processing_time.as_secs_f64()
-        ));
-        csv.push_str(&format!("Generated on,{}\n", Local::now().format("%Y-%m-%d %H:%M:%S")));
+      let note = if file.ignored {
+        if let Some(reason) = &file.ignored_reason {
+          reason.replace(',', "%2C") // Escape commas in note
+        } else {
+          "Matched ignore pattern".to_string()
+        }
+      } else {
+        String::new()
+      };
 
-        Ok(csv)
+      csv.push_str(&format!("{},{},{},{}\n", path, file.has_license, action, note));
     }
+
+    // Add summary at the end
+    csv.push_str("\n# Summary\n");
+    csv.push_str(&format!("Total files processed,{}\n", summary.total_files));
+    csv.push_str(&format!("Files with license,{}\n", summary.files_with_license));
+    csv.push_str(&format!("Files without license,{}\n", summary.files_without_license));
+    csv.push_str(&format!("Files ignored,{}\n", summary.files_ignored));
+    csv.push_str(&format!("License headers added,{}\n", summary.licenses_added));
+    csv.push_str(&format!("License headers updated,{}\n", summary.licenses_updated));
+    csv.push_str(&format!(
+      "Processing time (seconds),{:.2}\n",
+      summary.processing_time.as_secs_f64()
+    ));
+    csv.push_str(&format!("Generated on,{}\n", Local::now().format("%Y-%m-%d %H:%M:%S")));
+
+    Ok(csv)
+  }
 }
 
 /// Summary of the processing results
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessingSummary {
-    /// Total number of files processed
-    pub total_files: usize,
-    /// Number of files with license headers
-    pub files_with_license: usize,
-    /// Number of files without license headers
-    pub files_without_license: usize,
-    /// Number of files ignored
-    pub files_ignored: usize,
-    /// Number of license headers added
-    pub licenses_added: usize,
-    /// Number of license headers updated
-    pub licenses_updated: usize,
-    /// Total processing time
-    #[serde(skip_serializing)]
-    pub processing_time: std::time::Duration,
-    /// Processing time in seconds for serialization
-    #[serde(rename = "processing_time_seconds")]
-    pub processing_time_secs: f64,
-    /// Timestamp when the report was generated
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<i64>,
+  /// Total number of files processed
+  pub total_files: usize,
+  /// Number of files with license headers
+  pub files_with_license: usize,
+  /// Number of files without license headers
+  pub files_without_license: usize,
+  /// Number of files ignored
+  pub files_ignored: usize,
+  /// Number of license headers added
+  pub licenses_added: usize,
+  /// Number of license headers updated
+  pub licenses_updated: usize,
+  /// Total processing time
+  #[serde(skip_serializing)]
+  pub processing_time: std::time::Duration,
+  /// Processing time in seconds for serialization
+  #[serde(rename = "processing_time_seconds")]
+  pub processing_time_secs: f64,
+  /// Timestamp when the report was generated
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub timestamp: Option<i64>,
 }
 
 impl ProcessingSummary {
-    /// Create a new ProcessingSummary initialized to zero
-    pub fn new(processing_time: std::time::Duration) -> Self {
-        Self {
-            total_files: 0,
-            files_with_license: 0,
-            files_without_license: 0,
-            files_ignored: 0,
-            licenses_added: 0,
-            licenses_updated: 0,
-            processing_time,
-            processing_time_secs: processing_time.as_secs_f64(),
-            timestamp: Some(Local::now().timestamp()),
+  /// Create a new ProcessingSummary initialized to zero
+  pub fn new(processing_time: std::time::Duration) -> Self {
+    Self {
+      total_files: 0,
+      files_with_license: 0,
+      files_without_license: 0,
+      files_ignored: 0,
+      licenses_added: 0,
+      licenses_updated: 0,
+      processing_time,
+      processing_time_secs: processing_time.as_secs_f64(),
+      timestamp: Some(Local::now().timestamp()),
+    }
+  }
+
+  /// Create a ProcessingSummary from a collection of FileReports
+  pub fn from_reports(files: &[FileReport], processing_time: std::time::Duration) -> Self {
+    let mut summary = Self::new(processing_time);
+
+    summary.total_files = files.len();
+
+    for file in files {
+      if file.ignored {
+        summary.files_ignored += 1;
+        continue;
+      }
+
+      if file.has_license {
+        summary.files_with_license += 1;
+      } else {
+        summary.files_without_license += 1;
+      }
+
+      if let Some(action) = &file.action_taken {
+        match action {
+          FileAction::Added => summary.licenses_added += 1,
+          FileAction::YearUpdated => summary.licenses_updated += 1,
+          _ => {}
         }
+      }
     }
 
-    /// Create a ProcessingSummary from a collection of FileReports
-    pub fn from_reports(files: &[FileReport], processing_time: std::time::Duration) -> Self {
-        let mut summary = Self::new(processing_time);
-
-        summary.total_files = files.len();
-
-        for file in files {
-            if file.ignored {
-                summary.files_ignored += 1;
-                continue;
-            }
-
-            if file.has_license {
-                summary.files_with_license += 1;
-            } else {
-                summary.files_without_license += 1;
-            }
-
-            if let Some(action) = &file.action_taken {
-                match action {
-                    FileAction::Added => summary.licenses_added += 1,
-                    FileAction::YearUpdated => summary.licenses_updated += 1,
-                    _ => {}
-                }
-            }
-        }
-
-        summary
-    }
+    summary
+  }
 }
