@@ -41,6 +41,7 @@ fn create_test_processor(
     ratchet_reference,
     diff_manager,
     git_only,
+    None, // Use default LicenseDetector
   )?;
 
   Ok((processor, temp_dir))

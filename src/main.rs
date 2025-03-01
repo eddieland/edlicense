@@ -206,6 +206,7 @@ fn main() -> Result<()> {
     args.ratchet,
     Some(diff_manager),
     args.git_only,
+    None, // Use the default LicenseDetector implementation
   )?;
 
   // Start timing

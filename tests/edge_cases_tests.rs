@@ -34,6 +34,7 @@ fn test_empty_file() -> Result<()> {
     None,
     None, // No diff manager
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Process the empty file
@@ -75,6 +76,7 @@ fn test_binary_file() -> Result<()> {
     None,
     None, // No diff manager
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Process the binary file - should fail gracefully
@@ -127,6 +129,7 @@ fn test_invalid_glob_pattern() -> Result<()> {
     None,
     None, // No diff manager
     None, // git_only = None (default)
+    None, // Use default LicenseDetector
   );
 
   assert!(result.is_err());
@@ -164,6 +167,7 @@ fn test_file_with_unusual_encoding() -> Result<()> {
     None,
     None, // No diff manager
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Process the UTF-16 file
@@ -206,6 +210,7 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
     None,
     None, // No diff manager
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Process the file
@@ -250,6 +255,7 @@ fn test_file_with_unusual_year_format() -> Result<()> {
     None,
     None, // No diff manager
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Process the file
@@ -295,6 +301,7 @@ fn test_process_with_invalid_pattern() -> Result<()> {
     None,
     None, // No diff manager
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Try to process with an invalid glob pattern

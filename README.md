@@ -6,7 +6,7 @@ A tool that ensures source code files have copyright license headers by scanning
 
 ## Why edlicense over addlicense?
 
-`edlicense` is inspired by Google's [addlicense](https://github.com/google/addlicense) tool but addresses several limitations and adds modern features:
+`edlicense` is inspired by Google's [addlicense](https://github.com/google/addlicense) tool but addresses several limitations:
 
 | Feature | edlicense | addlicense |
 |---------|-----------|------------|
@@ -30,8 +30,6 @@ Key advantages of `edlicense`:
 - Recursively scan directories and add license headers to source files
 - Automatic detection of file types and appropriate comment formatting
 - Dry run mode to verify license headers without modifying files (default behavior)
-- **Show diff** - display a diff of changes that would be made in dry run mode
-- **Save diff** - save a diff of changes to a file in dry run mode for review or version control
 - Ignore patterns to exclude specific files or directories (via CLI or `.licenseignore` files)
 - Support for `.licenseignore` files with gitignore-style pattern matching
 - Global ignore file support via `GLOBAL_LICENSE_IGNORE` environment variable

@@ -102,6 +102,7 @@ impl Processor {
     ratchet_reference: Option<String>,
     diff_manager: Option<DiffManager>,
     git_only: Option<bool>,
+    license_detector: Option<Box<dyn LicenseDetector>>,
   ) -> Result<Self> {
     // Create ignore manager for base ignore patterns
     let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
@@ -109,11 +110,9 @@ impl Processor {
     // Create a composite file filter with all filtering conditions
     let file_filter = create_default_filter(ignore_patterns, git_only, ratchet_reference)?;
 
-    // Use provided diff_manager or create a default one
     let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
-    // Create default license detector
-    let license_detector = Box::new(SimpleLicenseDetector::new());
+    let license_detector = license_detector.unwrap_or_else(|| Box::new(SimpleLicenseDetector::new()));
 
     Ok(Self {
       template_manager,

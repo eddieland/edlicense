@@ -43,6 +43,7 @@ fn test_public_api() -> Result<()> {
     None,   // No ratchet mode
     None,   // Use default diff_manager
     None,   // Use default git_only (false)
+    None,   // Use default LicenseDetector
   )?;
 
   // Process a single file
@@ -120,6 +121,7 @@ fn test_api_with_check_only() -> Result<()> {
     None,   // No ratchet mode
     None,   // Use default diff_manager
     None,   // Use default git_only (false)
+    None,   // Use default LicenseDetector
   )?;
 
   // Process the file with license - should succeed
@@ -213,6 +215,7 @@ fn test_show_diff_mode() -> Result<()> {
     None,   // No ratchet mode
     Some(DiffManager::new(true, None)),
     None, // Use default git_only (false)
+    None, // Use default LicenseDetector
   )?;
 
   // Process the file - should fail but show diff
