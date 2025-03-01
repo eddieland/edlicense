@@ -1,8 +1,16 @@
 [package]
 name = "edlicense"
-version = "0.1.0"
-edition = "2024"
+version = "0.2.0"
+authors = ["Edward Jones <edwardrjones97@gmail.com>"]
+categories = ["command-line-utilities", "development-tools"]
 description = "A high-performance Rust tool that ensures source code files have copyright license headers. Features Git integration and automatic year updates. Recursively scans codebases with performance optimizations for large projects - a modern alternative to addlicense."
+edition = "2024"
+exclude = ["/.github", "/examples", "/ref"]
+
+[[bin]]
+path = "src/main.rs"
+name = "edlicense"
+test = false
 
 [dependencies]
 anyhow = "1.0"
@@ -26,3 +34,10 @@ walkdir = "2.4"
 assert_cmd = "2.0"
 predicates = "3.0"
 tempfile = "3.8"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
