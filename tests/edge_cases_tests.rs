@@ -33,7 +33,7 @@ fn test_empty_file() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // Use default git_only (false)
+    false,
     None, // Use default LicenseDetector
   )?;
 
@@ -75,7 +75,7 @@ fn test_binary_file() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // Use default git_only (false)
+    false,
     None, // Use default LicenseDetector
   )?;
 
@@ -128,7 +128,7 @@ fn test_invalid_glob_pattern() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // git_only = None (default)
+    false,
     None, // Use default LicenseDetector
   );
 
@@ -166,7 +166,7 @@ fn test_file_with_unusual_encoding() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // Use default git_only (false)
+    false,
     None, // Use default LicenseDetector
   )?;
 
@@ -209,7 +209,7 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // Use default git_only (false)
+    false,
     None, // Use default LicenseDetector
   )?;
 
@@ -254,7 +254,7 @@ fn test_file_with_unusual_year_format() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // Use default git_only (false)
+    false,
     None, // Use default LicenseDetector
   )?;
 
@@ -300,7 +300,7 @@ fn test_process_with_invalid_pattern() -> Result<()> {
     false,
     None,
     None, // No diff manager
-    None, // Use default git_only (false)
+    false,
     None, // Use default LicenseDetector
   )?;
 

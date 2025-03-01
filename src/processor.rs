@@ -101,7 +101,7 @@ impl Processor {
     preserve_years: bool,
     ratchet_reference: Option<String>,
     diff_manager: Option<DiffManager>,
-    git_only: Option<bool>,
+    git_only: bool,
     license_detector: Option<Box<dyn LicenseDetector>>,
   ) -> Result<Self> {
     // Create ignore manager for base ignore patterns

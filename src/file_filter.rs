@@ -261,7 +261,7 @@ impl FileFilter for CompositeFilter {
 /// A new CompositeFilter with the specified filters.
 pub fn create_default_filter(
   ignore_patterns: Vec<String>,
-  git_only: Option<bool>,
+  git_only: bool,
   ratchet_reference: Option<String>,
 ) -> Result<CompositeFilter> {
   let mut filters: Vec<Box<dyn FileFilter>> = Vec::new();
@@ -270,7 +270,7 @@ pub fn create_default_filter(
   filters.push(Box::new(IgnoreFilter::from_patterns(ignore_patterns)?));
 
   // Add git filter if needed
-  if git_only.unwrap_or(false) && git::is_git_repository() {
+  if git_only && git::is_git_repository() {
     verbose_log!("Git-only mode enabled, getting tracked files");
     filters.push(Box::new(GitFilter::from_git()?));
   }

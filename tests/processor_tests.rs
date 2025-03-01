@@ -14,7 +14,7 @@ fn create_test_processor(
   ratchet_reference: Option<String>,
   show_diff: Option<bool>,
   save_diff_path: Option<std::path::PathBuf>,
-  git_only: Option<bool>,
+  git_only: bool,
 ) -> Result<(Processor, tempfile::TempDir)> {
   let temp_dir = tempdir()?;
   let template_path = temp_dir.path().join("test_template.txt");
@@ -58,7 +58,7 @@ fn test_license_detection() -> Result<()> {
     None,
     None,
     None,
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Test content with a license
@@ -87,7 +87,7 @@ fn test_prefix_extraction() -> Result<()> {
     None,
     None,
     None,
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Test shebang extraction
@@ -136,7 +136,7 @@ fn test_year_updating() -> Result<()> {
     None,
     None,
     None,
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Test updating a single year
@@ -232,7 +232,7 @@ fn test_process_file() -> Result<()> {
     None,
     None,
     None,
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Create a test file without a license - avoid using any text that might be interpreted as a license
@@ -277,7 +277,7 @@ fn test_check_only_mode() -> Result<()> {
     None,
     None,
     None, // No save diff path
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Create a test file without a license - avoid using any text that might be interpreted as a license
@@ -322,7 +322,7 @@ fn test_preserve_years() -> Result<()> {
     None,
     None,
     None, // No save diff path
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Create a test file with an old year
@@ -348,7 +348,7 @@ fn test_preserve_years() -> Result<()> {
     None,
     None,
     None, // No save diff path
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Create a test file with an old year
@@ -379,7 +379,7 @@ fn test_process_directory() -> Result<()> {
     None,
     None,
     None, // No save diff path
-    None, // Use default git_only (false)
+    false,
   )?;
 
   // Create a test directory structure
@@ -436,7 +436,7 @@ fn test_file_filtering() -> Result<()> {
     None,
     None,
     None,
-    None,
+    false,
   )?;
 
   // Process both files
@@ -560,7 +560,7 @@ fn test_ratchet_mode_directory() -> Result<()> {
     Some(commit_ref.clone()), // Use the first commit as reference
     None,
     None,
-    None,
+    false,
   )?;
 
   // Create a version of the file paths as would be seen from git's perspective
@@ -634,7 +634,7 @@ fn test_show_diff_mode() -> Result<()> {
     None,
     Some(true), // show_diff = true
     None,       // No save diff path
-    None,       // Use default git_only (false)
+    false,
   )?;
 
   // Create a test file without a license - avoid using any text that might be interpreted as a license
@@ -722,7 +722,7 @@ fn test_manual_ratchet_mode() -> Result<()> {
     None, // We'll manually apply our filter
     None,
     None,
-    None,
+    false,
   )?;
 
   // Only process file1 (our "changed" file)

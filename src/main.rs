@@ -128,8 +128,8 @@ struct Args {
   #[arg(long)]
   global_ignore_file: Option<PathBuf>,
 
-  /// Only consider files in the current git repository (defaults to false even in git repositories)
-  #[arg(long)]
+  /// Only consider files in the current git repository
+  #[arg(long, default_value = "false")]
   git_only: Option<bool>,
 
   /// Control when to use colored output (auto, never, always)
@@ -184,7 +184,8 @@ fn main() -> Result<()> {
 
   let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
 
-  if args.git_only.unwrap_or(false) {
+  let git_only = args.git_only.unwrap_or(false);
+  if git_only {
     let is_git_repo = git::is_git_repository();
 
     if is_git_repo {
@@ -205,7 +206,7 @@ fn main() -> Result<()> {
     args.preserve_years,
     args.ratchet,
     Some(diff_manager),
-    args.git_only,
+    git_only,
     None, // Use the default LicenseDetector implementation
   )?;
 

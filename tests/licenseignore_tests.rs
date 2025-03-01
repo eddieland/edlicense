@@ -531,8 +531,8 @@ fn test_processor_with_licenseignore() -> Result<()> {
     false,  // Don't preserve years
     None,   // No ratchet reference
     None,   // Use default diff_manager
-    None,   // git_only = None (default)
-    None,   // Use default LicenseDetector
+    false,
+    None, // Use default LicenseDetector
   )?;
 
   // Read the file content and directly test the has_license method
@@ -595,13 +595,13 @@ fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],      // No CLI ignore patterns
-    true,        // Check-only mode
-    false,       // Don't preserve years
-    None,        // No ratchet reference
-    None,        // Use default diff_manager
-    Some(false), // Explicitly disable git-only mode
-    None,        // Use default LicenseDetector
+    vec![], // No CLI ignore patterns
+    true,   // Check-only mode
+    false,  // Don't preserve years
+    None,   // No ratchet reference
+    None,   // Use default diff_manager
+    false,
+    None, // Use default LicenseDetector
   )?;
 
   // Store the initial files_processed count
@@ -653,13 +653,13 @@ fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],      // No CLI ignore patterns
-    true,        // Check-only mode
-    false,       // Don't preserve years
-    None,        // No ratchet reference
-    None,        // Use default diff_manager
-    Some(false), // Explicitly disable git-only mode
-    None,        // Use default LicenseDetector
+    vec![], // No CLI ignore patterns
+    true,   // Check-only mode
+    false,  // Don't preserve years
+    None,   // No ratchet reference
+    None,   // Use default diff_manager
+    false,
+    None, // Use default LicenseDetector
   )?;
 
   // Store the initial files_processed count for the rust processor
