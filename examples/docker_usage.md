@@ -103,7 +103,7 @@ The debug image contains the full Rust toolchain, source code, and development t
 make docker-build-debug
 
 # Run the debug image
-make docker-run-debug ARGS="cargo test"
+make docker-run-debug ARGS="cargo nextest run"
 ```
 
 ## Building a Downstream Docker Image

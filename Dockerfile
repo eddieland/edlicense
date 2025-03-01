@@ -69,7 +69,7 @@ RUN cargo install cargo-watch cargo-outdated
 ENV RUST_BACKTRACE=1
 
 # Default command for debug mode
-CMD ["cargo", "test"]
+CMD ["cargo", "nextest", "run"]
 
 # Production image (minimal Debian-based)
 FROM debian:bookworm-slim AS production

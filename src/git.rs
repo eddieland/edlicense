@@ -96,15 +96,15 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
     Ok(tracked_files)
 }
 
-/// Gets the list of files that have changed in a specific commit.
+/// Gets the list of files that have changed since a specific commit.
 ///
 /// # Parameters
 ///
-/// * `commit` - Git commit hash
+/// * `commit` - Git commit hash to compare against
 ///
 /// # Returns
 ///
-/// A `HashSet` of file paths that were changed in the commit or an error if the git operations fail.
+/// A `HashSet` of file paths that have changed since the commit or an error if the git operations fail.
 /// The paths are relative to the current working directory.
 ///
 /// # Errors
@@ -114,33 +114,46 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
 /// - The specified commit cannot be found
 /// - Git operations fail
 pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
-    verbose_log!("Getting changed files for commit: {}", commit);
+    verbose_log!("Getting changed files since commit: {}", commit);
 
     let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
+    verbose_log!("Current directory: {}", current_dir.display());
 
     let repo = Repository::discover(&current_dir).with_context(|| "Failed to discover git repository")?;
 
+    // Get the commit object for the reference commit
     let commit_obj = repo
         .revparse_single(commit)
         .with_context(|| format!("Failed to find commit: {}", commit))?;
 
-    let commit = commit_obj
+    let ref_commit = commit_obj
         .as_commit()
         .ok_or_else(|| anyhow::anyhow!("Object is not a commit"))?;
 
-    let tree = commit.tree().with_context(|| "Failed to get commit tree")?;
+    // Get the current HEAD commit
+    let head = repo.head().with_context(|| "Failed to get HEAD reference")?;
+    let head_commit = head.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
 
+    verbose_log!(
+        "Comparing {} with HEAD {}",
+        ref_commit.id().to_string(),
+        head_commit.id().to_string()
+    );
+
+    // Get trees for both commits
+    let ref_tree = ref_commit
+        .tree()
+        .with_context(|| "Failed to get reference commit tree")?;
+    let head_tree = head_commit.tree().with_context(|| "Failed to get HEAD tree")?;
+
+    // Set up diff options
     let mut diff_options = git2::DiffOptions::new();
+    diff_options.include_untracked(false);
+    diff_options.recurse_untracked_dirs(false);
 
-    // Get parent commit if it exists
-    let parent_tree = if let Ok(parent) = commit.parent(0) {
-        Some(parent.tree()?)
-    } else {
-        None
-    };
-
+    // Diff between the reference commit and HEAD
     let diff = repo
-        .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_options))
+        .diff_tree_to_tree(Some(&ref_tree), Some(&head_tree), Some(&mut diff_options))
         .with_context(|| "Failed to diff trees")?;
 
     let mut changed_files = HashSet::new();
@@ -151,6 +164,8 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
         None,
         Some(&mut |diff_delta, _progress, _path| {
             if let Some(new_file) = diff_delta.new_file().path() {
+                verbose_log!("Found changed file in git: {:?}", new_file);
+
                 let abs_path = repo
                     .workdir()
                     .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
@@ -158,8 +173,18 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
                     .map(|workdir| workdir.join(new_file));
 
                 if let Some(abs_path) = abs_path {
+                    // Store both absolute and relative paths for more robust matching
+                    changed_files.insert(abs_path.clone());
+
+                    // Also add relative path
                     if let Some(rel_path) = pathdiff::diff_paths(&abs_path, &current_dir) {
+                        verbose_log!("Added relative path: {}", rel_path.display());
                         changed_files.insert(rel_path);
+                    } else {
+                        // Just to be safe, also add the file name directly
+                        if let Some(filename) = new_file.file_name() {
+                            changed_files.insert(PathBuf::from(filename));
+                        }
                     }
                 }
             }
@@ -169,6 +194,9 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
     .with_context(|| "Failed to process diff")?;
 
     verbose_log!("Found {} changed files", changed_files.len());
+    for file in &changed_files {
+        verbose_log!("  Changed file: {}", file.display());
+    }
 
     Ok(changed_files)
 }

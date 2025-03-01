@@ -172,7 +172,7 @@ fn test_get_changed_files() -> Result<()> {
     std::env::set_current_dir(&temp_dir)?;
 
     // Get changed files
-    let changed_files = git::get_changed_files("HEAD")?;
+    let changed_files = git::get_changed_files("HEAD^")?;
 
     // Print the changed files for debugging
     println!("Changed files:");

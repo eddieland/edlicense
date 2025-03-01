@@ -120,7 +120,7 @@ make docker-run-distroless ARGS="src/"
 docker run --rm -v "$(pwd):/workspace" -w /workspace edlicense:latest --modify src/
 
 # Run with the debug image for development purposes
-make docker-run-debug ARGS="cargo test"
+make docker-run-debug ARGS="cargo nextest run"
 ```
 
 The Docker setup provides three image tags from the same Dockerfile:
@@ -381,10 +381,10 @@ Alternatively, you can run the tests directly with cargo:
 
 ```bash
 # Run a specific performance test
-cargo test --release test_add_license_performance -- --ignored --nocapture
+cargo nextest run --release -E 'test(test_add_license_performance)' --run-ignored=all --no-capture
 
 # Run all performance tests
-cargo test --release -- --ignored --nocapture
+cargo nextest run --release --run-ignored=all --no-capture
 ```
 
 ### Performance Test Results

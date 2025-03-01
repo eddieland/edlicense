@@ -21,10 +21,10 @@ lint-all: ## Run clippy with all features
 	cargo clippy --all-features -- -D warnings
 
 test: build ## Run tests
-	cargo test
+	cargo nextest run
 
 test-all: ## Run tests with all features
-	cargo test --all-features
+	cargo nextest run --all-features
 
 check: ## Run cargo check
 	cargo check
@@ -33,7 +33,7 @@ doc: ## Generate documentation
 	cargo doc --no-deps
 
 watch-test: ## Run tests in watch mode (requires cargo-watch)
-	cargo watch -x test
+	cargo watch -x "nextest run"
 
 all: fmt lint test docker-build ## Run verify-config, fmt, lint, and test
 
@@ -58,6 +58,7 @@ install-dev-tools: ## Install development tools
 	rustup show # Ensures rust-toolchain.toml is applied
 	cargo install cargo-watch
 	cargo install cargo-outdated
+	cargo install cargo-nextest
 
 ### Docker
 # Enable BuildKit features for all Docker builds
@@ -107,23 +108,23 @@ docker-prune-cache: ## Prune Docker builder cache
 
 ### Performance Testing
 perf-test-add: build ## Run performance test for adding licenses to files
-	cargo test --release test_add_license_performance -- --ignored --nocapture
+	cargo nextest run --release -E 'test(test_add_license_performance)' --run-ignored=all --no-capture
 
 perf-test-update: build ## Run performance test for updating license years
-	cargo test --release test_update_year_performance -- --ignored --nocapture
+	cargo nextest run --release -E 'test(test_update_year_performance)' --run-ignored=all --no-capture
 
 perf-test-check: build ## Run performance test for checking license headers (dry run mode)
-	cargo test --release test_check_license_performance -- --ignored --nocapture
+	cargo nextest run --release -E 'test(test_check_license_performance)' --run-ignored=all --no-capture
 
 perf-test-file-size: build ## Run performance test with different file sizes
-	cargo test --release test_file_size_impact -- --ignored --nocapture
+	cargo nextest run --release -E 'test(test_file_size_impact)' --run-ignored=all --no-capture
 
 perf-test-threads: build ## Run performance test with different thread counts
-	cargo test --release test_thread_count_impact -- --ignored --nocapture
+	cargo nextest run --release -E 'test(test_thread_count_impact)' --run-ignored=all --no-capture
 
 perf-benchmark: build ## Run comprehensive benchmark tests
-	cargo test --release benchmark_operations -- --ignored --nocapture
+	cargo nextest run --release -E 'test(benchmark_operations)' --run-ignored=all --no-capture
 
 perf-test-all: build ## Run all performance tests
 	@echo "Running all performance tests (this may take a while)..."
-	cargo test --release -- --ignored --nocapture
+	cargo nextest run --release --run-ignored=all --no-capture

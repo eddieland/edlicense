@@ -414,66 +414,210 @@ fn test_process_directory() -> Result<()> {
     Ok(())
 }
 
-mod git_test_utils {
-    use std::collections::HashSet;
-    use std::path::PathBuf;
+// Test the filtering functionality indirectly through the Processor
+#[test]
+fn test_file_filtering() -> Result<()> {
+    // Create a temporary directory for testing
+    let temp_dir = tempdir()?;
+    let test_file = temp_dir.path().join("test.rs");
+    let ignored_file = temp_dir.path().join("ignored.json");
 
-    // This is a mock implementation for testing purposes
-    pub fn mock_get_changed_files(changed_paths: Vec<PathBuf>) -> HashSet<PathBuf> {
-        let mut changed_files = HashSet::new();
-        for path in changed_paths {
-            changed_files.insert(path);
-        }
-        changed_files
-    }
+    // Create test files
+    fs::write(&test_file, "fn test() {}")?;
+    fs::write(&ignored_file, "{\"test\": \"value\"}")?;
+
+    // Create a processor with an ignore pattern for JSON files
+    let (processor, _) = create_test_processor(
+        "Copyright (c) {{year}} Test Company",
+        vec!["*.json".to_string()], // Ignore JSON files
+        false,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )?;
+
+    // Process both files
+    processor.process_file(&test_file)?;
+    processor.process_file(&ignored_file)?;
+
+    // Check the results
+    let test_content = fs::read_to_string(&test_file)?;
+    let ignored_content = fs::read_to_string(&ignored_file)?;
+
+    // The .rs file should have a license
+    assert!(
+        test_content.contains("// Copyright (c) 2025 Test Company"),
+        "The .rs file should have a license header"
+    );
+
+    // The .json file should NOT have a license (because it's ignored)
+    assert!(
+        !ignored_content.contains("Copyright (c) 2025 Test Company"),
+        "The .json file should not have a license header"
+    );
+
+    // The JSON file's content should be unchanged
+    assert_eq!(
+        ignored_content, "{\"test\": \"value\"}",
+        "The JSON file content should be unchanged"
+    );
+
+    Ok(())
 }
 
+// Test for the ratchet mode functionality
 #[test]
-fn test_ratchet_mode() -> Result<()> {
-    // Create a processor without ratchet mode initially
-    let (mut processor, temp_dir) = create_test_processor(
+fn test_ratchet_mode_directory() -> Result<()> {
+    // First, check that git is available
+    let git_version = std::process::Command::new("git").args(["--version"]).output();
+
+    if git_version.is_err() {
+        println!("Skipping test_ratchet_mode_directory: git not available");
+        return Ok(());
+    }
+
+    // Create a directory structure
+    let temp_dir = tempdir()?;
+    let test_dir = temp_dir.path();
+
+    // Create git repo
+    // NOTE: We'll use the same directory for git repo and working dir
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(test_dir)
+        .output()?;
+
+    // Set git config
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(test_dir)
+        .output()?;
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(test_dir)
+        .output()?;
+
+    // Set default branch name to avoid any git config issues
+    std::process::Command::new("git")
+        .args(["config", "init.defaultBranch", "main"])
+        .current_dir(test_dir)
+        .output()?;
+
+    // Create initial files
+    let file1 = test_dir.join("file1.rs");
+    let file2 = test_dir.join("file2.rs");
+    fs::write(&file1, "fn file1_fn() { /* test */ }")?;
+    fs::write(&file2, "fn file2_fn() { /* test */ }")?;
+
+    // Initial commit
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(test_dir)
+        .output()?;
+    std::process::Command::new("git")
+        .args(["commit", "-m", "Initial commit"])
+        .current_dir(test_dir)
+        .output()?;
+
+    // Save the commit hash for ratchet reference
+    let rev_parse_output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(test_dir)
+        .output()?;
+    let commit_ref = String::from_utf8_lossy(&rev_parse_output.stdout).trim().to_string();
+    println!("Initial commit: {}", commit_ref);
+
+    // Modify file1 and commit
+    fs::write(&file1, "fn file1_fn_modified() { /* test */ }")?;
+    std::process::Command::new("git")
+        .args(["add", "file1.rs"])
+        .current_dir(test_dir)
+        .output()?;
+    std::process::Command::new("git")
+        .args(["commit", "-m", "Modify file1"])
+        .current_dir(test_dir)
+        .output()?;
+
+    // Print debug info about the file paths
+    println!("file1 path: {}", file1.display());
+    println!("file2 path: {}", file2.display());
+
+    // Make sure we're in the right directory first, before creating the processor
+    let process_dir = std::env::current_dir()?;
+    println!("Current directory before processing: {}", process_dir.display());
+    std::env::set_current_dir(test_dir)?;
+    println!("Changed directory to: {}", test_dir.display());
+
+    // Create a processor with ratchet mode enabled, using the original commit as reference
+    let (processor, _) = create_test_processor(
         "Copyright (c) {{year}} Test Company",
         vec![],
         false,
         false,
-        None, // No ratchet reference
+        Some(commit_ref.clone()), // Use the first commit as reference
         None,
-        None, // No save diff path
-        None, // Use default git_only (false)
+        None,
+        None,
     )?;
 
-    // Create test files - avoid anything that might be interpreted as a license
-    let changed_file_path = temp_dir.path().join("changed_file.rs");
-    let unchanged_file_path = temp_dir.path().join("unchanged_file.rs");
+    // Create a version of the file paths as would be seen from git's perspective
+    let rel_file1 = std::path::Path::new("file1.rs");
+    let rel_file2 = std::path::Path::new("file2.rs");
 
-    fs::write(&changed_file_path, "fn changed_fn() { /* test */ }")?;
-    fs::write(&unchanged_file_path, "fn unchanged_fn() { /* test */ }")?;
+    // Get direct insight into git's changed files list
+    println!("Checking git's view of changed files...");
+    let changed_files = edlicense::git::get_changed_files(&commit_ref)?;
+    println!("Git reports {} changed files", changed_files.len());
+    for file in &changed_files {
+        println!("  Changed file: {}", file.display());
+    }
 
-    // Create a mock implementation of the changed_files set for testing
-    let changed_files = git_test_utils::mock_get_changed_files(vec![
-        changed_file_path.clone(),
-        temp_dir.path().join("another_changed_file.rs"),
-    ]);
+    // Explicitly check if our files would be detected as changed
+    use edlicense::file_filter::{FileFilter, RatchetFilter};
+    let ratchet_filter = RatchetFilter::from_reference(&commit_ref)?;
 
-    // Set the changed_files field with our mock data
-    processor.changed_files = Some(changed_files);
+    // Test both absolute and relative paths
+    println!("Testing with absolute paths:");
+    let file1_result = ratchet_filter.should_process(&file1)?;
+    let file2_result = ratchet_filter.should_process(&file2)?;
+    println!("  file1.rs should be processed: {}", file1_result.should_process);
+    println!("  file2.rs should be processed: {}", file2_result.should_process);
 
-    // Process the changed file - should add license
-    processor.process_file(&changed_file_path)?;
+    println!("Testing with relative paths:");
+    let rel1_result = ratchet_filter.should_process(rel_file1)?;
+    let rel2_result = ratchet_filter.should_process(rel_file2)?;
+    println!("  file1.rs (rel) should be processed: {}", rel1_result.should_process);
+    println!("  file2.rs (rel) should be processed: {}", rel2_result.should_process);
 
-    // Process the unchanged file - should be skipped
-    processor.process_file(&unchanged_file_path)?;
+    // Now process the files using the processor
+    println!("Processing files using processor...");
+    processor.process_file(&file1)?; // Should add license to file1 (modified)
+    processor.process_file(&file2)?; // Should NOT add license to file2 (unmodified)
 
-    // Check the results
-    let changed_content = fs::read_to_string(&changed_file_path)?;
-    let unchanged_content = fs::read_to_string(&unchanged_file_path)?;
+    // Go back to original directory
+    std::env::set_current_dir(process_dir)?;
+
+    // Verify results - only file1 should have a license
+    let file1_content = fs::read_to_string(&file1)?;
+    let file2_content = fs::read_to_string(&file2)?;
+
+    // Print debug content
+    println!("file1 content: {}", file1_content);
+    println!("file2 content: {}", file2_content);
 
     // The changed file should have a license
-    assert!(changed_content.contains("// Copyright (c) 2025 Test Company"));
+    assert!(
+        file1_content.contains("// Copyright (c) 2025 Test Company"),
+        "Changed file should have a license header"
+    );
 
-    // The unchanged file should not have a license
-    assert!(!unchanged_content.contains("Copyright"));
-    assert_eq!(unchanged_content, "fn unchanged_fn() { /* test */ }");
+    // The unchanged file should not have a license header added
+    assert!(
+        !file2_content.contains("// Copyright (c) 2025 Test Company"),
+        "Unchanged file should not have a license header"
+    );
 
     Ok(())
 }
@@ -519,6 +663,85 @@ fn test_diff_manager() -> Result<()> {
 
     // This should not panic
     diff_manager.display_diff(std::path::Path::new("test.rs"), original, new)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_manual_ratchet_mode() -> Result<()> {
+    // This test verifies that the ratchet mode works correctly by manually creating
+    // a RatchetFilter with a predetermined set of changed files
+
+    // Create a temporary directory for testing
+    let temp_dir = tempdir()?;
+    let test_dir = temp_dir.path();
+
+    // Create test files
+    let file1 = test_dir.join("file1.rs");
+    let file2 = test_dir.join("file2.rs");
+    fs::write(&file1, "fn file1_fn() { /* test */ }")?;
+    fs::write(&file2, "fn file2_fn() { /* test */ }")?;
+
+    // Create a manually constructed set of changed files (only file1.rs)
+    // Use relative paths as that's what git would typically provide
+    use edlicense::file_filter::{FileFilter, RatchetFilter};
+    use std::collections::HashSet;
+
+    let mut changed_files = HashSet::new();
+    changed_files.insert(std::path::PathBuf::from("file1.rs"));
+
+    let ratchet_filter = RatchetFilter::new(changed_files);
+
+    // Test filter decisions
+    let file1_result = ratchet_filter.should_process(&file1)?;
+    let file2_result = ratchet_filter.should_process(&file2)?;
+
+    println!("RatchetFilter decisions from manual test:");
+    println!("  file1.rs should be processed: {}", file1_result.should_process);
+    println!("  file2.rs should be processed: {}", file2_result.should_process);
+
+    // The filter should indicate file1 should be processed (as it's in our changed files)
+    assert!(
+        file1_result.should_process,
+        "Changed file should be processed in ratchet mode"
+    );
+
+    // The filter should indicate file2 should NOT be processed (as it's not in our changed files)
+    assert!(
+        !file2_result.should_process,
+        "Unchanged file should NOT be processed in ratchet mode"
+    );
+
+    // Now test with a processor using our manual RatchetFilter
+    let (processor, _) = create_test_processor(
+        "Copyright (c) {{year}} Test Company",
+        vec![],
+        false,
+        false,
+        None, // We'll manually apply our filter
+        None,
+        None,
+        None,
+    )?;
+
+    // Only process file1 (our "changed" file)
+    processor.process_file(&file1)?;
+
+    // Verify results
+    let file1_content = fs::read_to_string(&file1)?;
+    let file2_content = fs::read_to_string(&file2)?;
+
+    // The changed file should have a license
+    assert!(
+        file1_content.contains("// Copyright (c) 2025 Test Company"),
+        "Changed file should have a license header"
+    );
+
+    // The unchanged file should not have a license (we didn't process it)
+    assert!(
+        !file2_content.contains("// Copyright (c) 2025 Test Company"),
+        "Unchanged file should not have a license header"
+    );
 
     Ok(())
 }

@@ -1,6 +1,8 @@
 mod diff;
+mod file_filter;
 mod git;
 mod ignore;
+mod license_detection;
 mod logging;
 mod processor;
 mod report;

@@ -17,8 +17,10 @@
 
 // Re-export modules for public API
 pub mod diff;
+pub mod file_filter;
 pub mod git;
 pub mod ignore;
+pub mod license_detection;
 pub mod logging;
 pub mod processor;
 pub mod report;

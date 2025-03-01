@@ -5,7 +5,6 @@
 //!
 //! The [`Processor`] struct is the main entry point for all file operations.
 
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,8 +17,9 @@ use regex::Regex;
 use walkdir::WalkDir;
 
 use crate::diff::DiffManager;
-use crate::git;
+use crate::file_filter::{CompositeFilter, FileFilter, create_default_filter};
 use crate::ignore::IgnoreManager;
+use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{info_log, verbose_log};
@@ -42,7 +42,10 @@ pub struct Processor {
     /// License data (year, etc.) for rendering templates
     license_data: LicenseData,
 
-    /// Manager for handling ignore patterns
+    /// Composite file filter for determining which files to process
+    file_filter: CompositeFilter,
+
+    /// Manager for handling ignore patterns (used for directory-specific ignore patterns)
     ignore_manager: IgnoreManager,
 
     /// Whether to only check for licenses without modifying files
@@ -50,15 +53,6 @@ pub struct Processor {
 
     /// Whether to preserve existing years in license headers
     preserve_years: bool,
-
-    /// Set of files that have changed (used in ratchet mode)
-    pub changed_files: Option<HashSet<PathBuf>>,
-
-    /// Whether to only process files in the git repository
-    git_only: bool,
-
-    /// Set of files tracked by git (used when git_only is true)
-    git_tracked_files: Option<HashSet<PathBuf>>,
 
     /// Manager for handling diff creation and rendering
     diff_manager: DiffManager,
@@ -71,6 +65,9 @@ pub struct Processor {
 
     /// Whether to collect report data
     collect_report_data: bool,
+
+    /// License detector for checking if files have license headers
+    license_detector: Box<dyn LicenseDetector>,
 }
 
 impl Processor {
@@ -106,48 +103,30 @@ impl Processor {
         diff_manager: Option<DiffManager>,
         git_only: Option<bool>,
     ) -> Result<Self> {
-        // Create ignore manager
-        let ignore_manager = IgnoreManager::new(ignore_patterns)?;
+        // Create ignore manager for base ignore patterns
+        let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
 
-        // Initialize changed_files if ratchet mode is enabled
-        let changed_files = if let Some(ref reference) = ratchet_reference {
-            Some(git::get_changed_files(reference)?)
-        } else {
-            None
-        };
-
-        // Determine if we should only process git files
-        // This always defaults to false unless explicitly set to true
-        // Note: This uses your current working directory ($CWD) to detect the git repository.
-        // You should always run edlicense from inside the git repository when git detection is enabled.
-        let is_git_repo = git::is_git_repository();
-        let git_only = git_only.unwrap_or(false);
-
-        // Initialize git_tracked_files if git_only is true
-        // This uses your current working directory ($CWD) to determine which files are tracked.
-        let git_tracked_files = if git_only && is_git_repo {
-            verbose_log!("Git-only mode enabled, getting tracked files");
-            Some(git::get_git_tracked_files()?)
-        } else {
-            None
-        };
+        // Create a composite file filter with all filtering conditions
+        let file_filter = create_default_filter(ignore_patterns, git_only, ratchet_reference)?;
 
         // Use provided diff_manager or create a default one
         let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
+        // Create default license detector
+        let license_detector = Box::new(SimpleLicenseDetector::new());
+
         Ok(Self {
             template_manager,
             license_data,
+            file_filter,
             ignore_manager,
             check_only,
             preserve_years,
-            changed_files,
-            git_only,
-            git_tracked_files,
             diff_manager,
             files_processed: std::sync::atomic::AtomicUsize::new(0),
             file_reports: Arc::new(Mutex::new(Vec::new())),
             collect_report_data: true, // Enable report data collection by default
+            license_detector,
         })
     }
 
@@ -231,38 +210,38 @@ impl Processor {
     /// This ensures that .licenseignore files in the file's directory are
     /// applied even to explicitly named files.
     fn process_file_with_ignore_context(&self, path: &Path) -> Result<()> {
-        // Get the parent directory of the file
+        // Get the parent directory of the file to load directory-specific ignore patterns
         if let Some(parent_dir) = path.parent() {
-            // Clone the ignore manager and load .licenseignore files from parent
-            let mut ignore_manager = self.ignore_manager.clone();
+            // Create a temporary ignore filter with the parent directory's ignore patterns
             if parent_dir.exists() {
+                let mut ignore_manager = self.ignore_manager.clone();
                 ignore_manager.load_licenseignore_files(parent_dir)?;
-            }
 
-            // Check if the file should be ignored
-            if ignore_manager.is_ignored(path) {
-                verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+                // Check if the file is ignored by the parent directory-specific patterns
+                if ignore_manager.is_ignored(path) {
+                    verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
 
-                // Add to report if collecting report data
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license: false, // We don't know, but we're skipping it
-                        action_taken: Some(FileAction::Skipped),
-                        ignored: true,
-                        ignored_reason: Some("Matches .licenseignore pattern".to_string()),
-                    };
+                    // Add to report if collecting report data
+                    if self.collect_report_data {
+                        let file_report = FileReport {
+                            path: path.to_path_buf(),
+                            has_license: false, // We don't know, but we're skipping it
+                            action_taken: Some(FileAction::Skipped),
+                            ignored: true,
+                            ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+                        };
 
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
+                        if let Ok(mut reports) = self.file_reports.lock() {
+                            reports.push(file_report);
+                        }
                     }
-                }
 
-                return Ok(());
+                    return Ok(());
+                }
             }
         }
 
-        // Process the file normally
+        // Process the file normally - this will still use the composite filter for other checks
         self.process_file(path)
     }
 
@@ -305,7 +284,8 @@ impl Processor {
             .map(|e| e.path().to_path_buf())
             .collect();
 
-        // Filter out ignored files and log them
+        // Use our enhanced ignore manager with directory-specific patterns
+        // to pre-filter files before processing
         let files: Vec<_> = all_files
             .into_iter()
             .filter(|p| {
@@ -362,9 +342,14 @@ impl Processor {
     pub fn process_file(&self, path: &Path) -> Result<()> {
         verbose_log!("Processing file: {}", path.display());
 
-        // Skip files that match ignore patterns
-        if self.ignore_manager.is_ignored(path) {
-            verbose_log!("Skipping: {} (matches ignore pattern)", path.display());
+        // Use our composite file filter to determine if we should process this file
+        let filter_result = self.file_filter.should_process(path)?;
+        if !filter_result.should_process {
+            let reason = filter_result
+                .reason
+                .clone()
+                .unwrap_or_else(|| "Unknown reason".to_string());
+            verbose_log!("Skipping: {} ({})", path.display(), reason);
 
             // Add to report if collecting report data
             if self.collect_report_data {
@@ -373,7 +358,7 @@ impl Processor {
                     has_license: false, // We don't know, but we're skipping it
                     action_taken: Some(FileAction::Skipped),
                     ignored: true,
-                    ignored_reason: Some("Matches ignore pattern".to_string()),
+                    ignored_reason: filter_result.reason,
                 };
 
                 if let Ok(mut reports) = self.file_reports.lock() {
@@ -382,72 +367,6 @@ impl Processor {
             }
 
             return Ok(());
-        }
-
-        // Skip files that aren't tracked by git when git_only is enabled
-        if self.git_only {
-            if let Some(ref git_tracked_files) = self.git_tracked_files {
-                // Check if the file is in the tracked files list
-                let is_tracked = git_tracked_files.iter().any(|tracked_path| {
-                    // Convert both paths to strings for comparison
-                    let tracked_str = tracked_path.to_string_lossy().to_string();
-                    let path_str = path.to_string_lossy().to_string();
-
-                    // Check if the path contains the tracked path or vice versa
-                    tracked_str.contains(&path_str) || path_str.contains(&tracked_str)
-                });
-
-                if !is_tracked {
-                    verbose_log!("Skipping: {} (not tracked by git)", path.display());
-
-                    // Add to report if collecting report data
-                    if self.collect_report_data {
-                        let file_report = FileReport {
-                            path: path.to_path_buf(),
-                            has_license: false, // We don't know, but we're skipping it
-                            action_taken: Some(FileAction::Skipped),
-                            ignored: true,
-                            ignored_reason: Some("Not tracked by git".to_string()),
-                        };
-
-                        if let Ok(mut reports) = self.file_reports.lock() {
-                            reports.push(file_report);
-                        }
-                    }
-
-                    return Ok(());
-                }
-                verbose_log!("Processing: {} (tracked by git)", path.display());
-            } else {
-                // If git_only is true but git_tracked_files is None, we're not in a git repo
-                // This should have been caught in main.rs with an error, but just in case:
-                return Err(anyhow::anyhow!("Git-only mode is enabled, but not in a git repository"));
-            }
-        }
-
-        // Skip files that haven't changed in ratchet mode
-        if let Some(ref changed_files) = self.changed_files {
-            if !changed_files.contains(path) {
-                verbose_log!("Skipping: {} (unchanged in ratchet mode)", path.display());
-
-                // Add to report if collecting report data
-                if self.collect_report_data {
-                    let file_report = FileReport {
-                        path: path.to_path_buf(),
-                        has_license: false, // We don't know, but we're skipping it
-                        action_taken: Some(FileAction::Skipped),
-                        ignored: true,
-                        ignored_reason: Some("Unchanged in ratchet mode".to_string()),
-                    };
-
-                    if let Ok(mut reports) = self.file_reports.lock() {
-                        reports.push(file_report);
-                    }
-                }
-
-                return Ok(());
-            }
-            verbose_log!("Processing: {} (changed in ratchet mode)", path.display());
         }
 
         // Increment the files processed counter
@@ -653,8 +572,8 @@ impl Processor {
 
     /// Checks if the content already has a license header.
     ///
-    /// This method examines the first 1000 characters of the content to determine
-    /// if it already contains a license header.
+    /// This method delegates to the configured license detector to determine
+    /// if a file already contains a license header.
     ///
     /// # Parameters
     ///
@@ -663,23 +582,8 @@ impl Processor {
     /// # Returns
     ///
     /// `true` if the content appears to have a license header, `false` otherwise.
-    ///
-    /// # Implementation Details
-    ///
-    /// The check is case-insensitive and only examines the first 1000 characters
-    /// of the file for performance reasons, as license headers are typically
-    /// at the beginning of files.
     pub fn has_license(&self, content: &str) -> bool {
-        // Take the first 1000 characters (or less if the file is shorter)
-        let check_len = std::cmp::min(content.len(), 1000);
-        let check_content = &content[..check_len];
-
-        // Convert to lowercase for case-insensitive matching
-        let check_content_lower = check_content.to_lowercase();
-
-        // Based on addlicense's implementation, we check for common license indicators
-        // without requiring the specific year (which is too strict)
-        check_content_lower.contains("copyright")
+        self.license_detector.has_license(content)
     }
 
     /// Extracts special prefixes (like shebang) from file content.
