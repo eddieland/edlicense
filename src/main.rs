@@ -49,22 +49,21 @@ impl From<ClapColorMode> for ColorMode {
 
 #[derive(Parser, Debug)]
 #[command(
-    author,
-    version,
-    about,
-    long_about = None,
-    after_help = "Examples:
+  author,
+  version,
+  about,
+  after_help = "Examples:
   # Check license headers without modifying files
-  edlicense --dry-run --license-file LICENSE.txt src/
+  edlicense --license-file LICENSE.txt src/
 
   # Add or update license headers
   edlicense --modify --license-file custom.txt --year 2023 include/ src/
 
   # Show diff of potential changes without modifying files
-  edlicense --dry-run --show-diff --license-file LICENSE.txt src/**/*.rs
+  edlicense --show-diff --license-file LICENSE.txt src/**/*.rs
 
   # Save diff output to a file
-  edlicense --dry-run --save-diff changes.diff --license-file LICENSE.txt src/
+  edlicense --save-diff changes.diff --license-file LICENSE.txt src/
 
   # Only process files changed since a specific git commit
   edlicense --ratchet=HEAD^ --license-file LICENSE.txt --modify .
@@ -73,10 +72,16 @@ impl From<ClapColorMode> for ColorMode {
   edlicense --git-only=true --license-file LICENSE.txt --modify .
 
   # Generate an HTML report of license status
-  edlicense --license-file LICENSE.txt --report-html report.html src/
+  edlicense --report-html report.html --license-file LICENSE.txt src/
 
   # Ignore specific files or patterns
-  edlicense --license-file LICENSE.txt --ignore \"**/vendor/**\" --ignore \"**/*.json\" src/
+  edlicense --ignore \"**/vendor/**\" --ignore \"**/*.json\" --license-file LICENSE.txt src/
+",
+  help_template = "{before-help}{name} v{version}
+{about-section}
+{usage-heading} {usage}
+
+{all-args}{after-help}
 "
 )]
 struct Args {
@@ -85,11 +90,17 @@ struct Args {
   patterns: Vec<String>,
 
   /// Dry run mode: only check for license headers without modifying files (default)
-  #[arg(long, group = "mode")]
+  #[arg(long, group = "mode", hide = true)]
   dry_run: bool,
 
   /// Modify mode: add or update license headers in files
-  #[arg(long, group = "mode")]
+  #[arg(
+    long,
+    group = "mode",
+    help = "Modify mode: add or update license headers in files
+
+[default: --dry-run]"
+  )]
   modify: bool,
 
   /// Show diff of changes in dry run mode
@@ -97,11 +108,11 @@ struct Args {
   show_diff: bool,
 
   /// Save diff of changes to a file in dry run mode
-  #[arg(long, short = 'o')]
+  #[arg(long, short = 'o', value_name = "FILE")]
   save_diff: Option<PathBuf>,
 
   /// Custom license file to use
-  #[arg(long, short = 'f', required = true)]
+  #[arg(long, short = 'f', required = true, value_name = "FILE")]
   license_file: PathBuf,
 
   /// File patterns to ignore (supports glob patterns)
@@ -121,31 +132,38 @@ struct Args {
   preserve_years: bool,
 
   /// Ratchet mode: only check and format files that have changed relative to a git reference
-  #[arg(long)]
+  #[arg(long, name = "REF")]
   ratchet: Option<String>,
 
   /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
-  #[arg(long)]
+  #[arg(long, value_name = "FILE")]
   global_ignore_file: Option<PathBuf>,
 
   /// Only consider files in the current git repository
-  #[arg(long, default_value = "false")]
+  #[arg(long, default_value = "false", default_missing_value = "true")]
   git_only: Option<bool>,
 
   /// Control when to use colored output (auto, never, always)
-  #[arg(long, value_enum, default_value = "auto")]
+  #[arg(
+    long,
+    value_name = "WHEN",
+    num_args = 0..=1,
+    default_value_t = ClapColorMode::Auto,
+    default_missing_value = "always",
+    value_enum
+  )]
   colors: ClapColorMode,
 
   /// Generate an HTML report of license status and save to the specified path
-  #[arg(long)]
+  #[arg(long, value_name = "OUTPUT")]
   report_html: Option<PathBuf>,
 
   /// Generate a JSON report of license status and save to the specified path
-  #[arg(long)]
+  #[arg(long, value_name = "OUTPUT")]
   report_json: Option<PathBuf>,
 
   /// Generate a CSV report of license status and save to the specified path
-  #[arg(long)]
+  #[arg(long, value_name = "OUTPUT")]
   report_csv: Option<PathBuf>,
 }
 
