@@ -1,3 +1,7 @@
+//! # Main Module
+//!
+//! This module contains the CLI implementation with Clap.
+
 mod diff;
 mod file_filter;
 mod git;
@@ -146,13 +150,8 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-  // Parse command line arguments
   let args = Args::parse();
-
-  // Set verbose mode
   set_verbose(args.verbose);
-
-  // Set color mode
   set_color_mode(ColorMode::from(args.colors));
 
   // Set global ignore file if provided
@@ -168,16 +167,13 @@ fn main() -> Result<()> {
     }
   }
 
-  // Determine the year to use
   let year = match args.year {
     Some(ref y) => y.clone(),
     None => chrono::Local::now().year().to_string(),
   };
 
-  // Create license data
   let license_data = LicenseData { year };
 
-  // Create and initialize template manager
   let mut template_manager = TemplateManager::new();
   template_manager
     .load_template(&args.license_file)
@@ -186,12 +182,9 @@ fn main() -> Result<()> {
   // Determine mode (dry run is default if neither is specified or if dry_run is explicitly set)
   let check_only = args.dry_run || !args.modify;
 
-  // Create diff manager
   let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
 
   if args.git_only.unwrap_or(false) {
-    // Note: This uses your current working directory ($CWD) to detect the git repository.
-    // You should always run edlicense from inside the git repository when git detection is enabled.
     let is_git_repo = git::is_git_repository();
 
     if is_git_repo {
@@ -204,7 +197,6 @@ fn main() -> Result<()> {
     }
   }
 
-  // Create processor
   let processor = Processor::new(
     template_manager,
     license_data,
@@ -219,7 +211,6 @@ fn main() -> Result<()> {
   // Start timing
   let start_time = Instant::now();
 
-  // Process files
   let has_missing_license = processor.process(&args.patterns)?;
 
   // Calculate elapsed time
