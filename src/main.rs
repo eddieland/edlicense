@@ -18,7 +18,8 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use chrono::Datelike;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
+use clap::builder::styling::{AnsiColor, Color, Style, Styles};
 
 use crate::diff::DiffManager;
 use crate::logging::{ColorMode, set_color_mode, set_verbose};
@@ -26,32 +27,21 @@ use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
 
-/// Color mode options for output
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum ClapColorMode {
-  /// Automatically determine whether to use colors based on TTY detection
-  Auto,
-  /// Never use colors
-  Never,
-  /// Always use colors
-  Always,
-}
-
-impl From<ClapColorMode> for ColorMode {
-  fn from(mode: ClapColorMode) -> Self {
-    match mode {
-      ClapColorMode::Auto => ColorMode::Auto,
-      ClapColorMode::Never => ColorMode::Never,
-      ClapColorMode::Always => ColorMode::Always,
-    }
-  }
-}
+const CUSTOM_STYLES: Styles = Styles::styled()
+  .header(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold())
+  .usage(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold())
+  .literal(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue))).bold())
+  .placeholder(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))))
+  .error(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red))).bold())
+  .valid(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))))
+  .invalid(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))));
 
 #[derive(Parser, Debug)]
 #[command(
   author,
   version,
   about,
+  styles = CUSTOM_STYLES,
   after_help = "Examples:
   # Check license headers without modifying files
   edlicense --license-file LICENSE.txt src/
@@ -132,7 +122,7 @@ struct Args {
   preserve_years: bool,
 
   /// Ratchet mode: only check and format files that have changed relative to a git reference
-  #[arg(long, name = "REF")]
+  #[arg(long, value_name = "REF")]
   ratchet: Option<String>,
 
   /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
@@ -148,11 +138,11 @@ struct Args {
     long,
     value_name = "WHEN",
     num_args = 0..=1,
-    default_value_t = ClapColorMode::Auto,
+    default_value_t = ColorMode::Auto,
     default_missing_value = "always",
     value_enum
   )]
-  colors: ClapColorMode,
+  colors: ColorMode,
 
   /// Generate an HTML report of license status and save to the specified path
   #[arg(long, value_name = "OUTPUT")]
@@ -170,7 +160,7 @@ struct Args {
 fn main() -> Result<()> {
   let args = Args::parse();
   set_verbose(args.verbose);
-  set_color_mode(ColorMode::from(args.colors));
+  set_color_mode(args.colors);
 
   // Set global ignore file if provided
   if let Some(ref global_ignore_file) = args.global_ignore_file {

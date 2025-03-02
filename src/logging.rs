@@ -27,6 +27,7 @@
 //! info_log!("License added to: {}", "example.rs");
 //! ```
 
+use clap::ValueEnum;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
@@ -43,7 +44,7 @@ static VERBOSE: AtomicBool = AtomicBool::new(false);
 static COLOR_MODE: AtomicU8 = AtomicU8::new(0);
 
 /// Enum representing the color mode options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {
   /// Automatically determine whether to use colors based on TTY detection
   Auto = 0,
