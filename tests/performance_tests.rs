@@ -441,3 +441,157 @@ fn benchmark_operations() -> Result<()> {
 
   Ok(())
 }
+
+/// Helper function to generate test files with specific distribution of licenses
+fn generate_mixed_test_files(
+  dir: &Path,
+  total_files: usize,
+  percent_missing_license: f64,
+  percent_outdated_year: f64,
+  file_size_bytes: usize
+) -> Result<()> {
+  let missing_license_count = ((total_files as f64) * percent_missing_license / 100.0).round() as usize;
+  let outdated_year_count = ((total_files as f64) * percent_outdated_year / 100.0).round() as usize;
+  let current_license_count = total_files - missing_license_count - outdated_year_count;
+  
+  println!(
+    "Generating {} total files: {} missing licenses, {} outdated years, {} current",
+    total_files, missing_license_count, outdated_year_count, current_license_count
+  );
+  
+  // Create subdirectories to avoid too many files in one directory
+  let subdirs_count = (total_files as f64).sqrt().ceil() as usize;
+  let files_per_subdir = total_files / subdirs_count + 1;
+  
+  println!(
+    "Distributing files across {} subdirectories...",
+    subdirs_count
+  );
+  
+  // Generate content for the different types of files
+  let no_license_content = create_file_content("", file_size_bytes);
+  let outdated_license_content = create_file_content("// Copyright (c) 2024 Test Company\n\n", file_size_bytes);
+  let current_license_content = create_file_content("// Copyright (c) 2025 Test Company\n\n", file_size_bytes);
+  
+  // Create files in subdirectories
+  let mut file_count = 0;
+  let mut missing_license_created = 0;
+  let mut outdated_year_created = 0;
+  let mut current_license_created = 0;
+  
+  for i in 0..subdirs_count {
+    let subdir = dir.join(format!("subdir_{}", i));
+    fs::create_dir_all(&subdir)?;
+    
+    for j in 0..files_per_subdir {
+      if file_count >= total_files {
+        break;
+      }
+      
+      let file_path = subdir.join(format!("test_file_{}.rs", j));
+      
+      // Determine which type of file to create next
+      let content = if missing_license_created < missing_license_count {
+        missing_license_created += 1;
+        &no_license_content
+      } else if outdated_year_created < outdated_year_count {
+        outdated_year_created += 1;
+        &outdated_license_content
+      } else if current_license_created < current_license_count {
+        current_license_created += 1;
+        &current_license_content
+      } else {
+        // Fallback - shouldn't happen but just in case
+        &no_license_content
+      };
+      
+      fs::write(&file_path, content)?;
+      file_count += 1;
+      
+      // Print progress every 1000 files
+      if file_count % 1000 == 0 {
+        println!("Generated {} files...", file_count);
+      }
+    }
+  }
+  
+  println!("Generated {} total files: {} missing licenses, {} outdated years, {} current",
+    file_count, missing_license_created, outdated_year_created, current_license_created);
+  
+  Ok(())
+}
+
+/// Helper function to create file content of a specific size with a given header
+fn create_file_content(header: &str, file_size_bytes: usize) -> String {
+  // Generate some dummy content to reach the desired file size
+  let content_size = file_size_bytes.saturating_sub(header.len());
+  let mut content = String::with_capacity(file_size_bytes);
+  content.push_str(header);
+  content.push_str("fn main() {\n");
+  
+  // Add enough lines to reach the desired size
+  let line = "    println!(\"This is a test line for performance testing.\");\n";
+  let lines_needed = (content_size as f64 / line.len() as f64).ceil() as usize;
+  
+  for _ in 0..lines_needed {
+    content.push_str(line);
+  }
+  content.push_str("}\n");
+  
+  content
+}
+
+/// Performance test with realistic repository conditions
+/// This test simulates a repository where most files already have correct licenses,
+/// and only a small percentage need to be fixed (more typical of real-world usage).
+#[test]
+#[ignore] // Ignore by default as it's a long-running test
+fn test_realistic_repository_performance() -> Result<()> {
+  use std::env;
+  
+  // Test with different thread counts
+  let thread_counts = [1, 2, 4, 8, 16];
+  let file_count = 10_000;
+  let file_size = 1_000; // 1KB
+  
+  // We'll simulate repository where:
+  // - 1% of files are missing licenses
+  // - 1% of files have outdated years
+  // - 98% of files have current licenses (no changes needed)
+  let percent_missing_license = 1.0;
+  let percent_outdated_year = 1.0;
+  
+  println!("\n=== Testing performance with realistic repository conditions ===");
+  
+  for &threads in &thread_counts {
+    // Set the number of threads for rayon
+    // Use unsafe block for environment variable modification
+    unsafe {
+      env::set_var("RAYON_NUM_THREADS", threads.to_string());
+    }
+    
+    // Create processor and test directory
+    let (processor, temp_dir) =
+      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
+    
+    let test_dir = temp_dir.path().join(format!("realistic_test_{}", threads));
+    fs::create_dir_all(&test_dir)?;
+    
+    println!("Setting up test for {} threads...", threads);
+    generate_mixed_test_files(&test_dir, file_count, percent_missing_license, percent_outdated_year, file_size)?;
+    
+    let test_name = format!("Realistic repository with {} threads", threads);
+    run_performance_test(&test_name, || {
+      let _ = processor.process_directory(&test_dir)?;
+      Ok(())
+    })?;
+  }
+  
+  // Reset the thread count
+  // Use unsafe block for environment variable modification
+  unsafe {
+    env::remove_var("RAYON_NUM_THREADS");
+  }
+  
+  Ok(())
+}
