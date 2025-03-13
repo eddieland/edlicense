@@ -6,7 +6,7 @@ use edlicense::diff::DiffManager;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 
-fn create_test_processor(
+async fn create_test_processor(
   template_content: &str,
   ignore_patterns: Vec<String>,
   check_only: bool,
@@ -47,8 +47,8 @@ fn create_test_processor(
   Ok((processor, temp_dir))
 }
 
-#[test]
-fn test_license_detection() -> Result<()> {
+#[tokio::test]
+async fn test_license_detection() -> Result<()> {
   // Create a processor
   let (processor, _temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -59,7 +59,8 @@ fn test_license_detection() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Test content with a license
   let content_with_license = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
@@ -76,8 +77,8 @@ fn test_license_detection() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_prefix_extraction() -> Result<()> {
+#[tokio::test]
+async fn test_prefix_extraction() -> Result<()> {
   // Create a processor
   let (processor, _temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -88,7 +89,8 @@ fn test_prefix_extraction() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Test shebang extraction
   let content_with_shebang = "#!/usr/bin/env python3\n\ndef main():\n    print('Hello, world!')";
@@ -125,8 +127,8 @@ fn test_prefix_extraction() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_year_updating() -> Result<()> {
+#[tokio::test]
+async fn test_year_updating() -> Result<()> {
   // Create a processor
   let (processor, _temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -137,7 +139,8 @@ fn test_year_updating() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Test updating a single year
   let content_with_old_year = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
@@ -161,8 +164,8 @@ fn test_year_updating() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_ignore_patterns() -> Result<()> {
+#[tokio::test]
+async fn test_ignore_patterns() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
   let temp_path = temp_dir.path();
@@ -221,8 +224,8 @@ fn test_ignore_patterns() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_process_file() -> Result<()> {
+#[tokio::test]
+async fn test_process_file() -> Result<()> {
   // Create a processor
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -233,14 +236,15 @@ fn test_process_file() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Create a test file without a license - avoid using any text that might be interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"Testing!\");\n}")?;
 
   // Process the file
-  processor.process_file(&test_file_path)?;
+  processor.process_file(&test_file_path).await?;
 
   // Read the file and check if license was added
   let content = fs::read_to_string(&test_file_path)?;
@@ -255,7 +259,7 @@ fn test_process_file() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&test_file_with_shebang)?;
+  processor.process_file(&test_file_with_shebang).await?;
 
   // Read the file and check if license was added after shebang
   let content = fs::read_to_string(&test_file_with_shebang)?;
@@ -266,8 +270,8 @@ fn test_process_file() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_check_only_mode() -> Result<()> {
+#[tokio::test]
+async fn test_check_only_mode() -> Result<()> {
   // Create a processor in check-only mode
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -278,14 +282,15 @@ fn test_check_only_mode() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )?;
+  )
+  .await?;
 
   // Create a test file without a license - avoid using any text that might be interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"No license test\");\n}")?;
 
   // Process the file - should return an error
-  let result = processor.process_file(&test_file_path);
+  let result = processor.process_file(&test_file_path).await;
   assert!(result.is_err());
 
   // The file should not be modified
@@ -301,7 +306,7 @@ fn test_check_only_mode() -> Result<()> {
   )?;
 
   // Process the file - should succeed
-  let result = processor.process_file(&test_file_with_license);
+  let result = processor.process_file(&test_file_with_license).await;
   assert!(result.is_ok());
 
   // The file should not be modified (even though the year is old)
@@ -311,8 +316,8 @@ fn test_check_only_mode() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_preserve_years() -> Result<()> {
+#[tokio::test]
+async fn test_preserve_years() -> Result<()> {
   // Create a processor with preserve_years = true
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -323,7 +328,8 @@ fn test_preserve_years() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )?;
+  )
+  .await?;
 
   // Create a test file with an old year
   let test_file_path = temp_dir.path().join("test.rs");
@@ -333,7 +339,7 @@ fn test_preserve_years() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&test_file_path)?;
+  processor.process_file(&test_file_path).await?;
 
   // The year should not be updated
   let content = fs::read_to_string(&test_file_path)?;
@@ -349,7 +355,8 @@ fn test_preserve_years() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )?;
+  )
+  .await?;
 
   // Create a test file with an old year
   let test_file_path = temp_dir.path().join("test.rs");
@@ -359,7 +366,7 @@ fn test_preserve_years() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&test_file_path)?;
+  processor.process_file(&test_file_path).await?;
 
   // The year should be updated
   let content = fs::read_to_string(&test_file_path)?;
@@ -368,8 +375,8 @@ fn test_preserve_years() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_process_directory() -> Result<()> {
+#[tokio::test]
+async fn test_process_directory() -> Result<()> {
   // Create a processor
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -380,7 +387,8 @@ fn test_process_directory() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )?;
+  )
+  .await?;
 
   // Create a test directory structure
   let test_dir = temp_dir.path().join("test_dir");
@@ -397,7 +405,7 @@ fn test_process_directory() -> Result<()> {
   fs::write(subdir.join("file4.rs"), "fn test4_fn() { /* subdir test */ }")?;
 
   // Process the directory
-  let _has_missing = processor.process_directory(&test_dir)?;
+  let _has_missing = processor.process_directory(&test_dir).await?;
 
   // All non-ignored files should have licenses now
   let content1 = fs::read_to_string(test_dir.join("file1.rs"))?;
@@ -416,8 +424,8 @@ fn test_process_directory() -> Result<()> {
 }
 
 // Test the filtering functionality indirectly through the Processor
-#[test]
-fn test_file_filtering() -> Result<()> {
+#[tokio::test]
+async fn test_file_filtering() -> Result<()> {
   // Create a temporary directory for testing
   let temp_dir = tempdir()?;
   let test_file = temp_dir.path().join("test.rs");
@@ -437,11 +445,12 @@ fn test_file_filtering() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Process both files
-  processor.process_file(&test_file)?;
-  processor.process_file(&ignored_file)?;
+  processor.process_file(&test_file).await?;
+  processor.process_file(&ignored_file).await?;
 
   // Check the results
   let test_content = fs::read_to_string(&test_file)?;
@@ -469,8 +478,8 @@ fn test_file_filtering() -> Result<()> {
 }
 
 // Test for the ratchet mode functionality
-#[test]
-fn test_ratchet_mode_directory() -> Result<()> {
+#[tokio::test]
+async fn test_ratchet_mode_directory() -> Result<()> {
   // First, check that git is available
   let git_version = std::process::Command::new("git").args(["--version"]).output();
 
@@ -561,7 +570,8 @@ fn test_ratchet_mode_directory() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Create a version of the file paths as would be seen from git's perspective
   let rel_file1 = std::path::Path::new("file1.rs");
@@ -594,8 +604,8 @@ fn test_ratchet_mode_directory() -> Result<()> {
 
   // Now process the files using the processor
   println!("Processing files using processor...");
-  processor.process_file(&file1)?; // Should add license to file1 (modified)
-  processor.process_file(&file2)?; // Should NOT add license to file2 (unmodified)
+  processor.process_file(&file1).await?; // Should add license to file1 (modified)
+  processor.process_file(&file2).await?; // Should NOT add license to file2 (unmodified)
 
   // Go back to original directory
   std::env::set_current_dir(process_dir)?;
@@ -623,8 +633,8 @@ fn test_ratchet_mode_directory() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_show_diff_mode() -> Result<()> {
+#[tokio::test]
+async fn test_show_diff_mode() -> Result<()> {
   // Create a processor in check-only mode with show_diff enabled
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -635,14 +645,15 @@ fn test_show_diff_mode() -> Result<()> {
     Some(true), // show_diff = true
     None,       // No save diff path
     false,
-  )?;
+  )
+  .await?;
 
   // Create a test file without a license - avoid using any text that might be interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"Diff test\");\n}")?;
 
   // Process the file - should return an error but show a diff
-  let result = processor.process_file(&test_file_path);
+  let result = processor.process_file(&test_file_path).await;
   assert!(result.is_err());
 
   // The file should not be modified
@@ -653,8 +664,8 @@ fn test_show_diff_mode() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_diff_manager() -> Result<()> {
+#[tokio::test]
+async fn test_diff_manager() -> Result<()> {
   // Create a DiffManager
   let diff_manager = DiffManager::new(true, None);
 
@@ -668,8 +679,8 @@ fn test_diff_manager() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_manual_ratchet_mode() -> Result<()> {
+#[tokio::test]
+async fn test_manual_ratchet_mode() -> Result<()> {
   // This test verifies that the ratchet mode works correctly by manually creating
   // a RatchetFilter with a predetermined set of changed files
 
@@ -723,10 +734,11 @@ fn test_manual_ratchet_mode() -> Result<()> {
     None,
     None,
     false,
-  )?;
+  )
+  .await?;
 
   // Only process file1 (our "changed" file)
-  processor.process_file(&file1)?;
+  processor.process_file(&file1).await?;
 
   // Verify results
   let file1_content = fs::read_to_string(&file1)?;
@@ -742,6 +754,67 @@ fn test_manual_ratchet_mode() -> Result<()> {
   assert!(
     !file2_content.contains("// Copyright (c) 2025 Test Company"),
     "Unchanged file should not have a license header"
+  );
+
+  Ok(())
+}
+
+// Test for the process method
+#[tokio::test]
+async fn test_process() -> Result<()> {
+  // Create a processor
+  let (processor, temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec!["*.json".to_string()], // Ignore JSON files
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // Create test files
+  let test_file = temp_dir.path().join("test.rs");
+  let ignored_file = temp_dir.path().join("ignored.json");
+  fs::write(&test_file, "fn test() {}")?;
+  fs::write(&ignored_file, "{\"test\": \"value\"}")?;
+
+  // Create a test directory
+  let test_dir = temp_dir.path().join("test_dir");
+  fs::create_dir_all(&test_dir)?;
+  fs::write(test_dir.join("dir_file.rs"), "fn dir_test() {}")?;
+
+  // Process the files and directory
+  let patterns = vec![
+    test_file.to_string_lossy().to_string(),
+    ignored_file.to_string_lossy().to_string(),
+    test_dir.to_string_lossy().to_string(),
+  ];
+
+  let _has_missing = processor.process(&patterns).await?;
+
+  // Check results
+  let test_content = fs::read_to_string(&test_file)?;
+  let ignored_content = fs::read_to_string(&ignored_file)?;
+  let dir_file_content = fs::read_to_string(test_dir.join("dir_file.rs"))?;
+
+  // The .rs files should have licenses
+  assert!(
+    test_content.contains("// Copyright (c) 2025 Test Company"),
+    "The .rs file should have a license header"
+  );
+
+  assert!(
+    dir_file_content.contains("// Copyright (c) 2025 Test Company"),
+    "The directory .rs file should have a license header"
+  );
+
+  // The .json file should NOT have a license (because it's ignored)
+  assert!(
+    !ignored_content.contains("Copyright (c) 2025 Test Company"),
+    "The .json file should not have a license header"
   );
 
   Ok(())

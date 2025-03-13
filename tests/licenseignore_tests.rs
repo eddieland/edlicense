@@ -553,8 +553,8 @@ fn test_processor_with_licenseignore() -> Result<()> {
 }
 
 /// Test that explicitly named files still respect .licenseignore patterns
-#[test]
-fn test_explicit_file_names_with_licenseignore() -> Result<()> {
+#[tokio::test]
+async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
   // Save the original working directory
   let original_dir = env::current_dir()?;
   println!("Original working directory: {:?}", original_dir);
@@ -610,7 +610,9 @@ fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   // Process the TOML file directly by name - it should still be ignored
   println!("Processing TOML file: {:?}", toml_file_path);
-  let toml_result = processor.process(&[toml_file_path.to_string_lossy().to_string()])?;
+  let toml_result = processor
+    .process(&[toml_file_path.to_string_lossy().to_string()])
+    .await?;
   println!("TOML file processing result: {}", toml_result);
 
   // Check if files_processed was incremented
@@ -670,7 +672,9 @@ fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   // Process the rust file
   println!("Processing Rust file: {:?}", rust_file_path);
-  let rust_result = rust_processor.process(&[rust_file_path.to_string_lossy().to_string()])?;
+  let rust_result = rust_processor
+    .process(&[rust_file_path.to_string_lossy().to_string()])
+    .await?;
   println!("Rust file processing result: {}", rust_result);
 
   // Check if files_processed was incremented for the rust file

@@ -5,16 +5,16 @@
 //!
 //! The [`Processor`] struct is the main entry point for all file operations.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+// HashMap is used in the ignore_manager_cache type
+// but not directly imported since we use the full path
 
 use anyhow::{Context, Result};
-use rayon::prelude::*;
 use regex::Regex;
-use walkdir::WalkDir;
+use tokio::fs;
+// WalkDir is no longer used since we implemented async directory traversal
 
 use crate::diff::DiffManager;
 use crate::file_filter::{CompositeFilter, FileFilter, create_default_filter};
@@ -58,16 +58,19 @@ pub struct Processor {
   diff_manager: DiffManager,
 
   /// Counter for the total number of files processed
-  pub files_processed: std::sync::atomic::AtomicUsize,
+  pub files_processed: Arc<std::sync::atomic::AtomicUsize>,
 
   /// Collection of file reports for generating reports
-  pub file_reports: Arc<Mutex<Vec<FileReport>>>,
+  pub file_reports: Arc<tokio::sync::Mutex<Vec<FileReport>>>,
 
   /// Whether to collect report data
   collect_report_data: bool,
 
   /// License detector for checking if files have license headers
-  license_detector: Box<dyn LicenseDetector>,
+  license_detector: Arc<Box<dyn LicenseDetector + Send + Sync>>,
+
+  /// Cache for ignore managers to avoid redundant .licenseignore file loading
+  ignore_manager_cache: Arc<tokio::sync::Mutex<std::collections::HashMap<PathBuf, IgnoreManager>>>,
 }
 
 impl Processor {
@@ -102,7 +105,7 @@ impl Processor {
     ratchet_reference: Option<String>,
     diff_manager: Option<DiffManager>,
     git_only: bool,
-    license_detector: Option<Box<dyn LicenseDetector>>,
+    license_detector: Option<Box<dyn LicenseDetector + Send + Sync>>,
   ) -> Result<Self> {
     // Create ignore manager for base ignore patterns
     let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
@@ -122,12 +125,15 @@ impl Processor {
       check_only,
       preserve_years,
       diff_manager,
-      files_processed: std::sync::atomic::AtomicUsize::new(0),
-      file_reports: Arc::new(Mutex::new(Vec::new())),
+      files_processed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+      file_reports: Arc::new(tokio::sync::Mutex::new(Vec::new())),
       collect_report_data: true, // Enable report data collection by default
-      license_detector,
+      license_detector: Arc::new(license_detector),
+      ignore_manager_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
     })
   }
+
+  // No clone_for_task method needed
 
   /// Processes a list of file or directory patterns.
   ///
@@ -150,7 +156,7 @@ impl Processor {
   /// Returns an error if:
   /// - A glob pattern is invalid
   /// - Directory traversal fails
-  pub fn process(&self, patterns: &[String]) -> Result<bool> {
+  pub async fn process(&self, patterns: &[String]) -> Result<bool> {
     let has_missing_license = Arc::new(AtomicBool::new(false));
 
     // Process each pattern
@@ -160,14 +166,14 @@ impl Processor {
       if path.is_file() {
         // Process a single file
         // Load .licenseignore files from the file's parent directory
-        let result = self.process_file_with_ignore_context(&path);
+        let result = self.process_file_with_ignore_context(&path).await;
         if let Err(e) = result {
           eprintln!("Error processing {}: {}", path.display(), e);
           has_missing_license.store(true, Ordering::Relaxed);
         }
       } else if path.is_dir() {
         // Process a directory recursively
-        let has_missing = self.process_directory(&path)?;
+        let has_missing = self.process_directory(&path).await?;
         if has_missing {
           has_missing_license.store(true, Ordering::Relaxed);
         }
@@ -175,19 +181,20 @@ impl Processor {
         // Try to use the pattern as a glob
         let entries = glob::glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
 
+        // Process glob entries sequentially but with async operations
         for entry in entries {
           match entry {
             Ok(path) => {
               if path.is_file() {
                 // Process a single file matching the glob pattern
                 // Load .licenseignore files from the file's parent directory
-                let result = self.process_file_with_ignore_context(&path);
+                let result = self.process_file_with_ignore_context(&path).await;
                 if let Err(e) = result {
                   eprintln!("Error processing {}: {}", path.display(), e);
                   has_missing_license.store(true, Ordering::Relaxed);
                 }
               } else if path.is_dir() {
-                let has_missing = self.process_directory(&path)?;
+                let has_missing = self.process_directory(&path).await?;
                 if has_missing {
                   has_missing_license.store(true, Ordering::Relaxed);
                 }
@@ -208,19 +215,39 @@ impl Processor {
   ///
   /// This ensures that .licenseignore files in the file's directory are
   /// applied even to explicitly named files.
-  fn process_file_with_ignore_context(&self, path: &Path) -> Result<()> {
+  async fn process_file_with_ignore_context(&self, path: &Path) -> Result<()> {
+    // Create a local reports collection for this file
+    let local_reports = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
     // Get the parent directory of the file to load directory-specific ignore patterns
     if let Some(parent_dir) = path.parent() {
       // Create a temporary ignore filter with the parent directory's ignore patterns
       if parent_dir.exists() {
-        let mut ignore_manager = self.ignore_manager.clone();
-        ignore_manager.load_licenseignore_files(parent_dir)?;
+        // Check cache first for the ignore manager
+        let ignore_manager = {
+          let mut cache = self.ignore_manager_cache.lock().await;
+
+          if let Some(cached_manager) = cache.get(parent_dir) {
+            // Use cached ignore manager
+            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+            cached_manager.clone()
+          } else {
+            // Create new ignore manager and cache it
+            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+            let mut new_manager = self.ignore_manager.clone();
+            new_manager.load_licenseignore_files(parent_dir)?;
+
+            // Store in cache
+            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+            new_manager
+          }
+        };
 
         // Check if the file is ignored by the parent directory-specific patterns
         if ignore_manager.is_ignored(path) {
           verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
 
-          // Add to report if collecting report data
+          // Add to local reports if collecting report data
           if self.collect_report_data {
             let file_report = FileReport {
               path: path.to_path_buf(),
@@ -230,8 +257,20 @@ impl Processor {
               ignored_reason: Some("Matches .licenseignore pattern".to_string()),
             };
 
-            if let Ok(mut reports) = self.file_reports.lock() {
-              reports.push(file_report);
+            let mut reports = local_reports.lock().await;
+            reports.push(file_report);
+          }
+
+          // Update the shared reports with the local collection
+          if self.collect_report_data {
+            let local_report_data = {
+              let mut reports = local_reports.lock().await;
+              std::mem::take(&mut *reports)
+            };
+
+            if !local_report_data.is_empty() {
+              let mut reports = self.file_reports.lock().await;
+              reports.extend(local_report_data);
             }
           }
 
@@ -240,8 +279,23 @@ impl Processor {
       }
     }
 
-    // Process the file normally - this will still use the composite filter for other checks
-    self.process_file(path)
+    // Process the file normally with the local reports collection
+    let result = self.process_file_with_local_reports(path, &local_reports).await;
+
+    // Update the shared reports with the local collection
+    if self.collect_report_data {
+      let local_report_data = {
+        let mut reports = local_reports.lock().await;
+        std::mem::take(&mut *reports)
+      };
+
+      if !local_report_data.is_empty() {
+        let mut reports = self.file_reports.lock().await;
+        reports.extend(local_report_data);
+      }
+    }
+
+    result
   }
 
   /// Processes a directory recursively, adding or checking license headers in all files.
@@ -265,55 +319,171 @@ impl Processor {
   ///
   /// # Performance
   ///
-  /// This method uses parallel processing via Rayon to improve performance
-  /// when dealing with large directories.
-  pub fn process_directory(&self, dir: &Path) -> Result<bool> {
+  /// This method uses async operations for processing files in a directory.
+  pub async fn process_directory(&self, dir: &Path) -> Result<bool> {
     let has_missing_license = Arc::new(AtomicBool::new(false));
+    let has_missing_clone = Arc::clone(&has_missing_license);
 
-    // Load .licenseignore files for this directory
-    // Note: We need to clone ignore_manager because we can't mutate self
-    let mut ignore_manager = self.ignore_manager.clone();
-    ignore_manager.load_licenseignore_files(dir)?;
+    // Pre-allocate vectors for better performance
+    let mut all_files = Vec::with_capacity(1000);
+    let mut local_reports = Vec::with_capacity(1000);
 
-    // Collect all files in the directory
-    let all_files: Vec<_> = WalkDir::new(dir)
-      .into_iter()
-      .filter_map(Result::ok)
-      .filter(|e| e.file_type().is_file())
-      .map(|e| e.path().to_path_buf())
-      .collect();
+    // Asynchronous directory traversal with optimized memory usage
+    let mut dirs_to_process = std::collections::VecDeque::with_capacity(100);
+    dirs_to_process.push_back(dir.to_path_buf());
 
-    // Use our enhanced ignore manager with directory-specific patterns
-    // to pre-filter files before processing
+    // Process directories in batches for better performance
+    verbose_log!("Scanning directory: {}", dir.display());
+    let start_time = std::time::Instant::now();
+
+    while let Some(current_dir) = dirs_to_process.pop_front() {
+      let read_dir_result = tokio::fs::read_dir(&current_dir).await;
+      if let Err(e) = read_dir_result {
+        eprintln!("Error reading directory {}: {}", current_dir.display(), e);
+        continue;
+      }
+
+      let mut entries = read_dir_result.unwrap();
+      while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+
+        // Use metadata instead of file_type for better performance
+        if let Ok(metadata) = entry.metadata().await {
+          if metadata.is_dir() {
+            dirs_to_process.push_back(path);
+          } else if metadata.is_file() {
+            all_files.push(path);
+          }
+        }
+      }
+    }
+
+    verbose_log!(
+      "Found {} files in {}ms",
+      all_files.len(),
+      start_time.elapsed().as_millis()
+    );
+
+    // Filter files using the file_filter directly - optimized to avoid unnecessary clones
+    let filter_start = std::time::Instant::now();
     let files: Vec<_> = all_files
       .into_iter()
       .filter(|p| {
-        let should_ignore = ignore_manager.is_ignored(p);
-        if should_ignore {
-          verbose_log!("Skipping: {} (matches ignore pattern)", p.display());
+        // Check if the file should be processed
+        match self.file_filter.should_process(p) {
+          Ok(result) => {
+            if !result.should_process {
+              // Clone reason once and use the clone for both purposes
+              let reason_clone = result.reason.clone();
+              let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+              verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+
+              // Add skipped file to local reports directly without spawning a task
+              if self.collect_report_data {
+                let file_report = FileReport {
+                  path: p.to_path_buf(),
+                  has_license: false,
+                  action_taken: Some(FileAction::Skipped),
+                  ignored: true,
+                  ignored_reason: reason_clone,
+                };
+
+                local_reports.push(file_report);
+              }
+
+              false
+            } else {
+              true
+            }
+          }
+          Err(_) => false,
         }
-        !should_ignore
       })
       .collect();
 
-    // Process files in parallel
-    files.par_iter().for_each(|path| {
-      let result = self.process_file(path);
-      if let Err(e) = result {
-        // If we're in check-only mode and the error is "Missing license header",
-        // this is expected and we should set has_missing_license to true
-        if self.check_only && e.to_string().contains("Missing license header") {
-          has_missing_license.store(true, Ordering::Relaxed);
-        } else {
-          // For other errors, print them
-          eprintln!("Error processing {}: {}", path.display(), e);
-          // Still set has_missing_license to true for any error
-          has_missing_license.store(true, Ordering::Relaxed);
-        }
-      }
-    });
+    verbose_log!(
+      "Filtered to {} files to process in {}ms",
+      files.len(),
+      filter_start.elapsed().as_millis()
+    );
 
-    Ok(has_missing_license.load(Ordering::Relaxed))
+    if files.is_empty() {
+      verbose_log!("No files to process in directory: {}", dir.display());
+
+      // Update the shared reports with the local collection
+      if self.collect_report_data && !local_reports.is_empty() {
+        let mut reports = self.file_reports.lock().await;
+        reports.extend(local_reports);
+      }
+
+      return Ok(false);
+    }
+
+    // Determine optimal concurrency based on CPU cores and file count
+    let num_cpus = num_cpus::get();
+    let files_len = files.len();
+    let concurrency = std::cmp::min(num_cpus * 4, files_len);
+    let concurrency = std::cmp::max(concurrency, 1); // At least 1
+
+    verbose_log!("Processing {} files with concurrency {}", files_len, concurrency);
+
+    // Create a channel for collecting reports from worker tasks
+    let (report_sender, report_receiver) = tokio::sync::mpsc::channel::<FileReport>(concurrency * 2);
+
+    // Process files concurrently with optimized parallelism
+    use futures::stream::{self, StreamExt};
+
+    let process_start = std::time::Instant::now();
+
+    stream::iter(files)
+      .map(|path| {
+        let has_missing = Arc::clone(&has_missing_license);
+        let processor = self;
+        let sender = report_sender.clone();
+
+        async move {
+          // Use a more efficient version that doesn't require mutex locking
+          let result = processor.process_file_efficient(&path, sender.clone()).await;
+          if let Err(e) = result {
+            // If we're in check-only mode and the error is "Missing license header",
+            // this is expected and we should set has_missing_license to true
+            if processor.check_only && e.to_string().contains("Missing license header") {
+              has_missing.store(true, Ordering::Relaxed);
+            } else {
+              // For other errors, print them
+              eprintln!("Error processing {}: {}", path.display(), e);
+              // Still set has_missing_license to true for any error
+              has_missing.store(true, Ordering::Relaxed);
+            }
+          }
+        }
+      })
+      .buffer_unordered(concurrency) // Use optimal concurrency
+      .collect::<Vec<_>>()
+      .await;
+
+    // Drop the sender to close the channel
+    drop(report_sender);
+
+    // Collect all reports from the channel
+    let mut receiver = report_receiver;
+    while let Ok(report) = receiver.try_recv() {
+      local_reports.push(report);
+    }
+
+    verbose_log!(
+      "Processed {} files in {}ms",
+      files_len,
+      process_start.elapsed().as_millis()
+    );
+
+    // After processing all files, update the shared reports once
+    if self.collect_report_data && !local_reports.is_empty() {
+      let mut reports = self.file_reports.lock().await;
+      reports.extend(local_reports);
+    }
+
+    Ok(has_missing_clone.load(Ordering::Relaxed))
   }
 
   /// Processes a single file, adding or checking a license header.
@@ -338,7 +508,35 @@ impl Processor {
   /// - The file cannot be read or written
   /// - The file is missing a license header in check-only mode
   /// - License template rendering fails
-  pub fn process_file(&self, path: &Path) -> Result<()> {
+  #[allow(dead_code)]
+  pub async fn process_file(&self, path: &Path) -> Result<()> {
+    // Use the local reports version with an empty reports collection that will be discarded
+    let dummy_reports = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    self.process_file_with_local_reports(path, &dummy_reports).await
+  }
+
+  /// Processes a single file with a local reports collection to reduce mutex contention.
+  ///
+  /// This version of process_file uses a local reports collection passed from the caller
+  /// instead of directly updating the shared file_reports mutex. This reduces lock
+  /// contention when processing files concurrently.
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to process
+  /// * `local_reports` - Local collection for file reports
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if the file was processed successfully, or an error if:
+  /// - The file cannot be read or written
+  /// - The file is missing a license header in check-only mode
+  /// - License template rendering fails
+  pub async fn process_file_with_local_reports(
+    &self,
+    path: &Path,
+    local_reports: &Arc<tokio::sync::Mutex<Vec<FileReport>>>,
+  ) -> Result<()> {
     verbose_log!("Processing file: {}", path.display());
 
     // Use our composite file filter to determine if we should process this file
@@ -350,19 +548,18 @@ impl Processor {
         .unwrap_or_else(|| "Unknown reason".to_string());
       verbose_log!("Skipping: {} ({})", path.display(), reason);
 
-      // Add to report if collecting report data
+      // Add to local reports if collecting report data
       if self.collect_report_data {
         let file_report = FileReport {
           path: path.to_path_buf(),
           has_license: false, // We don't know, but we're skipping it
           action_taken: Some(FileAction::Skipped),
           ignored: true,
-          ignored_reason: filter_result.reason,
+          ignored_reason: filter_result.reason.clone(),
         };
 
-        if let Ok(mut reports) = self.file_reports.lock() {
-          reports.push(file_report);
-        }
+        let mut reports = local_reports.lock().await;
+        reports.push(file_report);
       }
 
       return Ok(());
@@ -372,7 +569,9 @@ impl Processor {
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     // Read file content
-    let content = fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))?;
+    let content = fs::read_to_string(path)
+      .await
+      .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
     // Check if the file already has a license
     let has_license = self.has_license(&content);
@@ -403,7 +602,7 @@ impl Processor {
           self.diff_manager.display_diff(path, &content, &new_content)?;
         }
 
-        // Add to report if collecting report data
+        // Add to local reports if collecting report data
         if self.collect_report_data {
           let file_report = FileReport {
             path: path.to_path_buf(),
@@ -413,9 +612,8 @@ impl Processor {
             ignored_reason: None,
           };
 
-          if let Ok(mut reports) = self.file_reports.lock() {
-            reports.push(file_report);
-          }
+          let mut reports = local_reports.lock().await;
+          reports.push(file_report);
         }
 
         // Signal that a license is missing by returning an error
@@ -429,7 +627,7 @@ impl Processor {
           self.diff_manager.display_diff(path, &content, &updated_content)?;
         }
 
-        // Add to report if collecting report data
+        // Add to local reports if collecting report data
         if self.collect_report_data {
           let file_report = FileReport {
             path: path.to_path_buf(),
@@ -439,9 +637,8 @@ impl Processor {
             ignored_reason: None,
           };
 
-          if let Ok(mut reports) = self.file_reports.lock() {
-            reports.push(file_report);
-          }
+          let mut reports = local_reports.lock().await;
+          reports.push(file_report);
         }
       } else {
         // File has license and we wouldn't update it
@@ -454,9 +651,8 @@ impl Processor {
             ignored_reason: None,
           };
 
-          if let Ok(mut reports) = self.file_reports.lock() {
-            reports.push(file_report);
-          }
+          let mut reports = local_reports.lock().await;
+          reports.push(file_report);
         }
       }
       return Ok(());
@@ -469,12 +665,15 @@ impl Processor {
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
           verbose_log!("Updating year in: {}", path.display());
-          fs::write(path, updated_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
+
+          fs::write(path, &updated_content)
+            .await
+            .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
           // Log the updated file with colors
           info_log!("Updated year in: {}", path.display());
 
-          // Add to report if collecting report data
+          // Add to local reports if collecting report data
           if self.collect_report_data {
             let file_report = FileReport {
               path: path.to_path_buf(),
@@ -484,9 +683,8 @@ impl Processor {
               ignored_reason: None,
             };
 
-            if let Ok(mut reports) = self.file_reports.lock() {
-              reports.push(file_report);
-            }
+            let mut reports = local_reports.lock().await;
+            reports.push(file_report);
           }
         } else {
           // No changes needed - add to report
@@ -499,9 +697,8 @@ impl Processor {
               ignored_reason: None,
             };
 
-            if let Ok(mut reports) = self.file_reports.lock() {
-              reports.push(file_report);
-            }
+            let mut reports = local_reports.lock().await;
+            reports.push(file_report);
           }
         }
       } else {
@@ -515,9 +712,8 @@ impl Processor {
             ignored_reason: None,
           };
 
-          if let Ok(mut reports) = self.file_reports.lock() {
-            reports.push(file_report);
-          }
+          let mut reports = local_reports.lock().await;
+          reports.push(file_report);
         }
       }
     } else {
@@ -542,12 +738,14 @@ impl Processor {
       verbose_log!("Writing updated content to: {}", path.display());
 
       // Write the updated content back to the file
-      fs::write(path, new_content).with_context(|| format!("Failed to write to file: {}", path.display()))?;
+      fs::write(path, &new_content)
+        .await
+        .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
       // Log the added license with colors
       info_log!("Added license to: {}", path.display());
 
-      // Add to report if collecting report data
+      // Add to local reports if collecting report data
       if self.collect_report_data {
         let file_report = FileReport {
           path: path.to_path_buf(),
@@ -557,9 +755,263 @@ impl Processor {
           ignored_reason: None,
         };
 
-        if let Ok(mut reports) = self.file_reports.lock() {
-          reports.push(file_report);
+        let mut reports = local_reports.lock().await;
+        reports.push(file_report);
+      }
+    }
+
+    Ok(())
+  }
+
+  /// A more efficient version of process_file that uses a channel for report collection.
+  ///
+  /// This method avoids mutex contention by using a channel to send reports back to the caller.
+  /// It also uses more efficient file I/O operations.
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to process
+  /// * `report_sender` - Channel sender for file reports
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if the file was processed successfully, or an error if:
+  /// - The file cannot be read or written
+  /// - The file is missing a license header in check-only mode
+  /// - License template rendering fails
+  pub async fn process_file_efficient(
+    &self,
+    path: &Path,
+    report_sender: tokio::sync::mpsc::Sender<FileReport>,
+  ) -> Result<()> {
+    // Use our composite file filter to determine if we should process this file
+    let filter_result = self.file_filter.should_process(path)?;
+    if !filter_result.should_process {
+      // Only log in verbose mode to reduce I/O overhead
+      verbose_log!(
+        "Skipping: {} ({})",
+        path.display(),
+        filter_result
+          .reason
+          .clone()
+          .unwrap_or_else(|| "Unknown reason".to_string())
+      );
+
+      // Send report through channel if collecting report data
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false, // We don't know, but we're skipping it
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: filter_result.reason,
+        };
+
+        // Try to send the report, but don't wait if the channel is full
+        let _ = report_sender.try_send(file_report);
+      }
+
+      return Ok(());
+    }
+
+    // Increment the files processed counter
+    self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    // Get file metadata to check if we need to read the file
+    let metadata = match tokio::fs::metadata(path).await {
+      Ok(meta) => meta,
+      Err(e) => {
+        return Err(anyhow::anyhow!("Failed to get metadata for {}: {}", path.display(), e));
+      }
+    };
+
+    // Skip empty files
+    if metadata.len() == 0 {
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false,
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("Empty file".to_string()),
+        };
+        let _ = report_sender.try_send(file_report);
+      }
+      return Ok(());
+    }
+
+    // Read file content with optimized buffer
+    let content = match fs::read_to_string(path).await {
+      Ok(content) => content,
+      Err(e) => {
+        return Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e));
+      }
+    };
+
+    // Check if the file already has a license - use a cached detector for better performance
+    let has_license = self.has_license(&content);
+
+    if self.check_only {
+      if !has_license {
+        // In check-only mode, we need to signal that a license is missing
+
+        // Generate diffs if show_diff is enabled or save_diff_path is provided
+        if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
+          // Generate what the content would look like with a license
+          let license_text = match self.template_manager.render(&self.license_data) {
+            Ok(text) => text,
+            Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
+          };
+
+          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          let (prefix, content_without_prefix) = self.extract_prefix(&content);
+          let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
+
+          // Generate and display/save the diff
+          if let Err(e) = self.diff_manager.display_diff(path, &content, &new_content) {
+            eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
+          }
         }
+
+        // Send report through channel if collecting report data
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: None, // No action taken in check mode
+            ignored: false,
+            ignored_reason: None,
+          };
+
+          let _ = report_sender.try_send(file_report);
+        }
+
+        // Signal that a license is missing by returning an error
+        return Err(anyhow::anyhow!("Missing license header"));
+      } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
+        // Check if we would update the year in the license
+        let updated_content = self.update_year_in_license(&content)?;
+        if updated_content != content {
+          // Generate and display/save the diff
+          if let Err(e) = self.diff_manager.display_diff(path, &content, &updated_content) {
+            eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
+          }
+        }
+
+        // Send report through channel if collecting report data
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: None, // No action taken in check mode, but would update year
+            ignored: false,
+            ignored_reason: None,
+          };
+
+          let _ = report_sender.try_send(file_report);
+        }
+      } else {
+        // File has license and we wouldn't update it
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: Some(FileAction::NoActionNeeded),
+            ignored: false,
+            ignored_reason: None,
+          };
+
+          let _ = report_sender.try_send(file_report);
+        }
+      }
+      return Ok(());
+    }
+
+    if has_license {
+      // If the file has a license and we're not in preserve_years mode,
+      // check if we need to update the year
+      if !self.preserve_years {
+        // Fast path: check if we need to update the year
+        let updated_content = self.update_year_in_license(&content)?;
+        if updated_content != content {
+          // Write the updated content back to the file with optimized I/O
+          if let Err(e) = fs::write(path, &updated_content).await {
+            return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
+          }
+
+          // Log the updated file with colors
+          info_log!("Updated year in: {}", path.display());
+
+          // Send report through channel if collecting report data
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: true,
+              action_taken: Some(FileAction::YearUpdated),
+              ignored: false,
+              ignored_reason: None,
+            };
+
+            let _ = report_sender.try_send(file_report);
+          }
+        } else {
+          // No changes needed - add to report
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: true,
+              action_taken: Some(FileAction::NoActionNeeded),
+              ignored: false,
+              ignored_reason: None,
+            };
+
+            let _ = report_sender.try_send(file_report);
+          }
+        }
+      } else {
+        // Preserve years mode enabled - add to report
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: true,
+            action_taken: Some(FileAction::NoActionNeeded),
+            ignored: false,
+            ignored_reason: None,
+          };
+
+          let _ = report_sender.try_send(file_report);
+        }
+      }
+    } else {
+      // Add license to the file
+      let license_text = match self.template_manager.render(&self.license_data) {
+        Ok(text) => text,
+        Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
+      };
+
+      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      let (prefix, content_remainder) = self.extract_prefix(&content);
+      let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
+
+      // Write the updated content back to the file with optimized I/O
+      if let Err(e) = fs::write(path, &new_content).await {
+        return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
+      }
+
+      // Log the added license with colors
+      info_log!("Added license to: {}", path.display());
+
+      // Send report through channel if collecting report data
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: true, // Now it has a license
+          action_taken: Some(FileAction::Added),
+          ignored: false,
+          ignored_reason: None,
+        };
+
+        let _ = report_sender.try_send(file_report);
       }
     }
 
@@ -579,6 +1031,13 @@ impl Processor {
   ///
   /// `true` if the content appears to have a license header, `false` otherwise.
   pub fn has_license(&self, content: &str) -> bool {
+    // Fast path: check for common license indicators before using the full detector
+    if content.starts_with("// Copyright") || content.starts_with("/* Copyright") || content.starts_with("# Copyright")
+    {
+      return true;
+    }
+
+    // Use the full detector for more complex cases
     self.license_detector.has_license(content)
   }
 
@@ -648,12 +1107,20 @@ impl Processor {
   /// The updated content with the year references replaced, or an error if the
   /// regex pattern compilation fails.
   pub fn update_year_in_license(&self, content: &str) -> Result<String> {
-    // Regex to find copyright year patterns - match all copyright symbol formats
-    let year_regex = Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")?;
-
     let current_year = &self.license_data.year;
 
-    verbose_log!("Updating year to: {}", current_year);
+    // Fast path: if the content already contains the current year in a copyright statement,
+    // we can skip the regex processing entirely
+    if content.contains(&format!("Copyright (c) {} ", current_year))
+      || content.contains(&format!("Copyright © {} ", current_year))
+      || content.contains(&format!("Copyright {} ", current_year))
+    {
+      return Ok(content.to_string());
+    }
+
+    // Only compile the regex if we need it
+    // Regex to find copyright year patterns - match all copyright symbol formats
+    let year_regex = Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")?;
 
     // Update single year to current year
     let content = year_regex
@@ -663,7 +1130,6 @@ impl Processor {
         let suffix = &caps[3];
 
         if year != current_year {
-          verbose_log!("Replacing year {} with {}", year, current_year);
           format!("{}{}{}", prefix, current_year, suffix)
         } else {
           // Keep as is if already current

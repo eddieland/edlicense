@@ -13,6 +13,7 @@ help: ## Display this help
 ### Development
 fmt: ## Format code using rustfmt
 	cargo fmt --all
+	./fmt-python.sh
 
 lint: ## Run clippy for linting
 	cargo clippy -- -D warnings

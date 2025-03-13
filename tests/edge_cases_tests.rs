@@ -5,8 +5,8 @@ use tempfile::tempdir;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 
-#[test]
-fn test_empty_file() -> Result<()> {
+#[tokio::test]
+async fn test_empty_file() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -38,7 +38,7 @@ fn test_empty_file() -> Result<()> {
   )?;
 
   // Process the empty file
-  processor.process_file(&empty_file_path)?;
+  processor.process_file(&empty_file_path).await?;
 
   // Verify the license was added
   let content = fs::read_to_string(&empty_file_path)?;
@@ -47,8 +47,8 @@ fn test_empty_file() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_binary_file() -> Result<()> {
+#[tokio::test]
+async fn test_binary_file() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -80,14 +80,14 @@ fn test_binary_file() -> Result<()> {
   )?;
 
   // Process the binary file - should fail gracefully
-  let result = processor.process_file(&binary_file_path);
+  let result = processor.process_file(&binary_file_path).await;
   assert!(result.is_err());
 
   Ok(())
 }
 
-#[test]
-fn test_invalid_template() -> Result<()> {
+#[tokio::test]
+async fn test_invalid_template() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -104,8 +104,8 @@ fn test_invalid_template() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_invalid_glob_pattern() -> Result<()> {
+#[tokio::test]
+async fn test_invalid_glob_pattern() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -137,8 +137,8 @@ fn test_invalid_glob_pattern() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_file_with_unusual_encoding() -> Result<()> {
+#[tokio::test]
+async fn test_file_with_unusual_encoding() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -171,7 +171,7 @@ fn test_file_with_unusual_encoding() -> Result<()> {
   )?;
 
   // Process the UTF-16 file
-  processor.process_file(&utf16_file_path)?;
+  processor.process_file(&utf16_file_path).await?;
 
   // Verify the license was added
   let content = fs::read_to_string(&utf16_file_path)?;
@@ -180,8 +180,8 @@ fn test_file_with_unusual_encoding() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_file_with_multiple_shebangs() -> Result<()> {
+#[tokio::test]
+async fn test_file_with_multiple_shebangs() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -214,7 +214,7 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&multi_shebang_path)?;
+  processor.process_file(&multi_shebang_path).await?;
 
   // Verify the license was added after the first shebang only
   let content = fs::read_to_string(&multi_shebang_path)?;
@@ -225,8 +225,8 @@ fn test_file_with_multiple_shebangs() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_file_with_unusual_year_format() -> Result<()> {
+#[tokio::test]
+async fn test_file_with_unusual_year_format() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -259,7 +259,7 @@ fn test_file_with_unusual_year_format() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&unusual_year_path)?;
+  processor.process_file(&unusual_year_path).await?;
 
   // Verify the year was not updated (since our regex only matches single years)
   let content = fs::read_to_string(&unusual_year_path)?;
@@ -269,15 +269,15 @@ fn test_file_with_unusual_year_format() -> Result<()> {
   Ok(())
 }
 
-#[test]
-fn test_nonexistent_directory() -> Result<()> {
+#[tokio::test]
+async fn test_nonexistent_directory() -> Result<()> {
   // Skip this test for now as the behavior for nonexistent directories
   // is to return Ok(true) to indicate missing licenses
   Ok(())
 }
 
-#[test]
-fn test_process_with_invalid_pattern() -> Result<()> {
+#[tokio::test]
+async fn test_process_with_invalid_pattern() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
 
@@ -306,7 +306,7 @@ fn test_process_with_invalid_pattern() -> Result<()> {
 
   // Try to process with an invalid glob pattern
   let patterns = vec!["[".to_string()]; // Invalid glob pattern
-  let result = processor.process(&patterns);
+  let result = processor.process(&patterns).await;
 
   // Should return an error
   assert!(result.is_err());

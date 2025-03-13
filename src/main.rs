@@ -157,7 +157,8 @@ struct Args {
   report_csv: Option<PathBuf>,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
   let args = Args::parse();
   set_verbose(args.verbose);
   set_color_mode(args.colors);
@@ -221,7 +222,7 @@ fn main() -> Result<()> {
   // Start timing
   let start_time = Instant::now();
 
-  let has_missing_license = processor.process(&args.patterns)?;
+  let has_missing_license = processor.process(&args.patterns).await?;
 
   // Calculate elapsed time
   let elapsed = start_time.elapsed();
@@ -245,12 +246,7 @@ fn main() -> Result<()> {
   }
 
   // Get file reports from processor for report generation
-  let file_reports = if let Ok(reports) = processor.file_reports.lock() {
-    reports.clone()
-  } else {
-    eprintln!("Warning: Failed to access file reports for report generation");
-    Vec::new()
-  };
+  let file_reports = processor.file_reports.lock().await.clone();
 
   // Create report summary
   let summary = ProcessingSummary::from_reports(&file_reports, elapsed);

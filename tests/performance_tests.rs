@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::env;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -8,7 +9,7 @@ use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 
 /// Helper function to create a test processor
-fn create_test_processor(
+async fn create_test_processor(
   template_content: &str,
   ignore_patterns: Vec<String>,
   check_only: bool,
@@ -105,14 +106,15 @@ fn generate_test_files(dir: &Path, count: usize, with_license: bool, file_size_b
 }
 
 /// Helper function to run a performance test and print results
-fn run_performance_test<F>(name: &str, test_fn: F) -> Result<Duration>
+async fn run_performance_test<F, Fut>(name: &str, test_fn: F) -> Result<Duration>
 where
-  F: FnOnce() -> Result<()>,
+  F: FnOnce() -> Fut,
+  Fut: std::future::Future<Output = Result<()>>,
 {
   println!("\n=== Running performance test: {} ===", name);
 
   let start = Instant::now();
-  test_fn()?;
+  test_fn().await?;
   let duration = start.elapsed();
 
   println!("Test '{}' completed in {:.2?}", name, duration);
@@ -120,15 +122,16 @@ where
 }
 
 /// Performance test for adding licenses to a large number of files
-#[test]
+#[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
-fn test_add_license_performance() -> Result<()> {
+async fn test_add_license_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size_bytes = 1_000; // 1KB per file
 
   // Create processor and test directory
-  let (processor, temp_dir) = create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
+  let (processor, temp_dir) =
+    create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
 
   // Generate test files without licenses
   let test_dir = temp_dir.path().join("perf_test_add");
@@ -138,10 +141,11 @@ fn test_add_license_performance() -> Result<()> {
   generate_test_files(&test_dir, file_count, false, file_size_bytes)?;
 
   // Run the performance test
-  run_performance_test("Add License to 10K Files", || {
-    let _ = processor.process_directory(&test_dir)?;
+  run_performance_test("Add License to 10K Files", || async {
+    let _ = processor.process_directory(&test_dir).await?;
     Ok(())
-  })?;
+  })
+  .await?;
 
   // Verify a sample of files to ensure licenses were added
   let sample_file = test_dir.join("subdir_0").join("test_file_0.rs");
@@ -152,9 +156,9 @@ fn test_add_license_performance() -> Result<()> {
 }
 
 /// Performance test for updating license years in a large number of files
-#[test]
+#[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
-fn test_update_year_performance() -> Result<()> {
+async fn test_update_year_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size_bytes = 1_000; // 1KB per file
@@ -166,7 +170,8 @@ fn test_update_year_performance() -> Result<()> {
     false,
     false, // preserve_years = false to ensure years are updated
     None,
-  )?;
+  )
+  .await?;
 
   // Generate test files with outdated licenses
   let test_dir = temp_dir.path().join("perf_test_update");
@@ -176,10 +181,11 @@ fn test_update_year_performance() -> Result<()> {
   generate_test_files(&test_dir, file_count, true, file_size_bytes)?;
 
   // Run the performance test
-  run_performance_test("Update year in 10K Files", || {
-    let _ = processor.process_directory(&test_dir)?;
+  run_performance_test("Update year in 10K Files", || async {
+    let _ = processor.process_directory(&test_dir).await?;
     Ok(())
-  })?;
+  })
+  .await?;
 
   // Verify a sample of files to ensure years were updated
   let sample_file = test_dir.join("subdir_0").join("test_file_0.rs");
@@ -191,9 +197,9 @@ fn test_update_year_performance() -> Result<()> {
 }
 
 /// Performance test for checking license headers in a large number of files
-#[test]
+#[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
-fn test_check_license_performance() -> Result<()> {
+async fn test_check_license_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size_bytes = 1_000; // 1KB per file
@@ -205,7 +211,8 @@ fn test_check_license_performance() -> Result<()> {
     true, // check_only = true
     false,
     None,
-  )?;
+  )
+  .await?;
 
   // Generate test files with licenses (half with, half without)
   let test_dir = temp_dir.path().join("perf_test_check");
@@ -220,11 +227,12 @@ fn test_check_license_performance() -> Result<()> {
   generate_test_files(&without_license_dir, file_count / 2, false, file_size_bytes)?;
 
   // Run the performance test
-  let result = run_performance_test("Check License in 10K Files", || {
+  let result = run_performance_test("Check License in 10K Files", || async {
     // We expect this to return an error since some files don't have licenses
-    let _ = processor.process_directory(&test_dir);
+    let _ = processor.process_directory(&test_dir).await;
     Ok(())
-  });
+  })
+  .await;
 
   // We expect the test to complete, even if the processor returns an error
   assert!(result.is_ok());
@@ -233,9 +241,9 @@ fn test_check_license_performance() -> Result<()> {
 }
 
 /// Performance test with different file sizes
-#[test]
+#[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
-fn test_file_size_impact() -> Result<()> {
+async fn test_file_size_impact() -> Result<()> {
   // Test with different file sizes
   let file_sizes = [1_000, 10_000, 100_000]; // 1KB, 10KB, 100KB
   let file_count = 1_000; // Use fewer files for larger sizes
@@ -245,7 +253,7 @@ fn test_file_size_impact() -> Result<()> {
   for &size in &file_sizes {
     // Create processor and test directory
     let (processor, temp_dir) =
-      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
+      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
 
     let test_dir = temp_dir.path().join(format!("size_test_{}", size));
     fs::create_dir_all(&test_dir)?;
@@ -254,190 +262,52 @@ fn test_file_size_impact() -> Result<()> {
     generate_test_files(&test_dir, file_count, false, size)?;
 
     let test_name = format!("Process {}KB files ({})", size / 1_000, file_count);
-    run_performance_test(&test_name, || {
-      let _ = processor.process_directory(&test_dir)?;
+    run_performance_test(&test_name, || async {
+      let _ = processor.process_directory(&test_dir).await?;
       Ok(())
-    })?;
+    })
+    .await?;
   }
 
   Ok(())
 }
 
-/// Performance test with varying thread counts
-#[test]
+/// Performance test with tokio runtime
+/// Note: To test different concurrency levels, set the TOKIO_WORKER_THREADS
+/// environment variable before running the test
+#[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
-fn test_thread_count_impact() -> Result<()> {
-  use std::env;
+async fn test_tokio_runtime_performance() -> Result<()> {
+  // Get the current tokio worker threads setting if available
+  let worker_threads = match env::var("TOKIO_WORKER_THREADS") {
+    Ok(val) => match val.parse::<usize>() {
+      Ok(n) => n,
+      Err(_) => 4, // Default to 4 if parsing fails
+    },
+    Err(_) => 4, // Default to 4 if env var not set
+  };
 
-  // Test with different thread counts
-  let thread_counts = [1, 2, 4, 8, 16];
   let file_count = 5_000;
   let file_size = 1_000; // 1KB
 
-  println!("\n=== Testing impact of thread count on performance ===");
+  println!("\n=== Testing with tokio worker threads: {} ===", worker_threads);
 
-  for &threads in &thread_counts {
-    // Set the number of threads for rayon
-    // Use unsafe block for environment variable modification
-    unsafe {
-      env::set_var("RAYON_NUM_THREADS", threads.to_string());
-    }
+  // Create processor and test directory
+  let (processor, temp_dir) =
+    create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
 
-    // Create processor and test directory
-    let (processor, temp_dir) =
-      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
+  let test_dir = temp_dir.path().join(format!("tokio_test_{}", worker_threads));
+  fs::create_dir_all(&test_dir)?;
 
-    let test_dir = temp_dir.path().join(format!("thread_test_{}", threads));
-    fs::create_dir_all(&test_dir)?;
+  println!("Setting up test environment...");
+  generate_test_files(&test_dir, file_count, false, file_size)?;
 
-    println!("Setting up test for {} threads...", threads);
-    generate_test_files(&test_dir, file_count, false, file_size)?;
-
-    let test_name = format!("Process with {} threads", threads);
-    run_performance_test(&test_name, || {
-      let _ = processor.process_directory(&test_dir)?;
-      Ok(())
-    })?;
-  }
-
-  // Reset the thread count
-  // Use unsafe block for environment variable modification
-  unsafe {
-    env::remove_var("RAYON_NUM_THREADS");
-  }
-
-  Ok(())
-}
-
-/// Benchmark helper that runs multiple iterations and reports statistics
-fn run_benchmark<F>(
-  name: &str,
-  iterations: usize,
-  setup_fn: impl Fn() -> Result<F>,
-  test_fn: impl Fn(&F) -> Result<()>,
-) -> Result<()> {
-  println!("\n=== Benchmark: {} ({} iterations) ===", name, iterations);
-
-  let mut durations = Vec::with_capacity(iterations);
-
-  for i in 1..=iterations {
-    println!("Running iteration {}/{}...", i, iterations);
-
-    // Setup
-    let test_env = setup_fn()?;
-
-    // Run test and measure time
-    let start = Instant::now();
-    test_fn(&test_env)?;
-    let duration = start.elapsed();
-
-    durations.push(duration);
-    println!("Iteration {} completed in {:.2?}", i, duration);
-  }
-
-  // Calculate statistics
-  if durations.is_empty() {
-    return Ok(());
-  }
-
-  durations.sort();
-
-  // Calculate total duration manually since sum() is unsafe
-  let total = durations.iter().fold(Duration::new(0, 0), |acc, &x| acc + x);
-  let avg = total / durations.len() as u32;
-  let min = durations.first().unwrap();
-  let max = durations.last().unwrap();
-  let median = durations[durations.len() / 2];
-
-  // Print results
-  println!("\nResults for {}:", name);
-  println!("  Iterations: {}", iterations);
-  println!("  Average:    {:.2?}", avg);
-  println!("  Median:     {:.2?}", median);
-  println!("  Min:        {:.2?}", min);
-  println!("  Max:        {:.2?}", max);
-
-  Ok(())
-}
-
-/// Comprehensive benchmark test
-#[test]
-#[ignore] // Ignore by default as it's a long-running test
-fn benchmark_operations() -> Result<()> {
-  // Configuration
-  let iterations = 3;
-  let file_count = 5_000;
-  let file_size = 1_000; // 1KB
-
-  // Benchmark adding licenses
-  run_benchmark(
-    "Add License",
-    iterations,
-    || {
-      let (processor, temp_dir) =
-        create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
-
-      let test_dir = temp_dir.path().join("bench_add");
-      fs::create_dir_all(&test_dir)?;
-      generate_test_files(&test_dir, file_count, false, file_size)?;
-
-      Ok((processor, test_dir))
-    },
-    |(processor, test_dir)| {
-      processor.process_directory(test_dir)?;
-      Ok(())
-    },
-  )?;
-
-  // Benchmark updating years
-  run_benchmark(
-    "Update Year",
-    iterations,
-    || {
-      let (processor, temp_dir) =
-        create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
-
-      let test_dir = temp_dir.path().join("bench_update");
-      fs::create_dir_all(&test_dir)?;
-      generate_test_files(&test_dir, file_count, true, file_size)?;
-
-      Ok((processor, test_dir))
-    },
-    |(processor, test_dir)| {
-      processor.process_directory(test_dir)?;
-      Ok(())
-    },
-  )?;
-
-  // Benchmark check-only mode
-  run_benchmark(
-    "Check License",
-    iterations,
-    || {
-      let (processor, temp_dir) =
-        create_test_processor("Copyright (c) {{year}} Test Company", vec![], true, false, None)?;
-
-      let test_dir = temp_dir.path().join("bench_check");
-      fs::create_dir_all(&test_dir)?;
-
-      // Create half with licenses, half without
-      let with_license_dir = test_dir.join("with_license");
-      let without_license_dir = test_dir.join("without_license");
-
-      fs::create_dir_all(&with_license_dir)?;
-      fs::create_dir_all(&without_license_dir)?;
-
-      generate_test_files(&with_license_dir, file_count / 2, true, file_size)?;
-      generate_test_files(&without_license_dir, file_count / 2, false, file_size)?;
-
-      Ok((processor, test_dir))
-    },
-    |(processor, test_dir)| {
-      // We expect this to return an error since some files don't have licenses
-      let _ = processor.process_directory(test_dir);
-      Ok(())
-    },
-  )?;
+  let test_name = format!("Process with {} worker threads", worker_threads);
+  run_performance_test(&test_name, || async {
+    let _ = processor.process_directory(&test_dir).await?;
+    Ok(())
+  })
+  .await?;
 
   Ok(())
 }
@@ -448,48 +318,45 @@ fn generate_mixed_test_files(
   total_files: usize,
   percent_missing_license: f64,
   percent_outdated_year: f64,
-  file_size_bytes: usize
+  file_size_bytes: usize,
 ) -> Result<()> {
   let missing_license_count = ((total_files as f64) * percent_missing_license / 100.0).round() as usize;
   let outdated_year_count = ((total_files as f64) * percent_outdated_year / 100.0).round() as usize;
   let current_license_count = total_files - missing_license_count - outdated_year_count;
-  
+
   println!(
     "Generating {} total files: {} missing licenses, {} outdated years, {} current",
     total_files, missing_license_count, outdated_year_count, current_license_count
   );
-  
+
   // Create subdirectories to avoid too many files in one directory
   let subdirs_count = (total_files as f64).sqrt().ceil() as usize;
   let files_per_subdir = total_files / subdirs_count + 1;
-  
-  println!(
-    "Distributing files across {} subdirectories...",
-    subdirs_count
-  );
-  
+
+  println!("Distributing files across {} subdirectories...", subdirs_count);
+
   // Generate content for the different types of files
   let no_license_content = create_file_content("", file_size_bytes);
   let outdated_license_content = create_file_content("// Copyright (c) 2024 Test Company\n\n", file_size_bytes);
   let current_license_content = create_file_content("// Copyright (c) 2025 Test Company\n\n", file_size_bytes);
-  
+
   // Create files in subdirectories
   let mut file_count = 0;
   let mut missing_license_created = 0;
   let mut outdated_year_created = 0;
   let mut current_license_created = 0;
-  
+
   for i in 0..subdirs_count {
     let subdir = dir.join(format!("subdir_{}", i));
     fs::create_dir_all(&subdir)?;
-    
+
     for j in 0..files_per_subdir {
       if file_count >= total_files {
         break;
       }
-      
+
       let file_path = subdir.join(format!("test_file_{}.rs", j));
-      
+
       // Determine which type of file to create next
       let content = if missing_license_created < missing_license_count {
         missing_license_created += 1;
@@ -504,20 +371,22 @@ fn generate_mixed_test_files(
         // Fallback - shouldn't happen but just in case
         &no_license_content
       };
-      
+
       fs::write(&file_path, content)?;
       file_count += 1;
-      
+
       // Print progress every 1000 files
       if file_count % 1000 == 0 {
         println!("Generated {} files...", file_count);
       }
     }
   }
-  
-  println!("Generated {} total files: {} missing licenses, {} outdated years, {} current",
-    file_count, missing_license_created, outdated_year_created, current_license_created);
-  
+
+  println!(
+    "Generated {} total files: {} missing licenses, {} outdated years, {} current",
+    file_count, missing_license_created, outdated_year_created, current_license_created
+  );
+
   Ok(())
 }
 
@@ -528,70 +397,60 @@ fn create_file_content(header: &str, file_size_bytes: usize) -> String {
   let mut content = String::with_capacity(file_size_bytes);
   content.push_str(header);
   content.push_str("fn main() {\n");
-  
+
   // Add enough lines to reach the desired size
   let line = "    println!(\"This is a test line for performance testing.\");\n";
   let lines_needed = (content_size as f64 / line.len() as f64).ceil() as usize;
-  
+
   for _ in 0..lines_needed {
     content.push_str(line);
   }
   content.push_str("}\n");
-  
+
   content
 }
 
 /// Performance test with realistic repository conditions
 /// This test simulates a repository where most files already have correct licenses,
 /// and only a small percentage need to be fixed (more typical of real-world usage).
-#[test]
+#[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
-fn test_realistic_repository_performance() -> Result<()> {
-  use std::env;
-  
-  // Test with different thread counts
-  let thread_counts = [1, 2, 4, 8, 16];
+async fn test_realistic_repository_performance() -> Result<()> {
+  // Configuration
   let file_count = 10_000;
   let file_size = 1_000; // 1KB
-  
+
   // We'll simulate repository where:
   // - 1% of files are missing licenses
   // - 1% of files have outdated years
   // - 98% of files have current licenses (no changes needed)
   let percent_missing_license = 1.0;
   let percent_outdated_year = 1.0;
-  
+
   println!("\n=== Testing performance with realistic repository conditions ===");
-  
-  for &threads in &thread_counts {
-    // Set the number of threads for rayon
-    // Use unsafe block for environment variable modification
-    unsafe {
-      env::set_var("RAYON_NUM_THREADS", threads.to_string());
-    }
-    
-    // Create processor and test directory
-    let (processor, temp_dir) =
-      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
-    
-    let test_dir = temp_dir.path().join(format!("realistic_test_{}", threads));
-    fs::create_dir_all(&test_dir)?;
-    
-    println!("Setting up test for {} threads...", threads);
-    generate_mixed_test_files(&test_dir, file_count, percent_missing_license, percent_outdated_year, file_size)?;
-    
-    let test_name = format!("Realistic repository with {} threads", threads);
-    run_performance_test(&test_name, || {
-      let _ = processor.process_directory(&test_dir)?;
-      Ok(())
-    })?;
-  }
-  
-  // Reset the thread count
-  // Use unsafe block for environment variable modification
-  unsafe {
-    env::remove_var("RAYON_NUM_THREADS");
-  }
-  
+
+  // Create processor and test directory
+  let (processor, temp_dir) =
+    create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+
+  let test_dir = temp_dir.path().join("realistic_test");
+  fs::create_dir_all(&test_dir)?;
+
+  println!("Setting up test environment...");
+  generate_mixed_test_files(
+    &test_dir,
+    file_count,
+    percent_missing_license,
+    percent_outdated_year,
+    file_size,
+  )?;
+
+  let test_name = "Realistic repository processing";
+  run_performance_test(test_name, || async {
+    let _ = processor.process_directory(&test_dir).await?;
+    Ok(())
+  })
+  .await?;
+
   Ok(())
 }
