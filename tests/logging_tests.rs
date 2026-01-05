@@ -1,8 +1,7 @@
+use assert_cmd::cargo::cargo_bin;
 use std::io::Write;
 use std::process::Command;
 use tempfile::NamedTempFile;
-
-use assert_cmd::prelude::*;
 
 #[test]
 fn test_color_modes() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +14,7 @@ fn test_color_modes() -> Result<(), Box<dyn std::error::Error>> {
   writeln!(test_file, "// This is a test file without a license")?;
 
   // Test with --colors=never
-  let output = Command::cargo_bin("edlicense")?
+  let output = Command::new(cargo_bin!("edlicense"))
     .arg("--license-file")
     .arg(license_file.path())
     .arg("--colors=never")
@@ -29,7 +28,7 @@ fn test_color_modes() -> Result<(), Box<dyn std::error::Error>> {
   assert!(!stdout.contains("\x1b["));
 
   // Test with --colors=always
-  let output = Command::cargo_bin("edlicense")?
+  let output = Command::new(cargo_bin!("edlicense"))
     .arg("--license-file")
     .arg(license_file.path())
     .arg("--colors=always")
@@ -44,7 +43,7 @@ fn test_color_modes() -> Result<(), Box<dyn std::error::Error>> {
   assert!(output.status.success());
 
   // Test default (auto) mode
-  let output = Command::cargo_bin("edlicense")?
+  let output = Command::new(cargo_bin!("edlicense"))
     .arg("--license-file")
     .arg(license_file.path())
     .arg("--verbose")
@@ -76,7 +75,7 @@ fn test_info_log_formatting() -> Result<(), Box<dyn std::error::Error>> {
   std::fs::write(&test_file_path, "// This is a test file without a license")?;
 
   // Run in modify mode to add a license, explicitly disabling git mode
-  let output = Command::cargo_bin("edlicense")?
+  let output = Command::new(cargo_bin!("edlicense"))
     .arg("--license-file")
     .arg(&license_path)
     .arg("--modify")
@@ -111,13 +110,13 @@ fn test_info_log_formatting() -> Result<(), Box<dyn std::error::Error>> {
   std::fs::write(&update_file_path, outdated_license)?;
 
   // Run with year update, explicitly disabling git mode
-  let output = Command::cargo_bin("edlicense")?
+  let output = Command::new(cargo_bin!("edlicense"))
     .arg("--license-file")
     .arg(&license_path)
     .arg("--modify")
     .arg("--colors=never") // Disable colors for consistent testing
     .arg("--git-only=false") // Explicitly disable git-only mode
-    .arg("--year=2025") // Specify current year
+    .arg("--year=1997") // Specify arbitrary year
     .current_dir(temp_path) // Run from the temp directory
     .arg(&update_file_path)
     .output()?;
@@ -131,7 +130,7 @@ fn test_info_log_formatting() -> Result<(), Box<dyn std::error::Error>> {
 
   // Check the file contents after running the command
   let updated_content = std::fs::read_to_string(&update_file_path)?;
-  assert!(updated_content.contains("2025"), "Year was not updated in the file");
+  assert!(updated_content.contains("1997"), "Year was not updated in the file");
 
   Ok(())
 }

@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tempfile::tempdir;
 
@@ -42,6 +43,98 @@ async fn create_test_processor(
   )?;
 
   Ok((processor, temp_dir))
+}
+
+/// Helper function to create a test processor with git-only mode
+async fn create_test_processor_with_git(
+  template_content: &str,
+  ignore_patterns: Vec<String>,
+  check_only: bool,
+  preserve_years: bool,
+  ratchet_reference: Option<String>,
+  git_only: bool,
+) -> Result<(Processor, tempfile::TempDir)> {
+  let temp_dir = tempdir()?;
+  let template_path = temp_dir.path().join("test_template.txt");
+
+  // Create a test template
+  fs::write(&template_path, template_content)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  let license_data = LicenseData {
+    year: "2025".to_string(),
+  };
+
+  let processor = Processor::new(
+    template_manager,
+    license_data,
+    ignore_patterns,
+    check_only,
+    preserve_years,
+    ratchet_reference,
+    None,
+    git_only,
+    None, // Use default LicenseDetector
+  )?;
+
+  Ok((processor, temp_dir))
+}
+
+fn env_usize(name: &str, default_value: usize) -> usize {
+  env::var(name)
+    .ok()
+    .and_then(|value| value.parse::<usize>().ok())
+    .unwrap_or(default_value)
+}
+
+fn env_bool(name: &str, default_value: bool) -> bool {
+  env::var(name)
+    .ok()
+    .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+    .unwrap_or(default_value)
+}
+
+fn ensure_git_available() -> bool {
+  std::process::Command::new("git")
+    .args(["--version"])
+    .output()
+    .map(|output| output.status.success())
+    .unwrap_or(false)
+}
+
+fn run_git(repo_dir: &Path, args: &[&str]) -> Result<()> {
+  let output = std::process::Command::new("git")
+    .args(args)
+    .current_dir(repo_dir)
+    .output()?;
+
+  if !output.status.success() {
+    return Err(anyhow!(
+      "git {:?} failed: {}",
+      args,
+      String::from_utf8_lossy(&output.stderr)
+    ));
+  }
+
+  Ok(())
+}
+
+fn git_head_sha(repo_dir: &Path) -> Result<String> {
+  let output = std::process::Command::new("git")
+    .args(["rev-parse", "HEAD"])
+    .current_dir(repo_dir)
+    .output()?;
+
+  if !output.status.success() {
+    return Err(anyhow!(
+      "git rev-parse failed: {}",
+      String::from_utf8_lossy(&output.stderr)
+    ));
+  }
+
+  Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Helper function to generate a large number of test files
@@ -410,6 +503,50 @@ fn create_file_content(header: &str, file_size_bytes: usize) -> String {
   content
 }
 
+fn generate_monorepo_files(
+  dir: &Path,
+  module_count: usize,
+  files_per_module: usize,
+  file_size_bytes: usize,
+  with_license: bool,
+) -> Result<Vec<PathBuf>> {
+  let license_header = if with_license {
+    "// Copyright (c) 2025 Test Company\n\n"
+  } else {
+    ""
+  };
+
+  let file_content = create_file_content(license_header, file_size_bytes);
+  let mut files = Vec::with_capacity(module_count * files_per_module);
+
+  for module_index in 0..module_count {
+    let module_dir = dir.join(format!("module_{module_index}")).join("src");
+    fs::create_dir_all(&module_dir)?;
+
+    for file_index in 0..files_per_module {
+      let file_path = module_dir.join(format!("lib_{file_index}.rs"));
+      fs::write(&file_path, &file_content)?;
+      files.push(file_path);
+    }
+  }
+
+  Ok(files)
+}
+
+fn apply_commit_changes(files: &[PathBuf], commit_index: usize, change_count: usize) -> Result<()> {
+  if files.is_empty() || change_count == 0 {
+    return Ok(());
+  }
+
+  for change_index in 0..change_count {
+    let file_index = (commit_index * change_count + change_index) % files.len();
+    let mut file = fs::OpenOptions::new().append(true).open(&files[file_index])?;
+    writeln!(file, "// commit {commit_index} change {change_index}")?;
+  }
+
+  Ok(())
+}
+
 /// Performance test with realistic repository conditions
 /// This test simulates a repository where most files already have correct licenses,
 /// and only a small percentage need to be fixed (more typical of real-world usage).
@@ -452,5 +589,98 @@ async fn test_realistic_repository_performance() -> Result<()> {
   })
   .await?;
 
+  Ok(())
+}
+
+/// Performance benchmark for a synthetic large-scale monorepo with git history.
+/// Tune with env vars:
+/// - MONOREPO_MODULES (default 50)
+/// - MONOREPO_FILES_PER_MODULE (default 200)
+/// - MONOREPO_FILE_SIZE_BYTES (default 1000)
+/// - MONOREPO_HISTORY_COMMITS (default 200)
+/// - MONOREPO_CHANGE_PER_COMMIT (default 50)
+/// - MONOREPO_RATCHET_COMMITS_BACK (default 20)
+/// - MONOREPO_CHECK_ONLY (default true)
+#[tokio::test]
+#[ignore] // Ignore by default as it's a long-running test
+async fn test_monorepo_git_history_benchmark() -> Result<()> {
+  if !ensure_git_available() {
+    println!("Skipping test_monorepo_git_history_benchmark: git not available");
+    return Ok(());
+  }
+
+  let module_count = env_usize("MONOREPO_MODULES", 50);
+  let files_per_module = env_usize("MONOREPO_FILES_PER_MODULE", 200);
+  let file_size_bytes = env_usize("MONOREPO_FILE_SIZE_BYTES", 1_000);
+  let history_commits = env_usize("MONOREPO_HISTORY_COMMITS", 200);
+  let change_per_commit = env_usize("MONOREPO_CHANGE_PER_COMMIT", 50);
+  let ratchet_commits_back = env_usize("MONOREPO_RATCHET_COMMITS_BACK", 20);
+  let check_only = env_bool("MONOREPO_CHECK_ONLY", true);
+
+  let temp_dir = tempdir()?;
+  let repo_dir = temp_dir.path().join("monorepo");
+  fs::create_dir_all(&repo_dir)?;
+
+  run_git(&repo_dir, &["init"])?;
+  run_git(&repo_dir, &["config", "user.name", "Perf Test User"])?;
+  run_git(&repo_dir, &["config", "user.email", "perf@example.com"])?;
+  run_git(&repo_dir, &["config", "init.defaultBranch", "main"])?;
+
+  println!(
+    "Generating monorepo: {} modules x {} files ({} bytes each)",
+    module_count, files_per_module, file_size_bytes
+  );
+  let files = generate_monorepo_files(&repo_dir, module_count, files_per_module, file_size_bytes, true)?;
+
+  run_git(&repo_dir, &["add", "."])?;
+  run_git(&repo_dir, &["commit", "-m", "Initial import"])?;
+
+  let mut commits = Vec::with_capacity(history_commits + 1);
+  commits.push(git_head_sha(&repo_dir)?);
+
+  for commit_index in 0..history_commits {
+    apply_commit_changes(&files, commit_index, change_per_commit)?;
+    run_git(&repo_dir, &["add", "."])?;
+    if change_per_commit == 0 {
+      run_git(&repo_dir, &["commit", "--allow-empty", "-m", "Synthetic change"])?;
+    } else {
+      run_git(&repo_dir, &["commit", "-m", "Synthetic change"])?;
+    }
+    commits.push(git_head_sha(&repo_dir)?);
+  }
+
+  let ratchet_back = ratchet_commits_back.min(commits.len().saturating_sub(1));
+  let ratchet_ref = commits
+    .get(commits.len().saturating_sub(1 + ratchet_back))
+    .cloned()
+    .unwrap_or_else(|| commits[0].clone());
+
+  let test_name = format!(
+    "Monorepo benchmark ({} modules, {} files/module, {} commits back)",
+    module_count, files_per_module, ratchet_back
+  );
+
+  let original_dir = std::env::current_dir()?;
+  std::env::set_current_dir(&repo_dir)?;
+
+  let (processor, _) = create_test_processor_with_git(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    check_only,
+    false,
+    Some(ratchet_ref),
+    true,
+  )
+  .await?;
+
+  let result = run_performance_test(&test_name, || async {
+    let _ = processor.process_directory(&repo_dir).await?;
+    Ok(())
+  })
+  .await;
+
+  std::env::set_current_dir(original_dir)?;
+
+  result?;
   Ok(())
 }

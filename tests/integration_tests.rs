@@ -79,6 +79,7 @@ fn test_add_license() -> Result<()> {
   // Run edlicense to add licenses
   let args = &[
     "--modify",
+    "--year=2025",
     "--license-file",
     "license_template.txt",
     "--verbose",
