@@ -897,10 +897,7 @@ impl Processor {
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
           // Generate and display/save the diff
-          if let Err(e) = self
-            .diff_manager
-            .display_diff(path, &content, updated_content.as_ref())
-          {
+          if let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref()) {
             eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
           }
         }
@@ -1142,19 +1139,18 @@ impl Processor {
     }
 
     // Update single year to current year
-    let content = YEAR_REGEX
-      .replace_all(content, |caps: &regex::Captures| {
-        let prefix = &caps[1];
-        let year = &caps[2];
-        let suffix = &caps[3];
+    let content = YEAR_REGEX.replace_all(content, |caps: &regex::Captures| {
+      let prefix = &caps[1];
+      let year = &caps[2];
+      let suffix = &caps[3];
 
-        if year != current_year {
-          format!("{}{}{}", prefix, current_year, suffix)
-        } else {
-          // Keep as is if already current
-          caps[0].to_string()
-        }
-      });
+      if year != current_year {
+        format!("{}{}{}", prefix, current_year, suffix)
+      } else {
+        // Keep as is if already current
+        caps[0].to_string()
+      }
+    });
 
     Ok(content)
   }
