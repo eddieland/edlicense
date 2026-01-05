@@ -5,7 +5,7 @@
 //!
 //! The [`Processor`] struct is the main entry point for all file operations.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 // HashMap is used in the ignore_manager_cache type
@@ -18,6 +18,7 @@ use tokio::fs;
 
 use crate::diff::DiffManager;
 use crate::file_filter::{CompositeFilter, FileFilter, create_default_filter};
+use crate::git;
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
@@ -71,9 +72,198 @@ pub struct Processor {
 
   /// Cache for ignore managers to avoid redundant .licenseignore file loading
   ignore_manager_cache: Arc<tokio::sync::Mutex<std::collections::HashMap<PathBuf, IgnoreManager>>>,
+
+  /// Whether to only process files tracked by git
+  git_only: bool,
+
+  /// Git reference for ratchet mode (only process changed files)
+  ratchet_reference: Option<String>,
+}
+
+enum PatternMatcher {
+  Exact(PathBuf),
+  Prefix(PathBuf),
+  Glob(glob::Pattern),
 }
 
 impl Processor {
+  async fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
+    let files = if self.git_only {
+      let tracked_files = git::get_git_tracked_files()?;
+      self.normalize_git_paths(tracked_files)?
+    } else if let Some(reference) = &self.ratchet_reference {
+      let changed_files = git::get_changed_files(reference)?;
+      self.normalize_git_paths(changed_files)?
+    } else {
+      return self.collect_files_from_patterns(patterns).await;
+    };
+
+    self.filter_files_by_patterns(files, patterns)
+  }
+
+  fn normalize_git_paths(&self, files: std::collections::HashSet<PathBuf>) -> Result<Vec<PathBuf>> {
+    let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
+    let mut normalized = std::collections::HashSet::new();
+
+    for path in files {
+      let normalized_path = self.normalize_path(&path, &current_dir);
+      normalized.insert(normalized_path);
+    }
+
+    Ok(normalized.into_iter().collect())
+  }
+
+  async fn collect_files_from_patterns(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
+    let mut all_files = Vec::with_capacity(1000);
+
+    for pattern in patterns {
+      let path = PathBuf::from(pattern);
+      if path.is_file() {
+        all_files.push(path);
+      } else if path.is_dir() {
+        let files = self.collect_files_from_directory(&path).await?;
+        all_files.extend(files);
+      } else {
+        let entries = glob::glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+
+        for entry in entries {
+          match entry {
+            Ok(path) => {
+              if path.is_file() {
+                all_files.push(path);
+              } else if path.is_dir() {
+                let files = self.collect_files_from_directory(&path).await?;
+                all_files.extend(files);
+              }
+            }
+            Err(e) => {
+              eprintln!("Error with glob pattern: {}", e);
+            }
+          }
+        }
+      }
+    }
+
+    Ok(all_files)
+  }
+
+  async fn collect_files_from_directory(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut all_files = Vec::with_capacity(1000);
+    let mut dirs_to_process = std::collections::VecDeque::with_capacity(100);
+    dirs_to_process.push_back(dir.to_path_buf());
+
+    verbose_log!("Scanning directory: {}", dir.display());
+    let start_time = std::time::Instant::now();
+
+    while let Some(current_dir) = dirs_to_process.pop_front() {
+      let read_dir_result = tokio::fs::read_dir(&current_dir).await;
+      if let Err(e) = read_dir_result {
+        eprintln!("Error reading directory {}: {}", current_dir.display(), e);
+        continue;
+      }
+
+      let mut entries = read_dir_result.unwrap();
+      while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+
+        if let Ok(metadata) = entry.metadata().await {
+          if metadata.is_dir() {
+            dirs_to_process.push_back(path);
+          } else if metadata.is_file() {
+            all_files.push(path);
+          }
+        }
+      }
+    }
+
+    verbose_log!(
+      "Found {} files in {}ms",
+      all_files.len(),
+      start_time.elapsed().as_millis()
+    );
+
+    Ok(all_files)
+  }
+
+  fn build_pattern_matchers(&self, patterns: &[String]) -> Result<Vec<PatternMatcher>> {
+    let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
+    let mut matchers = Vec::with_capacity(patterns.len());
+
+    for pattern in patterns {
+      let path = PathBuf::from(pattern);
+      if path.is_file() {
+        matchers.push(PatternMatcher::Exact(self.normalize_path(&path, &current_dir)));
+      } else if path.is_dir() {
+        matchers.push(PatternMatcher::Prefix(self.normalize_path(&path, &current_dir)));
+      } else {
+        let glob_pattern =
+          glob::Pattern::new(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+        matchers.push(PatternMatcher::Glob(glob_pattern));
+      }
+    }
+
+    Ok(matchers)
+  }
+
+  fn filter_files_by_patterns(&self, files: Vec<PathBuf>, patterns: &[String]) -> Result<Vec<PathBuf>> {
+    if patterns.is_empty() {
+      return Ok(files);
+    }
+
+    let matchers = self.build_pattern_matchers(patterns)?;
+    let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
+
+    let filtered = files
+      .into_iter()
+      .filter(|path| self.matches_any_pattern(path, &current_dir, &matchers))
+      .collect();
+
+    Ok(filtered)
+  }
+
+  fn matches_any_pattern(
+    &self,
+    path: &Path,
+    current_dir: &Path,
+    matchers: &[PatternMatcher],
+  ) -> bool {
+    let normalized_path = self.normalize_path(path, current_dir);
+
+    matchers.iter().any(|matcher| match matcher {
+      PatternMatcher::Exact(exact) => &normalized_path == exact,
+      PatternMatcher::Prefix(prefix) => {
+        if prefix.as_os_str().is_empty() || prefix == Path::new(".") {
+          true
+        } else {
+          normalized_path.starts_with(prefix)
+        }
+      }
+      PatternMatcher::Glob(pattern) => pattern.matches_path(&normalized_path),
+    })
+  }
+
+  fn normalize_path(&self, path: &Path, current_dir: &Path) -> PathBuf {
+    let relative_path = if path.is_absolute() {
+      pathdiff::diff_paths(path, current_dir).unwrap_or_else(|| path.to_path_buf())
+    } else {
+      path.to_path_buf()
+    };
+
+    self.clean_path(&relative_path)
+  }
+
+  fn clean_path(&self, path: &Path) -> PathBuf {
+    let mut cleaned = PathBuf::new();
+    for component in path.components() {
+      if let Component::CurDir = component {
+        continue;
+      }
+      cleaned.push(component.as_os_str());
+    }
+
+    cleaned
+  }
+
   /// Creates a new processor with the specified configuration.
   ///
   /// # Parameters
@@ -111,7 +301,12 @@ impl Processor {
     let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
 
     // Create a composite file filter with all filtering conditions
-    let file_filter = create_default_filter(ignore_patterns, git_only, ratchet_reference)?;
+    let git_file_source = git_only || ratchet_reference.is_some();
+    let file_filter = create_default_filter(
+      ignore_patterns,
+      if git_file_source { false } else { git_only },
+      if git_file_source { None } else { ratchet_reference.clone() },
+    )?;
 
     let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
@@ -130,6 +325,8 @@ impl Processor {
       collect_report_data: true, // Enable report data collection by default
       license_detector: Arc::new(license_detector),
       ignore_manager_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+      git_only,
+      ratchet_reference,
     })
   }
 
@@ -157,6 +354,11 @@ impl Processor {
   /// - A glob pattern is invalid
   /// - Directory traversal fails
   pub async fn process(&self, patterns: &[String]) -> Result<bool> {
+    if self.git_only || self.ratchet_reference.is_some() {
+      let files = self.collect_files(patterns).await?;
+      return self.process_files(files).await;
+    }
+
     let has_missing_license = Arc::new(AtomicBool::new(false));
 
     // Process each pattern
@@ -321,83 +523,50 @@ impl Processor {
   ///
   /// This method uses async operations for processing files in a directory.
   pub async fn process_directory(&self, dir: &Path) -> Result<bool> {
+    let files = if self.git_only || self.ratchet_reference.is_some() {
+      self.collect_files(&[dir.to_string_lossy().to_string()]).await?
+    } else {
+      self.collect_files_from_directory(dir).await?
+    };
+
+    self.process_files(files).await
+  }
+
+  async fn process_files(&self, files: Vec<PathBuf>) -> Result<bool> {
     let has_missing_license = Arc::new(AtomicBool::new(false));
     let has_missing_clone = Arc::clone(&has_missing_license);
 
-    // Pre-allocate vectors for better performance
-    let mut all_files = Vec::with_capacity(1000);
-    let mut local_reports = Vec::with_capacity(1000);
-
-    // Asynchronous directory traversal with optimized memory usage
-    let mut dirs_to_process = std::collections::VecDeque::with_capacity(100);
-    dirs_to_process.push_back(dir.to_path_buf());
-
-    // Process directories in batches for better performance
-    verbose_log!("Scanning directory: {}", dir.display());
-    let start_time = std::time::Instant::now();
-
-    while let Some(current_dir) = dirs_to_process.pop_front() {
-      let read_dir_result = tokio::fs::read_dir(&current_dir).await;
-      if let Err(e) = read_dir_result {
-        eprintln!("Error reading directory {}: {}", current_dir.display(), e);
-        continue;
-      }
-
-      let mut entries = read_dir_result.unwrap();
-      while let Ok(Some(entry)) = entries.next_entry().await {
-        let path = entry.path();
-
-        // Use metadata instead of file_type for better performance
-        if let Ok(metadata) = entry.metadata().await {
-          if metadata.is_dir() {
-            dirs_to_process.push_back(path);
-          } else if metadata.is_file() {
-            all_files.push(path);
-          }
-        }
-      }
-    }
-
-    verbose_log!(
-      "Found {} files in {}ms",
-      all_files.len(),
-      start_time.elapsed().as_millis()
-    );
+    let mut local_reports = Vec::with_capacity(files.len());
 
     // Filter files using the file_filter directly - optimized to avoid unnecessary clones
     let filter_start = std::time::Instant::now();
-    let files: Vec<_> = all_files
+    let files: Vec<_> = files
       .into_iter()
-      .filter(|p| {
-        // Check if the file should be processed
-        match self.file_filter.should_process(p) {
-          Ok(result) => {
-            if !result.should_process {
-              // Clone reason once and use the clone for both purposes
-              let reason_clone = result.reason.clone();
-              let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
-              verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+      .filter(|p| match self.file_filter.should_process(p) {
+        Ok(result) => {
+          if !result.should_process {
+            let reason_clone = result.reason.clone();
+            let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+            verbose_log!("Skipping: {} ({})", p.display(), reason_display);
 
-              // Add skipped file to local reports directly without spawning a task
-              if self.collect_report_data {
-                let file_report = FileReport {
-                  path: p.to_path_buf(),
-                  has_license: false,
-                  action_taken: Some(FileAction::Skipped),
-                  ignored: true,
-                  ignored_reason: reason_clone,
-                };
+            if self.collect_report_data {
+              let file_report = FileReport {
+                path: p.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: reason_clone,
+              };
 
-                local_reports.push(file_report);
-              }
-
-              false
-            } else {
-              true
+              local_reports.push(file_report);
             }
+
+            false
+          } else {
+            true
           }
-          Err(_) => false,
         }
+        Err(_) => false,
       })
       .collect();
 
@@ -408,9 +577,6 @@ impl Processor {
     );
 
     if files.is_empty() {
-      verbose_log!("No files to process in directory: {}", dir.display());
-
-      // Update the shared reports with the local collection
       if self.collect_report_data && !local_reports.is_empty() {
         let mut reports = self.file_reports.lock().await;
         reports.extend(local_reports);
@@ -442,30 +608,23 @@ impl Processor {
         let sender = report_sender.clone();
 
         async move {
-          // Use a more efficient version that doesn't require mutex locking
           let result = processor.process_file_efficient(&path, sender.clone()).await;
           if let Err(e) = result {
-            // If we're in check-only mode and the error is "Missing license header",
-            // this is expected and we should set has_missing_license to true
             if processor.check_only && e.to_string().contains("Missing license header") {
               has_missing.store(true, Ordering::Relaxed);
             } else {
-              // For other errors, print them
               eprintln!("Error processing {}: {}", path.display(), e);
-              // Still set has_missing_license to true for any error
               has_missing.store(true, Ordering::Relaxed);
             }
           }
         }
       })
-      .buffer_unordered(concurrency) // Use optimal concurrency
+      .buffer_unordered(concurrency)
       .collect::<Vec<_>>()
       .await;
 
-    // Drop the sender to close the channel
     drop(report_sender);
 
-    // Collect all reports from the channel
     let mut receiver = report_receiver;
     while let Ok(report) = receiver.try_recv() {
       local_reports.push(report);
@@ -477,7 +636,6 @@ impl Processor {
       process_start.elapsed().as_millis()
     );
 
-    // After processing all files, update the shared reports once
     if self.collect_report_data && !local_reports.is_empty() {
       let mut reports = self.file_reports.lock().await;
       reports.extend(local_reports);

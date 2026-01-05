@@ -604,8 +604,7 @@ async fn test_ratchet_mode_directory() -> Result<()> {
 
   // Now process the files using the processor
   println!("Processing files using processor...");
-  processor.process_file(&file1).await?; // Should add license to file1 (modified)
-  processor.process_file(&file2).await?; // Should NOT add license to file2 (unmodified)
+  processor.process(&[".".to_string()]).await?; // Should add license to file1 (modified)
 
   // Go back to original directory
   std::env::set_current_dir(process_dir)?;
