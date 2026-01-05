@@ -3,6 +3,9 @@
 //! This module contains the interfaces and implementations for license detection algorithms.
 //! It allows for easily replacing the license detection algorithm without modifying the processor.
 
+use regex::Regex;
+use std::sync::LazyLock;
+
 /// Trait for license detectors.
 ///
 /// Implementations of this trait are responsible for determining whether a file
@@ -171,9 +174,9 @@ impl LicenseDetector for ContentBasedLicenseDetector {
 
     // Replace all years (4 digits surrounded by word boundaries) with "YEAR" placeholder
     // This makes the comparison year-agnostic
-    let year_pattern = regex::Regex::new(r"\b\d{4}\b").unwrap();
-    let year_normalized_license = year_pattern.replace_all(&normalized_license, "YEAR").to_string();
-    let year_normalized_content = year_pattern.replace_all(&normalized_content, "YEAR").to_string();
+    static YEAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("year regex must compile"));
+    let year_normalized_license = YEAR_PATTERN.replace_all(&normalized_license, "YEAR").to_string();
+    let year_normalized_content = YEAR_PATTERN.replace_all(&normalized_content, "YEAR").to_string();
 
     // Check if the year-normalized content contains the year-normalized license text
     year_normalized_content.contains(&year_normalized_license)

@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 // HashMap is used in the ignore_manager_cache type
 // but not directly imported since we use the full path
@@ -1118,12 +1119,12 @@ impl Processor {
       return Ok(content.to_string());
     }
 
-    // Only compile the regex if we need it
     // Regex to find copyright year patterns - match all copyright symbol formats
-    let year_regex = Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")?;
+    static YEAR_REGEX: LazyLock<Regex> =
+      LazyLock::new(|| Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)").expect("year regex must compile"));
 
     // Update single year to current year
-    let content = year_regex
+    let content = YEAR_REGEX
       .replace_all(content, |caps: &regex::Captures| {
         let prefix = &caps[1];
         let year = &caps[2];
