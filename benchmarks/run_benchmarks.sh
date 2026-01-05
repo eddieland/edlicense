@@ -1,57 +1,31 @@
-#!/bin/bash
-
-# Script to run edlicense benchmarks and generate visualizations
-# This script automatically runs the performance tests and generates 
-# visualizations using matplotlib
+#!/usr/bin/env bash
+# Run edlicense benchmarks and generate visualizations.
 
 set -euo pipefail
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-pushd "${SCRIPT_DIR}/.."
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
+cd "$ROOT_DIR"
 
-# Check for required tools
-echo "Checking dependencies..."
-if ! command -v cargo &> /dev/null; then
-    echo "Error: cargo is not installed or not in PATH"
-    exit 1
-fi
+for bin in cargo uv; do
+  command -v "$bin" >/dev/null || { echo "Error: $bin is required." >&2; exit 1; }
+done
 
-# Create benchmark output directory
-echo "Setting up benchmark environment..."
-BENCHMARK_DIR="dist/benchmark_visualizations"
-mkdir -p "$BENCHMARK_DIR"
+mkdir -p dist/benchmark_visualizations
 
-# Activate Python virtual environment
-echo "Activating Python virtual environment..."
-if [ ! -d "benchmarks/.venv" ]; then
-    echo "Error: Python virtual environment not found in dist/env"
-    echo "Please run: mkdir -p dist && cd dist && python -m venv env && source env/bin/activate && pip install matplotlib pandas numpy"
-    exit 1
-fi
-
-# Function to run a benchmark test
 run_benchmark() {
-    local test_name="$1"
-    local display_name="$2"
-    
-    echo
-    echo "============================================="
-    echo "Running benchmark: $display_name"
-    echo "============================================="
-    
-    # Run the test with nextest, including ignored tests, and tee output to a file
-    cargo nextest run "$test_name" --run-ignored=all --no-capture | tee "/tmp/${test_name}_output.txt"
-    
-    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-        echo "Warning: Test '$test_name' did not complete successfully."
-        echo "This may be expected for tests that check for missing licenses."
-    fi
-}
+  local test_name="$1"
+  local display_name="$2"
 
-echo "Starting benchmarks..."
+  echo
+  echo "=== $display_name ==="
+  cargo nextest run "$test_name" --run-ignored=all --no-capture | tee "/tmp/${test_name}_output.txt"
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    echo "Warning: $test_name did not complete successfully."
+  fi
+}
 
 run_benchmark "benchmark_operations" "Operation Types (Add/Update/Check)"
 run_benchmark "test_file_size_impact" "File Size Impact"
 run_benchmark "test_thread_count_impact" "Thread Count Impact"
 
-benchmarks/.venv/bin/python benchmarks/generate_benchmarks.py
+uv run benchmarks/generate_benchmarks.py

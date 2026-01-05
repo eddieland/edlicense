@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#   "matplotlib",
+#   "numpy",
+#   "pandas",
+# ]
+# ///
 """
 Visualize comparative benchmark results between edlicense and addlicense.
 This script reads the JSON result files from the benchmark tests and
@@ -260,7 +268,12 @@ def generate_summary_table(df, output_dir):
     # Group by relevant factors and calculate statistics
     grouped = (
         df_summary.groupby(["tool", "operation", "file_size_kb"])
-        .agg({"duration_ms": ["mean", "std", "min", "max"]})
+        .agg(
+            {
+                "duration_ms": ["mean", "std", "min", "max"],
+                "file_count": ["first"],
+            }
+        )
         .reset_index()
     )
 
@@ -291,7 +304,7 @@ def generate_summary_table(df, output_dir):
                     {
                         "Operation": op,
                         "File Size (KB)": size,
-                        "File Count": int(ed_data["file_count"].values[0]),
+                        "File Count": int(ed_data["file_count_first"].values[0]),
                         "edlicense (ms)": round(ed_mean, 2),
                         "addlicense (ms)": round(add_mean, 2),
                         "Ratio (addlicense/edlicense)": round(ratio, 2),

@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#   "matplotlib",
+#   "numpy",
+#   "pandas",
+# ]
+# ///
 import os
 import re
 import pandas as pd
