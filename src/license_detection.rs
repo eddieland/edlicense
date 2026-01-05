@@ -174,12 +174,9 @@ impl LicenseDetector for ContentBasedLicenseDetector {
 
     // Replace all years (4 digits surrounded by word boundaries) with "YEAR" placeholder
     // This makes the comparison year-agnostic
-    static YEAR_PATTERN: LazyLock<Regex> =
-      LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("year regex must compile"));
-    let year_normalized_license =
-      YEAR_PATTERN.replace_all(&normalized_license, "YEAR").to_string();
-    let year_normalized_content =
-      YEAR_PATTERN.replace_all(&normalized_content, "YEAR").to_string();
+    static YEAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("year regex must compile"));
+    let year_normalized_license = YEAR_PATTERN.replace_all(&normalized_license, "YEAR").to_string();
+    let year_normalized_content = YEAR_PATTERN.replace_all(&normalized_content, "YEAR").to_string();
 
     // Check if the year-normalized content contains the year-normalized license text
     year_normalized_content.contains(&year_normalized_license)

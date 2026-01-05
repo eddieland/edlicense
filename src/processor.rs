@@ -1120,10 +1120,8 @@ impl Processor {
     }
 
     // Regex to find copyright year patterns - match all copyright symbol formats
-    static YEAR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-      Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)")
-        .expect("year regex must compile")
-    });
+    static YEAR_REGEX: LazyLock<Regex> =
+      LazyLock::new(|| Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)").expect("year regex must compile"));
 
     // Update single year to current year
     let content = YEAR_REGEX
