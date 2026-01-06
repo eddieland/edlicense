@@ -717,7 +717,7 @@ impl Processor {
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
-    let prefix_content = self.read_license_check_prefix(path).await?;
+    let (mut file, prefix_bytes, prefix_content) = self.read_license_check_prefix(path).await?;
     let has_license = self.has_license(&prefix_content);
     let needs_full_content = if self.check_only {
       if !has_license {
@@ -732,7 +732,9 @@ impl Processor {
     };
 
     let content = if needs_full_content {
-      self.read_full_content(path).await?
+      self
+        .read_full_content_from_handle(&mut file, prefix_bytes, path)
+        .await?
     } else {
       prefix_content
     };
@@ -1033,7 +1035,7 @@ impl Processor {
     }
 
     let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
-    let prefix_content = self.read_license_check_prefix(path).await?;
+    let (mut file, prefix_bytes, prefix_content) = self.read_license_check_prefix(path).await?;
     let has_license = self.has_license(&prefix_content);
     let needs_full_content = if self.check_only {
       if !has_license {
@@ -1048,7 +1050,9 @@ impl Processor {
     };
 
     let content = if needs_full_content {
-      self.read_full_content(path).await?
+      self
+        .read_full_content_from_handle(&mut file, prefix_bytes, path)
+        .await?
     } else {
       prefix_content
     };
@@ -1367,7 +1371,7 @@ impl Processor {
   /// # Returns
   ///
   /// A String containing the read content, or an error if reading fails.
-  async fn read_license_check_prefix(&self, path: &Path) -> Result<String> {
+  async fn read_license_check_prefix(&self, path: &Path) -> Result<(fs::File, Vec<u8>, String)> {
     let mut file = fs::File::open(path)
       .await
       .with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -1378,23 +1382,34 @@ impl Processor {
       .with_context(|| format!("Failed to read file: {}", path.display()))?;
     buf.truncate(read_len);
 
-    match std::str::from_utf8(&buf) {
-      Ok(prefix) => Ok(prefix.to_string()),
+    let prefix_content = match std::str::from_utf8(&buf) {
+      Ok(prefix) => prefix.to_string(),
       Err(e) => {
         let valid_up_to = e.valid_up_to();
         if valid_up_to == 0 {
-          Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e))
-        } else {
-          Ok(String::from_utf8_lossy(&buf[..valid_up_to]).to_string())
+          return Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e));
         }
+        String::from_utf8_lossy(&buf[..valid_up_to]).to_string()
       }
-    }
+    };
+
+    Ok((file, buf, prefix_content))
   }
 
-  async fn read_full_content(&self, path: &Path) -> Result<String> {
-    fs::read_to_string(path)
+  async fn read_full_content_from_handle(
+    &self,
+    file: &mut fs::File,
+    mut prefix_bytes: Vec<u8>,
+    path: &Path,
+  ) -> Result<String> {
+    file
+      .read_to_end(&mut prefix_bytes)
       .await
-      .with_context(|| format!("Failed to read file: {}", path.display()))
+      .with_context(|| format!("Failed to read file: {}", path.display()))?;
+    match String::from_utf8(prefix_bytes) {
+      Ok(content) => Ok(content),
+      Err(e) => Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e)),
+    }
   }
 }
 
