@@ -323,6 +323,16 @@ impl Processor {
   ///
   /// This method uses async operations for processing files in a directory.
   pub async fn process_directory(&self, dir: &Path) -> Result<bool> {
+    self.process_directory_internal(dir, None).await
+  }
+
+  /// Processes a directory recursively with a caller-specified concurrency.
+  #[allow(dead_code)]
+  pub async fn process_directory_with_concurrency(&self, dir: &Path, concurrency: usize) -> Result<bool> {
+    self.process_directory_internal(dir, Some(concurrency)).await
+  }
+
+  async fn process_directory_internal(&self, dir: &Path, concurrency_override: Option<usize>) -> Result<bool> {
     let has_missing_license = Arc::new(AtomicBool::new(false));
     let has_missing_clone = Arc::clone(&has_missing_license);
 
@@ -424,10 +434,20 @@ impl Processor {
     // Determine optimal concurrency based on CPU cores and file count
     let num_cpus = num_cpus::get();
     let files_len = files.len();
-    let concurrency = std::cmp::min(num_cpus * 4, files_len);
-    let concurrency = std::cmp::max(concurrency, 1); // At least 1
+    let mut concurrency = std::cmp::min(num_cpus * 4, files_len);
+    concurrency = std::cmp::max(concurrency, 1); // At least 1
 
-    verbose_log!("Processing {} files with concurrency {}", files_len, concurrency);
+    if let Some(override_concurrency) = concurrency_override {
+      let override_concurrency = std::cmp::max(override_concurrency, 1);
+      concurrency = std::cmp::min(override_concurrency, files_len);
+      verbose_log!(
+        "Processing {} files with concurrency {} (override)",
+        files_len,
+        concurrency
+      );
+    } else {
+      verbose_log!("Processing {} files with concurrency {}", files_len, concurrency);
+    }
 
     // Create a channel for collecting reports from worker tasks
     let (report_sender, report_receiver) = tokio::sync::mpsc::channel::<FileReport>(concurrency * 2);

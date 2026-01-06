@@ -271,7 +271,7 @@ async fn run_file_size_benchmarks(file_size: usize, config: &BenchmarkConfig, ou
 }
 
 /// Run thread count impact benchmarks
-async fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path) -> Result<()> {
+fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path) -> Result<()> {
   // Thread counts to test
   let thread_counts = [1, 2, 4, 8, 16];
   let file_size = 1000; // 1KB
@@ -280,54 +280,54 @@ async fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path
   println!("\n=== Testing impact of thread count on performance ===");
 
   for &threads in &thread_counts {
-    // Set the number of threads for rayon
-    unsafe {
-      std::env::set_var("RAYON_NUM_THREADS", threads.to_string());
-    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+      .worker_threads(threads)
+      .enable_all()
+      .build()?;
 
-    // Create a dedicated temp directory for this test
-    let temp_dir = tempdir()?;
-    let test_dir = temp_dir.path().join(format!("thread_test_{}", threads));
-    fs::create_dir_all(&test_dir)?;
+    let mut results = runtime.block_on(async {
+      // Create a dedicated temp directory for this test
+      let temp_dir = tempdir()?;
+      let test_dir = temp_dir.path().join(format!("thread_test_{}", threads));
+      fs::create_dir_all(&test_dir)?;
 
-    // Generate test files
-    generate_test_files(&test_dir, config.file_count, false, file_size)?;
+      // Generate test files
+      generate_test_files(&test_dir, config.file_count, false, file_size)?;
 
-    // Run edlicense benchmark
-    println!("\n=== Running edlicense benchmark with {} threads ===", threads);
+      // Run edlicense benchmark
+      println!("\n=== Running edlicense benchmark with {} threads ===", threads);
 
-    let mut results = Vec::with_capacity(config.iterations);
+      let mut results = Vec::with_capacity(config.iterations);
 
-    for i in 1..=config.iterations {
-      println!("Running iteration {}/{}...", i, config.iterations);
+      for i in 1..=config.iterations {
+        println!("Running iteration {}/{}...", i, config.iterations);
 
-      // Create processor for benchmark
-      let (processor, _template_dir) =
-        create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+        // Create processor for benchmark
+        let (processor, _template_dir) =
+          create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
 
-      // Run benchmark and measure time
-      let start = Instant::now();
-      processor.process_directory(&test_dir).await?;
-      let duration = start.elapsed();
+        // Run benchmark and measure time
+        let start = Instant::now();
+        processor.process_directory_with_concurrency(&test_dir, threads).await?;
+        let duration = start.elapsed();
 
-      let result = BenchmarkResult {
-        tool: "edlicense".to_string(),
-        operation: "add".to_string(),
-        duration_ms: duration.as_millis(),
-        file_count: config.file_count,
-        file_size_kb: file_size / 1000,
-        thread_count: Some(threads),
-      };
+        let result = BenchmarkResult {
+          tool: "edlicense".to_string(),
+          operation: "add".to_string(),
+          duration_ms: duration.as_millis(),
+          file_count: config.file_count,
+          file_size_kb: file_size / 1000,
+          thread_count: Some(threads),
+        };
 
-      results.push(result.clone());
-      all_results.push(result);
-      println!("Iteration {} completed in {:.2?}", i, duration);
-    }
-  }
+        results.push(result);
+        println!("Iteration {} completed in {:.2?}", i, duration);
+      }
 
-  // Reset the thread count
-  unsafe {
-    std::env::remove_var("RAYON_NUM_THREADS");
+      Ok::<Vec<BenchmarkResult>, anyhow::Error>(results)
+    })?;
+
+    all_results.append(&mut results);
   }
 
   // Write results
@@ -338,9 +338,9 @@ async fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path
 }
 
 /// Main benchmark test function to compare edlicense vs addlicense
-#[tokio::test]
+#[test]
 #[ignore] // Ignored by default as it's a long-running test
-async fn comparative_benchmark() -> Result<()> {
+fn comparative_benchmark() -> Result<()> {
   use std::fs;
 
   // Create output directory for benchmark results
@@ -378,19 +378,25 @@ async fn comparative_benchmark() -> Result<()> {
 
   println!("=== Running File Size Impact Benchmarks ===");
 
+  let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+
   // Run benchmarks for different file sizes
-  println!("Running small file benchmarks (1KB)");
-  run_file_size_benchmarks(1000, &small_config, &output_dir).await?;
+  runtime.block_on(async {
+    println!("Running small file benchmarks (1KB)");
+    run_file_size_benchmarks(1000, &small_config, &output_dir).await?;
 
-  println!("Running medium file benchmarks (10KB)");
-  run_file_size_benchmarks(10_000, &medium_config, &output_dir).await?;
+    println!("Running medium file benchmarks (10KB)");
+    run_file_size_benchmarks(10_000, &medium_config, &output_dir).await?;
 
-  println!("Running large file benchmarks (100KB)");
-  run_file_size_benchmarks(100_000, &large_config, &output_dir).await?;
+    println!("Running large file benchmarks (100KB)");
+    run_file_size_benchmarks(100_000, &large_config, &output_dir).await?;
+
+    Ok::<(), anyhow::Error>(())
+  })?;
 
   // Run thread count benchmarks (edlicense only)
   println!("Running thread count impact benchmarks");
-  run_thread_count_benchmarks(&thread_config, &output_dir).await?;
+  run_thread_count_benchmarks(&thread_config, &output_dir)?;
 
   println!("All benchmarks completed. Results saved to: {}", output_dir.display());
   Ok(())
