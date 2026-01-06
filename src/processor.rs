@@ -16,7 +16,7 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 use crate::diff::DiffManager;
-use crate::file_filter::{CompositeFilter, FileFilter, IgnoreFilter, create_default_filter};
+use crate::file_filter::{CompositeFilter, FileFilter, FilterResult, create_default_filter};
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
@@ -86,6 +86,14 @@ enum PatternMatcher {
   File(PathBuf),
   Dir(PathBuf),
   Glob(glob::Pattern),
+}
+
+struct PassthroughFilter;
+
+impl FileFilter for PassthroughFilter {
+  fn should_process(&self, _path: &Path) -> Result<FilterResult> {
+    Ok(FilterResult::process())
+  }
 }
 
 impl Processor {
@@ -183,8 +191,9 @@ impl Processor {
 
     if self.should_use_git_list() {
       let files = self.collect_files(patterns)?;
-      let ignore_filter = IgnoreFilter::new(self.ignore_manager.clone());
-      return self.process_files_with_filter(files, &ignore_filter, None).await;
+      let files = self.filter_files_with_ignore_context(files).await?;
+      let passthrough_filter = PassthroughFilter;
+      return self.process_files_with_filter(files, &passthrough_filter, None).await;
     }
 
     // Process each pattern
@@ -565,6 +574,62 @@ impl Processor {
     }
 
     Ok(has_missing_clone.load(Ordering::Relaxed))
+  }
+
+  async fn filter_files_with_ignore_context(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let mut filtered = Vec::with_capacity(files.len());
+    let mut local_reports = Vec::new();
+
+    for path in files {
+      let mut ignored = false;
+
+      if let Some(parent_dir) = path.parent() {
+        if parent_dir.exists() {
+          let ignore_manager = {
+            let mut cache = self.ignore_manager_cache.lock().await;
+
+            if let Some(cached_manager) = cache.get(parent_dir) {
+              verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+              cached_manager.clone()
+            } else {
+              verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+              let mut new_manager = self.ignore_manager.clone();
+              new_manager.load_licenseignore_files(parent_dir)?;
+              cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+              new_manager
+            }
+          };
+
+          if ignore_manager.is_ignored(&path) {
+            verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+            ignored = true;
+
+            if self.collect_report_data {
+              let file_report = FileReport {
+                path: path.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+              };
+
+              local_reports.push(file_report);
+            }
+          }
+        }
+      }
+
+      if !ignored {
+        filtered.push(path);
+      }
+    }
+
+    if self.collect_report_data && !local_reports.is_empty() {
+      let mut reports = self.file_reports.lock().await;
+      reports.extend(local_reports);
+    }
+
+    Ok(filtered)
   }
 
   /// Processes a single file, adding or checking a license header.
