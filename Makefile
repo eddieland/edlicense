@@ -13,12 +13,10 @@ help: ## Display this help
 ### Development
 fmt: ## Format code using rustfmt
 	cargo fmt --all
+	cargo clippy --fix --allow-dirty --workspace
 	./fmt-python.sh
 
 lint: ## Run clippy for linting
-	cargo clippy -- -D warnings
-
-lint-all: ## Run clippy with all features
 	cargo clippy --all-features -- -D warnings
 
 test: build ## Run tests
@@ -103,7 +101,7 @@ docker-run-debug: ## Run debug Docker container with current directory mounted
 
 docker-clean: ## Remove Docker images
 	docker rmi -f edlicense:latest edlicense:distroless edlicense:debug edlicense:multiarch 2>/dev/null || true
-	
+
 docker-prune-cache: ## Prune Docker builder cache
 	docker builder prune -f --filter type=exec.cachemount
 
