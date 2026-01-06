@@ -16,7 +16,7 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 use crate::diff::DiffManager;
-use crate::file_filter::{CompositeFilter, FileFilter, FilterResult, create_default_filter};
+use crate::file_filter::{FileFilter, FilterResult, IgnoreFilter, create_default_filter};
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
@@ -41,8 +41,8 @@ pub struct Processor {
   /// License data (year, etc.) for rendering templates
   license_data: LicenseData,
 
-  /// Composite file filter for determining which files to process
-  file_filter: CompositeFilter,
+  /// File filter for determining which files to process
+  file_filter: IgnoreFilter,
 
   /// Manager for handling ignore patterns (used for directory-specific ignore
   /// patterns)
@@ -583,38 +583,38 @@ impl Processor {
     for path in files {
       let mut ignored = false;
 
-      if let Some(parent_dir) = path.parent() {
-        if parent_dir.exists() {
-          let ignore_manager = {
-            let mut cache = self.ignore_manager_cache.lock().await;
+      if let Some(parent_dir) = path.parent()
+        && parent_dir.exists()
+      {
+        let ignore_manager = {
+          let mut cache = self.ignore_manager_cache.lock().await;
 
-            if let Some(cached_manager) = cache.get(parent_dir) {
-              verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
-              cached_manager.clone()
-            } else {
-              verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
-              let mut new_manager = self.ignore_manager.clone();
-              new_manager.load_licenseignore_files(parent_dir)?;
-              cache.insert(parent_dir.to_path_buf(), new_manager.clone());
-              new_manager
-            }
-          };
+          if let Some(cached_manager) = cache.get(parent_dir) {
+            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+            cached_manager.clone()
+          } else {
+            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+            let mut new_manager = self.ignore_manager.clone();
+            new_manager.load_licenseignore_files(parent_dir)?;
+            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+            new_manager
+          }
+        };
 
-          if ignore_manager.is_ignored(&path) {
-            verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
-            ignored = true;
+        if ignore_manager.is_ignored(&path) {
+          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+          ignored = true;
 
-            if self.collect_report_data {
-              let file_report = FileReport {
-                path: path.to_path_buf(),
-                has_license: false,
-                action_taken: Some(FileAction::Skipped),
-                ignored: true,
-                ignored_reason: Some("Matches .licenseignore pattern".to_string()),
-              };
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+            };
 
-              local_reports.push(file_report);
-            }
+            local_reports.push(file_report);
           }
         }
       }

@@ -95,51 +95,17 @@ impl FileFilter for IgnoreFilter {
   }
 }
 
-/// Filter that combines multiple filters.
-pub struct CompositeFilter {
-  filters: Vec<Box<dyn FileFilter>>,
-}
-
-impl CompositeFilter {
-  /// Creates a new CompositeFilter with the given filters.
-  pub fn new(filters: Vec<Box<dyn FileFilter>>) -> Self {
-    Self { filters }
-  }
-
-  /// Adds a filter to this CompositeFilter.
-  #[allow(dead_code)]
-  pub fn add_filter(&mut self, filter: Box<dyn FileFilter>) {
-    self.filters.push(filter);
-  }
-}
-
-impl FileFilter for CompositeFilter {
-  fn should_process(&self, path: &Path) -> Result<FilterResult> {
-    for filter in &self.filters {
-      let result = filter.should_process(path)?;
-      if !result.should_process {
-        return Ok(result);
-      }
-    }
-    Ok(FilterResult::process())
-  }
-}
-
-/// Constructs a CompositeFilter from common filter options.
+/// Constructs an IgnoreFilter using the provided ignore patterns.
 ///
 /// # Parameters
 ///
 /// * `ignore_patterns` - Glob patterns for files to ignore
-/// * `git_only` - Whether to only process files tracked by git (handled
-///   upstream)
-/// * `ratchet_reference` - Git reference for ratchet mode (handled upstream)
 ///
 /// # Returns
 ///
-/// A new CompositeFilter with the specified filters.
-pub fn create_default_filter(ignore_patterns: Vec<String>) -> Result<CompositeFilter> {
-  let filters: Vec<Box<dyn FileFilter>> = vec![Box::new(IgnoreFilter::from_patterns(ignore_patterns)?)];
-  Ok(CompositeFilter::new(filters))
+/// A new IgnoreFilter with the specified ignore patterns.
+pub fn create_default_filter(ignore_patterns: Vec<String>) -> Result<IgnoreFilter> {
+  IgnoreFilter::from_patterns(ignore_patterns)
 }
 
 #[cfg(test)]
@@ -159,33 +125,5 @@ mod tests {
     let result = filter.should_process(Path::new("src/main.rs.bak")).unwrap();
     assert!(!result.should_process);
     assert!(result.reason.is_some());
-  }
-
-  #[test]
-  fn test_composite_filter() {
-    let mut composite = CompositeFilter::new(Vec::new());
-
-    // Create a mock filter that only processes files with "pass" in their name
-    struct MockFilter;
-    impl FileFilter for MockFilter {
-      fn should_process(&self, path: &Path) -> Result<FilterResult> {
-        let path_str = path.to_string_lossy();
-        if path_str.contains("pass") {
-          Ok(FilterResult::process())
-        } else {
-          Ok(FilterResult::skip("Not a pass file".to_string()))
-        }
-      }
-    }
-
-    composite.add_filter(Box::new(MockFilter));
-
-    // Should process file with "pass" in name
-    let result = composite.should_process(Path::new("src/pass_test.rs")).unwrap();
-    assert!(result.should_process);
-
-    // Should not process other files
-    let result = composite.should_process(Path::new("src/fail_test.rs")).unwrap();
-    assert!(!result.should_process);
   }
 }

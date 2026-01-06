@@ -683,8 +683,6 @@ async fn test_manual_ratchet_mode() -> Result<()> {
   // Use relative paths as that's what git would typically provide
   use std::collections::HashSet;
 
-  use edlicense::file_filter::FileFilter;
-
   let mut changed_files = HashSet::new();
   changed_files.insert(std::path::PathBuf::from("file1.rs"));
 
