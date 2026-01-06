@@ -44,3 +44,35 @@ codegen-units = 1
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
+
+# Warn on these additional lints to keep hygiene consistent across the workspace
+[lints.clippy]
+# --- Panic & unwrap safety ---
+unwrap_used = "warn"
+panic = "warn"
+panic_in_result_fn = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+# --- Result / Option correctness ---
+map_err_ignore = "warn"
+bind_instead_of_map = "warn"
+map_flatten = "warn"
+
+# --- Logging & debugging hygiene ---
+dbg_macro = "warn"
+
+# --- Correctness & readability ---
+inefficient_to_string = "warn"
+shadow_unrelated = "warn"
+match_bool = "warn"
+needless_borrow = "warn"
+needless_lifetimes = "warn"
+useless_conversion = "warn"
+undocumented_unsafe_blocks = "warn"
+
+# --- API Hygiene ---
+missing_const_for_fn = "warn"
+redundant_pub_crate = "warn"
+pub_underscore_fields = "warn"
+pub_without_shorthand = "warn"

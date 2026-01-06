@@ -21,7 +21,7 @@ pub struct FilterResult {
 
 impl FilterResult {
   /// Creates a new FilterResult indicating the file should be processed.
-  pub fn process() -> Self {
+  pub const fn process() -> Self {
     Self {
       should_process: true,
       reason: None,
@@ -60,7 +60,7 @@ pub struct IgnoreFilter {
 impl IgnoreFilter {
   /// Creates a new IgnoreFilter with the given IgnoreManager.
   #[allow(dead_code)]
-  pub fn new(ignore_manager: IgnoreManager) -> Self {
+  pub const fn new(ignore_manager: IgnoreManager) -> Self {
     Self { ignore_manager }
   }
 
@@ -104,7 +104,7 @@ pub struct GitFilter {
 impl GitFilter {
   /// Creates a new GitFilter with the given set of git-tracked files.
   #[allow(dead_code)]
-  pub fn new(git_tracked_files: HashSet<PathBuf>) -> Self {
+  pub const fn new(git_tracked_files: HashSet<PathBuf>) -> Self {
     Self { git_tracked_files }
   }
 
@@ -145,7 +145,7 @@ pub struct RatchetFilter {
 impl RatchetFilter {
   /// Creates a new RatchetFilter with the given set of changed files.
   #[allow(dead_code)]
-  pub fn new(changed_files: HashSet<PathBuf>) -> Self {
+  pub const fn new(changed_files: HashSet<PathBuf>) -> Self {
     Self { changed_files }
   }
 

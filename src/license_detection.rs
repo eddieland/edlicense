@@ -35,7 +35,7 @@ pub struct SimpleLicenseDetector;
 
 impl SimpleLicenseDetector {
   /// Creates a new DefaultLicenseDetector.
-  pub fn new() -> Self {
+  pub const fn new() -> Self {
     SimpleLicenseDetector
   }
 }

@@ -68,7 +68,7 @@ impl ColorMode {
   }
 
   /// Convert from u8 to ColorMode
-  fn from_u8(value: u8) -> Self {
+  const fn from_u8(value: u8) -> Self {
     match value {
       0 => ColorMode::Auto,
       1 => ColorMode::Never,

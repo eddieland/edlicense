@@ -169,18 +169,18 @@ impl Processor {
     // Process each pattern
     for pattern in patterns {
       // Check if the pattern is a file or directory
-      let path = PathBuf::from(pattern);
-      if path.is_file() {
+      let maybe_path = PathBuf::from(pattern);
+      if maybe_path.is_file() {
         // Process a single file
         // Load .licenseignore files from the file's parent directory
-        let result = self.process_file_with_ignore_context(&path).await;
+        let result = self.process_file_with_ignore_context(&maybe_path).await;
         if let Err(e) = result {
-          eprintln!("Error processing {}: {}", path.display(), e);
+          eprintln!("Error processing {}: {}", maybe_path.display(), e);
           has_missing_license.store(true, Ordering::Relaxed);
         }
-      } else if path.is_dir() {
+      } else if maybe_path.is_dir() {
         // Process a directory recursively
-        let has_missing = self.process_directory(&path).await?;
+        let has_missing = self.process_directory(&maybe_path).await?;
         if has_missing {
           has_missing_license.store(true, Ordering::Relaxed);
         }
@@ -362,7 +362,7 @@ impl Processor {
         continue;
       }
 
-      let mut entries = read_dir_result.unwrap();
+      let mut entries = read_dir_result.expect("Valid read_dir");
       while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
 

@@ -103,7 +103,7 @@ impl TemplateManager {
   /// # Returns
   ///
   /// A new `TemplateManager` instance with an empty template.
-  pub fn new() -> Self {
+  pub const fn new() -> Self {
     Self {
       template: String::new(),
     }

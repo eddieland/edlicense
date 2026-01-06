@@ -36,7 +36,7 @@ impl DiffManager {
   /// # Returns
   ///
   /// A new `DiffManager` instance.
-  pub fn new(show_diff: bool, save_diff_path: Option<PathBuf>) -> Self {
+  pub const fn new(show_diff: bool, save_diff_path: Option<PathBuf>) -> Self {
     Self {
       show_diff,
       save_diff_path,

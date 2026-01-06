@@ -122,7 +122,7 @@ impl ReportGenerator {
   ///
   /// * `format` - The format to use for the report
   /// * `output_path` - The path where the report will be saved
-  pub fn new(format: ReportFormat, output_path: PathBuf) -> Self {
+  pub const fn new(format: ReportFormat, output_path: PathBuf) -> Self {
     Self { format, output_path }
   }
 
@@ -221,7 +221,7 @@ impl ReportGenerator {
 <body>
     <h1>edlicense Report</h1>
     <p>Generated on {date}</p>
-    
+
     <div class="summary">
         <h2>Summary</h2>
         <div class="summary-item">Total files processed: {}</div>
@@ -232,7 +232,7 @@ impl ReportGenerator {
         <div class="summary-item">License headers updated: {}</div>
         <div class="summary-item">Processing time: {:.2} seconds</div>
     </div>
-    
+
     <h2>File Details</h2>
     <table>
         <tr>
@@ -358,7 +358,7 @@ impl ReportGenerator {
     );
     summary_map.insert(
       "processing_time_seconds".to_string(),
-      Value::Number(serde_json::Number::from_f64(summary.processing_time.as_secs_f64()).unwrap()),
+      Value::Number(serde_json::Number::from_f64(summary.processing_time.as_secs_f64()).expect("Valid f64")),
     );
 
     // Create the final report
