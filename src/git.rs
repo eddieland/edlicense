@@ -82,11 +82,13 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
           if let Some(workdir) = repo.workdir() {
             let abs_path = workdir.join(&repo_relative_path);
             // Get path relative to current directory
-            if let Ok(rel_path) = abs_path.strip_prefix(&current_dir) {
-              tracked_files.insert(rel_path.to_path_buf());
-            } else if let Some(rel_path) = pathdiff::diff_paths(&abs_path, &current_dir) {
-              tracked_files.insert(rel_path);
-            }
+            let rel_path = abs_path
+              .strip_prefix(&current_dir)
+              .ok()
+              .map(|path| path.to_path_buf())
+              .or_else(|| pathdiff::diff_paths(&abs_path, &current_dir))
+              .unwrap_or_else(|| repo_relative_path.clone());
+            tracked_files.insert(rel_path);
           }
         }
       }
@@ -178,19 +180,14 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
             .map(|workdir| workdir.join(new_file));
 
           if let Some(abs_path) = abs_path {
-            // Store both absolute and relative paths for more robust matching
-            changed_files.insert(abs_path.clone());
-
-            // Also add relative path
-            if let Some(rel_path) = pathdiff::diff_paths(&abs_path, &current_dir) {
-              verbose_log!("Added relative path: {}", rel_path.display());
-              changed_files.insert(rel_path);
-            } else {
-              // Just to be safe, also add the file name directly
-              if let Some(filename) = new_file.file_name() {
-                changed_files.insert(PathBuf::from(filename));
-              }
-            }
+            let rel_path = abs_path
+              .strip_prefix(&current_dir)
+              .ok()
+              .map(|path| path.to_path_buf())
+              .or_else(|| pathdiff::diff_paths(&abs_path, &current_dir))
+              .unwrap_or_else(|| new_file.to_path_buf());
+            verbose_log!("Added relative path: {}", rel_path.display());
+            changed_files.insert(rel_path);
           }
         }
         true

@@ -170,7 +170,8 @@ async fn main() -> Result<()> {
   // Set global ignore file if provided
   if let Some(ref global_ignore_file) = args.global_ignore_file {
     if let Some(path_str) = global_ignore_file.to_str() {
-      // Set the environment variable
+      // SAFETY:
+      // This is safe because we control the lifetime of the program
       unsafe {
         std::env::set_var("GLOBAL_LICENSE_IGNORE", path_str);
       }
