@@ -56,7 +56,10 @@ pub struct IgnoreManager {
   /// Gitignore matcher for .licenseignore files
   gitignore: Option<Gitignore>,
 
-  /// Path to the root directory where .licenseignore was found
+  /// Base directory for resolving relative file paths
+  base_dir: Option<PathBuf>,
+
+  /// Root directory used for matching paths in gitignore
   root_dir: Option<PathBuf>,
 }
 
@@ -86,6 +89,7 @@ impl IgnoreManager {
     Ok(Self {
       cli_patterns,
       gitignore: None,
+      base_dir: None,
       root_dir: None,
     })
   }
@@ -110,7 +114,15 @@ impl IgnoreManager {
   /// - The .licenseignore file exists but cannot be read
   /// - The global ignore file exists but cannot be read
   pub fn load_licenseignore_files(&mut self, dir: &Path) -> Result<()> {
-    let mut builder = GitignoreBuilder::new(dir);
+    let start_dir = if dir.is_absolute() {
+      dir.to_path_buf()
+    } else {
+      std::env::current_dir()
+        .with_context(|| "Failed to get current directory")?
+        .join(dir)
+    };
+    let mut builder_root_dir = start_dir.clone();
+    let mut builder = GitignoreBuilder::new(&builder_root_dir);
 
     // Add global ignore file if specified by environment variable
     if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
@@ -136,7 +148,7 @@ impl IgnoreManager {
     // to the root We load them starting from the root and moving down to ensure
     // proper pattern precedence
     let mut licenseignore_files = Vec::new();
-    let mut current_dir = dir.to_path_buf();
+    let mut current_dir = start_dir.clone();
 
     // First, collect all .licenseignore files going up to the root
     loop {
@@ -155,6 +167,11 @@ impl IgnoreManager {
     // This ensures proper precedence where patterns in directories closer to the
     // target directory override those from higher up
     licenseignore_files.reverse();
+
+    if let Some((dir_path, _)) = licenseignore_files.first() {
+      builder_root_dir = dir_path.clone();
+      builder = GitignoreBuilder::new(&builder_root_dir);
+    }
 
     // Now load each .licenseignore file in order from root to target dir
     for (dir_path, ignore_path) in licenseignore_files {
@@ -175,7 +192,8 @@ impl IgnoreManager {
     let gitignore = builder.build().with_context(|| "Failed to build gitignore matcher")?;
 
     self.gitignore = Some(gitignore);
-    self.root_dir = Some(dir.to_path_buf());
+    self.base_dir = Some(start_dir);
+    self.root_dir = Some(builder_root_dir);
 
     Ok(())
   }
@@ -204,8 +222,22 @@ impl IgnoreManager {
     if let Some(ref gitignore) = self.gitignore
       && let Some(ref root_dir) = self.root_dir
     {
+      let match_path = if path.is_absolute() {
+        path.to_path_buf()
+      } else if let Some(ref base_dir) = self.base_dir {
+        base_dir.join(path)
+      } else {
+        path.to_path_buf()
+      };
+
+      if let Some(ref base_dir) = self.base_dir
+        && !match_path.starts_with(base_dir)
+      {
+        return false;
+      }
+
       // Get the path relative to the root directory
-      if let Ok(rel_path) = path.strip_prefix(root_dir) {
+      if let Ok(rel_path) = match_path.strip_prefix(root_dir) {
         let match_result = gitignore.matched_path_or_any_parents(rel_path, false);
         if match_result.is_ignore() {
           verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());

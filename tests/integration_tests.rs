@@ -191,6 +191,38 @@ fn test_ignore_patterns() -> Result<()> {
 }
 
 #[test]
+fn test_parent_licenseignore_from_subdir_cwd() -> Result<()> {
+  let temp_dir = setup_test_environment()?;
+
+  // Create a root .licenseignore that should apply when running from subdir
+  let ignore_content = "*.skip.rs\n";
+  fs::write(temp_dir.path().join(".licenseignore"), ignore_content)?;
+
+  // Create a file that should be ignored by the root .licenseignore
+  let ignored_path = temp_dir.path().join("src/ignored.skip.rs");
+  fs::write(&ignored_path, "fn ignored() {}")?;
+
+  // Run edlicense from a subdirectory to ensure parent .licenseignore is
+  // respected
+  let subdir = temp_dir.path().join("src");
+  let license_path = temp_dir.path().join("license_template.txt");
+  let license_path_string = license_path.to_string_lossy();
+  let args = &["--modify", "--license-file", license_path_string.as_ref(), "."];
+
+  let (status, _stdout, stderr) = run_edlicense(args, &subdir)?;
+  assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
+
+  // Ensure ignored file was not modified
+  let ignored_content = fs::read_to_string(&ignored_path)?;
+  assert!(
+    !ignored_content.contains("Copyright"),
+    "Root .licenseignore should be honored when running from subdir CWD"
+  );
+
+  Ok(())
+}
+
+#[test]
 fn test_preserve_years() -> Result<()> {
   let temp_dir = setup_test_environment()?;
 
