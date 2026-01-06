@@ -1,10 +1,10 @@
-use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use tempfile::tempdir;
 
+use anyhow::{Context, Result};
 use edlicense::git;
+use tempfile::tempdir;
 
 // Helper function to check if git is available
 fn is_git_available() -> bool {

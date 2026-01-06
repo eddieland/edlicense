@@ -1,15 +1,15 @@
 //! # File Filter Module
 //!
-//! This module contains components for filtering files based on various criteria
-//! such as ignore patterns, git tracking status, and change status.
+//! This module contains components for filtering files based on various
+//! criteria such as ignore patterns, git tracking status, and change status.
 
-use anyhow::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::git;
+use anyhow::Result;
+
 use crate::ignore::IgnoreManager;
-use crate::verbose_log;
+use crate::{git, verbose_log};
 
 /// Result of a file filtering operation.
 pub struct FilterResult {
@@ -47,7 +47,8 @@ pub trait FileFilter: Send + Sync {
   ///
   /// # Returns
   ///
-  /// A `FilterResult` indicating whether the file should be processed and why not if applicable.
+  /// A `FilterResult` indicating whether the file should be processed and why
+  /// not if applicable.
   fn should_process(&self, path: &Path) -> Result<FilterResult>;
 }
 
@@ -148,7 +149,8 @@ impl RatchetFilter {
     Self { changed_files }
   }
 
-  /// Creates a new RatchetFilter by querying git for files changed relative to a reference.
+  /// Creates a new RatchetFilter by querying git for files changed relative to
+  /// a reference.
   pub fn from_reference(reference: &str) -> Result<Self> {
     let changed_files = git::get_changed_files(reference)?;
     Ok(Self { changed_files })
@@ -175,35 +177,33 @@ impl FileFilter for RatchetFilter {
     else if let Some(filename) = path.file_name() {
       let filename_str = filename.to_string_lossy();
       for changed_path in &self.changed_files {
-        if let Some(changed_filename) = changed_path.file_name() {
-          if changed_filename.to_string_lossy() == filename_str {
-            verbose_log!(
-              "File {} matched by filename with {}",
-              path.display(),
-              changed_path.display()
-            );
-            is_changed = true;
-            break;
-          }
+        if let Some(changed_filename) = changed_path.file_name()
+          && changed_filename.to_string_lossy() == filename_str
+        {
+          verbose_log!(
+            "File {} matched by filename with {}",
+            path.display(),
+            changed_path.display()
+          );
+          is_changed = true;
+          break;
         }
       }
     }
 
     // Method 3: Path canonicalization (handles .. and other path components)
-    if !is_changed {
-      if let Ok(canonical_path) = std::fs::canonicalize(path) {
-        for changed_path in &self.changed_files {
-          if let Ok(canonical_changed) = std::fs::canonicalize(changed_path) {
-            if canonical_path == canonical_changed {
-              verbose_log!(
-                "File {} matched by canonical path with {}",
-                path.display(),
-                changed_path.display()
-              );
-              is_changed = true;
-              break;
-            }
-          }
+    if !is_changed && let Ok(canonical_path) = std::fs::canonicalize(path) {
+      for changed_path in &self.changed_files {
+        if let Ok(canonical_changed) = std::fs::canonicalize(changed_path)
+          && canonical_path == canonical_changed
+        {
+          verbose_log!(
+            "File {} matched by canonical path with {}",
+            path.display(),
+            changed_path.display()
+          );
+          is_changed = true;
+          break;
         }
       }
     }

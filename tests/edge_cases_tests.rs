@@ -1,9 +1,9 @@
-use anyhow::Result;
 use std::fs;
-use tempfile::tempdir;
 
+use anyhow::Result;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_empty_file() -> Result<()> {

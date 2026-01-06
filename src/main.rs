@@ -75,11 +75,13 @@ const CUSTOM_STYLES: Styles = Styles::styled()
 "
 )]
 struct Args {
-  /// File or directory patterns to process. Directories are processed recursively.
+  /// File or directory patterns to process. Directories are processed
+  /// recursively.
   #[arg(required = true)]
   patterns: Vec<String>,
 
-  /// Dry run mode: only check for license headers without modifying files (default)
+  /// Dry run mode: only check for license headers without modifying files
+  /// (default)
   #[arg(long, group = "mode", hide = true)]
   dry_run: bool,
 
@@ -121,11 +123,13 @@ struct Args {
   #[arg(long)]
   preserve_years: bool,
 
-  /// Ratchet mode: only check and format files that have changed relative to a git reference
+  /// Ratchet mode: only check and format files that have changed relative to a
+  /// git reference
   #[arg(long, value_name = "REF")]
   ratchet: Option<String>,
 
-  /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE environment variable)
+  /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE
+  /// environment variable)
   #[arg(long, value_name = "FILE")]
   global_ignore_file: Option<PathBuf>,
 
@@ -188,7 +192,8 @@ async fn main() -> Result<()> {
     .load_template(&args.license_file)
     .with_context(|| format!("Failed to load license template from {}", args.license_file.display()))?;
 
-  // Determine mode (dry run is default if neither is specified or if dry_run is explicitly set)
+  // Determine mode (dry run is default if neither is specified or if dry_run is
+  // explicitly set)
   let check_only = args.dry_run || !args.modify;
 
   let diff_manager = DiffManager::new(args.show_diff, args.save_diff);

@@ -1,12 +1,10 @@
-use std::env;
-use std::fs;
+use std::{env, fs};
 
 use anyhow::Result;
-use tempfile::tempdir;
-
 use edlicense::ignore::IgnoreManager;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
+use tempfile::tempdir;
 
 #[test]
 fn test_licenseignore_basic() -> Result<()> {
@@ -420,7 +418,8 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
     "Text file in level2 should NOT be ignored"
   );
 
-  // Verify patterns are applied to parent directories (upward propagation not applicable)
+  // Verify patterns are applied to parent directories (upward propagation not
+  // applicable)
   assert!(
     !ignore_manager.is_ignored(&level1_path.join("test.js")),
     "JS file in level1 should NOT be ignored when loading from level2"
@@ -460,7 +459,8 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
   let parent_ignore_content = "*.txt\n";
   fs::write(conflict_path.join(".licenseignore"), parent_ignore_content)?;
 
-  // Create child directory with .licenseignore that explicitly allows important.txt
+  // Create child directory with .licenseignore that explicitly allows
+  // important.txt
   let child_path = conflict_path.join("child");
   fs::create_dir(&child_path)?;
   let child_ignore_content = "!important.txt\n";
@@ -542,7 +542,8 @@ fn test_processor_with_licenseignore() -> Result<()> {
   // Directly test the has_license method
   let has_license = processor.has_license(&test_content);
 
-  // Verify our test file doesn't contain a license and the has_license method reports it correctly
+  // Verify our test file doesn't contain a license and the has_license method
+  // reports it correctly
   assert!(
     !test_content.contains("Copyright"),
     "Test file should not have a license"

@@ -4,13 +4,14 @@
 //! determining which files should be ignored during license processing.
 //!
 //! It supports:
-//! - .licenseignore files in directories (using gitignore-style pattern matching)
-//! - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment variable
+//! - .licenseignore files in directories (using gitignore-style pattern
+//!   matching)
+//! - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment
+//!   variable
 //! - Command-line ignore patterns
 
-use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 use anyhow::{Context, Result};
 use glob::Pattern;
@@ -23,13 +24,15 @@ use crate::verbose_log;
 /// This struct combines ignore patterns from:
 /// - Command-line arguments
 /// - .licenseignore files in directories
-/// - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment variable
+/// - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment
+///   variable
 ///
 /// # Examples
 ///
 /// ```rust,no_run
-/// use edlicense::ignore::IgnoreManager;
 /// use std::path::Path;
+///
+/// use edlicense::ignore::IgnoreManager;
 ///
 /// # fn main() -> anyhow::Result<()> {
 /// // Create a new ignore manager with command-line ignore patterns
@@ -41,6 +44,7 @@ use crate::verbose_log;
 /// // Check if a file should be ignored
 /// let should_ignore = manager.is_ignored(Path::new("src/config.json"));
 /// assert!(should_ignore); // JSON files are ignored
+/// //
 /// # Ok(())
 /// # }
 /// ```
@@ -57,7 +61,8 @@ pub struct IgnoreManager {
 }
 
 impl IgnoreManager {
-  /// Creates a new ignore manager with the specified command-line ignore patterns.
+  /// Creates a new ignore manager with the specified command-line ignore
+  /// patterns.
   ///
   /// # Parameters
   ///
@@ -85,7 +90,8 @@ impl IgnoreManager {
     })
   }
 
-  /// Loads .licenseignore files from the specified directory and its parents up to the root directory.
+  /// Loads .licenseignore files from the specified directory and its parents up
+  /// to the root directory.
   ///
   /// This method also loads the global ignore file specified by the
   /// GLOBAL_LICENSE_IGNORE environment variable, if set.
@@ -126,8 +132,9 @@ impl IgnoreManager {
       }
     }
 
-    // Find and load .licenseignore files from the current directory all the way up to the root
-    // We load them starting from the root and moving down to ensure proper pattern precedence
+    // Find and load .licenseignore files from the current directory all the way up
+    // to the root We load them starting from the root and moving down to ensure
+    // proper pattern precedence
     let mut licenseignore_files = Vec::new();
     let mut current_dir = dir.to_path_buf();
 
@@ -194,15 +201,15 @@ impl IgnoreManager {
     }
 
     // Then check .licenseignore patterns
-    if let Some(ref gitignore) = self.gitignore {
-      if let Some(ref root_dir) = self.root_dir {
-        // Get the path relative to the root directory
-        if let Ok(rel_path) = path.strip_prefix(root_dir) {
-          let match_result = gitignore.matched_path_or_any_parents(rel_path, false);
-          if match_result.is_ignore() {
-            verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
-            return true;
-          }
+    if let Some(ref gitignore) = self.gitignore
+      && let Some(ref root_dir) = self.root_dir
+    {
+      // Get the path relative to the root directory
+      if let Ok(rel_path) = path.strip_prefix(root_dir) {
+        let match_result = gitignore.matched_path_or_any_parents(rel_path, false);
+        if match_result.is_ignore() {
+          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+          return true;
         }
       }
     }
@@ -228,7 +235,8 @@ impl IgnoreManager {
       let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
       // Extract the last few components of the path for matching
-      // This helps with patterns like "vendor/" that should match regardless of the full path
+      // This helps with patterns like "vendor/" that should match regardless of the
+      // full path
       let components: Vec<_> = path.components().collect();
       let mut partial_paths = Vec::new();
 

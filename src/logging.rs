@@ -5,14 +5,14 @@
 //! - Standard info logging with color support
 //!
 //! The logging system is designed to be simple and efficient, with verbose logs
-//! going to stderr and info logs going to stdout for better pipeline integration.
+//! going to stderr and info logs going to stdout for better pipeline
+//! integration.
 //!
 //! ## Example
 //!
 //! ```rust
-//! use edlicense::logging::{set_verbose, set_color_mode};
-//! use edlicense::{verbose_log, info_log};
-//! use edlicense::logging::ColorMode;
+//! use edlicense::logging::{ColorMode, set_color_mode, set_verbose};
+//! use edlicense::{info_log, verbose_log};
 //!
 //! // Enable verbose logging
 //! set_verbose(true);
@@ -27,15 +27,16 @@
 //! info_log!("License added to: {}", "example.rs");
 //! ```
 
-use clap::ValueEnum;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+use clap::ValueEnum;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 /// Global atomic flag to control verbose logging.
 ///
-/// This is initialized to `false` by default, meaning verbose logging is disabled
-/// until explicitly enabled via [`set_verbose`].
+/// This is initialized to `false` by default, meaning verbose logging is
+/// disabled until explicitly enabled via [`set_verbose`].
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 /// Global atomic value to control color mode.
@@ -94,8 +95,8 @@ impl ColorMode {
 
 /// Sets the global verbose logging flag.
 ///
-/// When verbose logging is enabled, the [`verbose_log!`] macro will output messages
-/// to stderr. When disabled, verbose log messages are suppressed.
+/// When verbose logging is enabled, the [`verbose_log!`] macro will output
+/// messages to stderr. When disabled, verbose log messages are suppressed.
 ///
 /// # Parameters
 ///
@@ -153,7 +154,8 @@ macro_rules! verbose_log {
 /// Logs a message to stdout regardless of verbose mode.
 ///
 /// This macro is used for important information that should always be displayed
-/// to the user. It uses the same format string syntax as the standard [`println!`] macro.
+/// to the user. It uses the same format string syntax as the standard
+/// [`println!`] macro.
 #[macro_export]
 macro_rules! info_log {
     ($($arg:tt)*) => {

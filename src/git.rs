@@ -1,8 +1,8 @@
 //! # Git Module
 //!
 //! This module contains functionality for interacting with git repositories,
-//! such as identifying changed files relative to a reference and listing all files
-//! tracked by git.
+//! such as identifying changed files relative to a reference and listing all
+//! files tracked by git.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -20,7 +20,8 @@ use crate::verbose_log;
 ///
 /// # Returns
 ///
-/// `true` if the current directory is inside a git repository, `false` otherwise.
+/// `true` if the current directory is inside a git repository, `false`
+/// otherwise.
 pub fn is_git_repository() -> bool {
   let current_dir = match std::env::current_dir() {
     Ok(dir) => dir,
@@ -35,16 +36,17 @@ pub fn is_git_repository() -> bool {
 
 /// Gets all files tracked by git in the current repository.
 ///
-/// This function is used to limit processing to only files that are tracked by git.
-/// It works correctly even when called from a subdirectory of the git repository.
-/// The function uses your current working directory (`$CWD`) to determine the git repository
-/// and which files are tracked. You should always run edlicense from inside the git repository
-/// when git detection mode is enabled.
+/// This function is used to limit processing to only files that are tracked by
+/// git. It works correctly even when called from a subdirectory of the git
+/// repository. The function uses your current working directory (`$CWD`) to
+/// determine the git repository and which files are tracked. You should always
+/// run edlicense from inside the git repository when git detection mode is
+/// enabled.
 ///
 /// # Returns
 ///
-/// A `HashSet` of file paths that are tracked by git or an error if the git operations fail.
-/// The paths are relative to the current working directory.
+/// A `HashSet` of file paths that are tracked by git or an error if the git
+/// operations fail. The paths are relative to the current working directory.
 ///
 /// # Errors
 ///
@@ -105,8 +107,9 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
 ///
 /// # Returns
 ///
-/// A `HashSet` of file paths that have changed since the commit or an error if the git operations fail.
-/// The paths are relative to the current working directory.
+/// A `HashSet` of file paths that have changed since the commit or an error if
+/// the git operations fail. The paths are relative to the current working
+/// directory.
 ///
 /// # Errors
 ///

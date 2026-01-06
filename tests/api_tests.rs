@@ -1,12 +1,12 @@
-use anyhow::Result;
-use edlicense::diff::DiffManager;
 use std::fs;
 use std::path::Path;
-use tempfile::tempdir;
 
+use anyhow::Result;
+use edlicense::diff::DiffManager;
 // Import the public API
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_public_api() -> Result<()> {

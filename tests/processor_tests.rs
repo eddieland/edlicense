@@ -1,10 +1,10 @@
-use anyhow::Result;
 use std::fs;
-use tempfile::tempdir;
 
+use anyhow::Result;
 use edlicense::diff::DiffManager;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
+use tempfile::tempdir;
 
 async fn create_test_processor(
   template_content: &str,
@@ -70,7 +70,8 @@ async fn test_license_detection() -> Result<()> {
   let content_with_license2 = "/* Copyright (C) 2024 Test Company */\n\nfn main() {}";
   assert!(processor.has_license(content_with_license2));
 
-  // Test content without a license - avoid anything that might be interpreted as a license
+  // Test content without a license - avoid anything that might be interpreted as
+  // a license
   let content_without_license = "fn main() {\n    println!(\"No license in this code\");\n}";
   assert!(!processor.has_license(content_without_license));
 
@@ -119,7 +120,8 @@ async fn test_prefix_extraction() -> Result<()> {
   assert_eq!(prefix, "<?php\n\n");
   assert_eq!(content, "\necho 'Hello, world!';");
 
-  // Test content without prefix - avoid anything that might be interpreted as a license
+  // Test content without prefix - avoid anything that might be interpreted as a
+  // license
   let content_without_prefix = "fn main() {\n    println!(\"Prefix test\");\n}";
   let (prefix, _content) = processor.extract_prefix(content_without_prefix);
   assert_eq!(prefix, "");
@@ -146,8 +148,8 @@ async fn test_year_updating() -> Result<()> {
   let content_with_old_year = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
   let updated_content = processor.update_year_in_license(content_with_old_year)?;
 
-  // The regex in the implementation is case-sensitive and looks for "copyright" (lowercase)
-  // Let's modify our test to match the actual implementation
+  // The regex in the implementation is case-sensitive and looks for "copyright"
+  // (lowercase) Let's modify our test to match the actual implementation
   assert!(updated_content.contains("// Copyright (c) 2025") || updated_content.contains("// copyright (c) 2025"));
 
   // Test content with current year (should not change)
@@ -239,7 +241,8 @@ async fn test_process_file() -> Result<()> {
   )
   .await?;
 
-  // Create a test file without a license - avoid using any text that might be interpreted as a license
+  // Create a test file without a license - avoid using any text that might be
+  // interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"Testing!\");\n}")?;
 
@@ -285,7 +288,8 @@ async fn test_check_only_mode() -> Result<()> {
   )
   .await?;
 
-  // Create a test file without a license - avoid using any text that might be interpreted as a license
+  // Create a test file without a license - avoid using any text that might be
+  // interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"No license test\");\n}")?;
 
@@ -394,7 +398,8 @@ async fn test_process_directory() -> Result<()> {
   let test_dir = temp_dir.path().join("test_dir");
   fs::create_dir_all(&test_dir)?;
 
-  // Create some test files - avoid anything that might be interpreted as a license
+  // Create some test files - avoid anything that might be interpreted as a
+  // license
   fs::write(test_dir.join("file1.rs"), "fn test1_fn() { /* test */ }")?;
   fs::write(test_dir.join("file2.py"), "def test2_fn():\n    pass # test")?;
   fs::write(test_dir.join("file3.json"), "{\"key\": \"value\"}")?; // Should be ignored
@@ -560,7 +565,8 @@ async fn test_ratchet_mode_directory() -> Result<()> {
   std::env::set_current_dir(test_dir)?;
   println!("Changed directory to: {}", test_dir.display());
 
-  // Create a processor with ratchet mode enabled, using the original commit as reference
+  // Create a processor with ratchet mode enabled, using the original commit as
+  // reference
   let (processor, _) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
     vec![],
@@ -648,7 +654,8 @@ async fn test_show_diff_mode() -> Result<()> {
   )
   .await?;
 
-  // Create a test file without a license - avoid using any text that might be interpreted as a license
+  // Create a test file without a license - avoid using any text that might be
+  // interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"Diff test\");\n}")?;
 
@@ -696,8 +703,9 @@ async fn test_manual_ratchet_mode() -> Result<()> {
 
   // Create a manually constructed set of changed files (only file1.rs)
   // Use relative paths as that's what git would typically provide
-  use edlicense::file_filter::{FileFilter, RatchetFilter};
   use std::collections::HashSet;
+
+  use edlicense::file_filter::{FileFilter, RatchetFilter};
 
   let mut changed_files = HashSet::new();
   changed_files.insert(std::path::PathBuf::from("file1.rs"));
@@ -712,13 +720,15 @@ async fn test_manual_ratchet_mode() -> Result<()> {
   println!("  file1.rs should be processed: {}", file1_result.should_process);
   println!("  file2.rs should be processed: {}", file2_result.should_process);
 
-  // The filter should indicate file1 should be processed (as it's in our changed files)
+  // The filter should indicate file1 should be processed (as it's in our changed
+  // files)
   assert!(
     file1_result.should_process,
     "Changed file should be processed in ratchet mode"
   );
 
-  // The filter should indicate file2 should NOT be processed (as it's not in our changed files)
+  // The filter should indicate file2 should NOT be processed (as it's not in our
+  // changed files)
   assert!(
     !file2_result.should_process,
     "Unchanged file should NOT be processed in ratchet mode"

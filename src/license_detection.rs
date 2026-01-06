@@ -1,10 +1,12 @@
 //! # License Detection Module
 //!
-//! This module contains the interfaces and implementations for license detection algorithms.
-//! It allows for easily replacing the license detection algorithm without modifying the processor.
+//! This module contains the interfaces and implementations for license
+//! detection algorithms. It allows for easily replacing the license detection
+//! algorithm without modifying the processor.
+
+use std::sync::LazyLock;
 
 use regex::Regex;
-use std::sync::LazyLock;
 
 /// Trait for license detectors.
 ///
@@ -25,8 +27,8 @@ pub trait LicenseDetector: Send + Sync {
 
 /// Default implementation of license detection.
 ///
-/// This detector checks for the presence of the word "copyright" in the first 1000
-/// characters of the file content, case-insensitive.
+/// This detector checks for the presence of the word "copyright" in the first
+/// 1000 characters of the file content, case-insensitive.
 ///
 /// This is based on addlicense's implementation of this functionality.
 pub struct SimpleLicenseDetector;
@@ -67,8 +69,9 @@ impl LicenseDetector for SimpleLicenseDetector {
 /// Content-based license detector implementation.
 ///
 /// This detector compares the actual content of the expected license text
-/// with the first N characters of the file, ignoring whitespace and comment characters.
-/// This is more precise than just checking for the presence of a keyword.
+/// with the first N characters of the file, ignoring whitespace and comment
+/// characters. This is more precise than just checking for the presence of a
+/// keyword.
 pub struct ContentBasedLicenseDetector {
   /// The expected license text to look for
   license_text: String,
@@ -83,7 +86,8 @@ impl ContentBasedLicenseDetector {
   /// # Parameters
   ///
   /// * `license_text` - The expected license text to look for in files
-  /// * `check_length` - The number of characters to check at the beginning of files (defaults to 2000)
+  /// * `check_length` - The number of characters to check at the beginning of
+  ///   files (defaults to 2000)
   ///
   /// # Returns
   ///
@@ -101,7 +105,8 @@ impl ContentBasedLicenseDetector {
   /// - Removing common comment characters
   /// - Removing all whitespace
   ///
-  /// This allows for more flexible matching regardless of formatting differences.
+  /// This allows for more flexible matching regardless of formatting
+  /// differences.
   ///
   /// # Parameters
   ///
@@ -162,7 +167,8 @@ impl LicenseDetector for ContentBasedLicenseDetector {
   ///
   /// # Returns
   ///
-  /// `true` if the file content appears to contain the license text, `false` otherwise.
+  /// `true` if the file content appears to contain the license text, `false`
+  /// otherwise.
   fn has_license(&self, content: &str) -> bool {
     // Take the first N characters (or less if the file is shorter)
     let check_len = std::cmp::min(content.len(), self.check_length);
@@ -172,13 +178,14 @@ impl LicenseDetector for ContentBasedLicenseDetector {
     let normalized_license = self.normalize_text(&self.license_text);
     let normalized_content = self.normalize_text(check_content);
 
-    // Replace all years (4 digits surrounded by word boundaries) with "YEAR" placeholder
-    // This makes the comparison year-agnostic
+    // Replace all years (4 digits surrounded by word boundaries) with "YEAR"
+    // placeholder This makes the comparison year-agnostic
     static YEAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("year regex must compile"));
     let year_normalized_license = YEAR_PATTERN.replace_all(&normalized_license, "YEAR").to_string();
     let year_normalized_content = YEAR_PATTERN.replace_all(&normalized_content, "YEAR").to_string();
 
-    // Check if the year-normalized content contains the year-normalized license text
+    // Check if the year-normalized content contains the year-normalized license
+    // text
     year_normalized_content.contains(&year_normalized_license)
   }
 }
@@ -254,7 +261,8 @@ mod tests {
     let xml_commented_text = "<!-- Copyright (c) 2025 Test Company -->";
     let lisp_commented_text = ";; Copyright (c) 2025 Test Company";
 
-    // The normalized text should be the same for all of these, but now with spaces preserved
+    // The normalized text should be the same for all of these, but now with spaces
+    // preserved
     let expected = "copyright (c) 2025 test company";
 
     assert_eq!(detector.normalize_text(commented_text), expected);

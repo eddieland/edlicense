@@ -1,15 +1,14 @@
 //! # Processor Module
 //!
-//! This module contains the core functionality for processing files and directories,
-//! adding license headers, and checking for existing licenses.
+//! This module contains the core functionality for processing files and
+//! directories, adding license headers, and checking for existing licenses.
 //!
 //! The [`Processor`] struct is the main entry point for all file operations.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use anyhow::{Context, Result};
 use regex::Regex;
@@ -45,7 +44,8 @@ pub struct Processor {
   /// Composite file filter for determining which files to process
   file_filter: CompositeFilter,
 
-  /// Manager for handling ignore patterns (used for directory-specific ignore patterns)
+  /// Manager for handling ignore patterns (used for directory-specific ignore
+  /// patterns)
   ignore_manager: IgnoreManager,
 
   /// Whether to only check for licenses without modifying files
@@ -83,10 +83,13 @@ impl Processor {
   /// * `template_manager` - Manager for license templates
   /// * `license_data` - Data for rendering license templates (year, etc.)
   /// * `ignore_patterns` - Glob patterns for files to ignore
-  /// * `check_only` - Whether to only check for licenses without modifying files
+  /// * `check_only` - Whether to only check for licenses without modifying
+  ///   files
   /// * `preserve_years` - Whether to preserve existing years in license headers
-  /// * `ratchet_reference` - Git reference for ratchet mode (only process changed files)
-  /// * `diff_manager` - Optional manager for handling diff creation and rendering. If not provided, a default one will be created.
+  /// * `ratchet_reference` - Git reference for ratchet mode (only process
+  ///   changed files)
+  /// * `diff_manager` - Optional manager for handling diff creation and
+  ///   rendering. If not provided, a default one will be created.
   ///
   /// # Returns
   ///
@@ -146,12 +149,14 @@ impl Processor {
   ///
   /// # Parameters
   ///
-  /// * `patterns` - A slice of strings representing file paths, directory paths, or glob patterns
+  /// * `patterns` - A slice of strings representing file paths, directory
+  ///   paths, or glob patterns
   ///
   /// # Returns
   ///
   /// `true` if any files were missing license headers, `false` otherwise.
-  /// In check-only mode, this can be used to determine if the check passed or failed.
+  /// In check-only mode, this can be used to determine if the check passed or
+  /// failed.
   ///
   /// # Errors
   ///
@@ -221,7 +226,8 @@ impl Processor {
     // Create a local reports collection for this file
     let local_reports = Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
-    // Get the parent directory of the file to load directory-specific ignore patterns
+    // Get the parent directory of the file to load directory-specific ignore
+    // patterns
     if let Some(parent_dir) = path.parent() {
       // Create a temporary ignore filter with the parent directory's ignore patterns
       if parent_dir.exists() {
@@ -300,7 +306,8 @@ impl Processor {
     result
   }
 
-  /// Processes a directory recursively, adding or checking license headers in all files.
+  /// Processes a directory recursively, adding or checking license headers in
+  /// all files.
   ///
   /// This method:
   /// 1. Recursively finds all files in the directory
@@ -376,7 +383,8 @@ impl Processor {
       start_time.elapsed().as_millis()
     );
 
-    // Filter files using the file_filter directly - optimized to avoid unnecessary clones
+    // Filter files using the file_filter directly - optimized to avoid unnecessary
+    // clones
     let filter_start = std::time::Instant::now();
     let files: Vec<_> = all_files
       .into_iter()
@@ -532,16 +540,18 @@ impl Processor {
   /// - License template rendering fails
   #[allow(dead_code)]
   pub async fn process_file(&self, path: &Path) -> Result<()> {
-    // Use the local reports version with an empty reports collection that will be discarded
+    // Use the local reports version with an empty reports collection that will be
+    // discarded
     let dummy_reports = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     self.process_file_with_local_reports(path, &dummy_reports).await
   }
 
-  /// Processes a single file with a local reports collection to reduce mutex contention.
+  /// Processes a single file with a local reports collection to reduce mutex
+  /// contention.
   ///
-  /// This version of process_file uses a local reports collection passed from the caller
-  /// instead of directly updating the shared file_reports mutex. This reduces lock
-  /// contention when processing files concurrently.
+  /// This version of process_file uses a local reports collection passed from
+  /// the caller instead of directly updating the shared file_reports mutex.
+  /// This reduces lock contention when processing files concurrently.
   ///
   /// # Parameters
   ///
@@ -653,7 +663,8 @@ impl Processor {
         }
 
         // Signal that a license is missing by returning an error
-        // This will be caught by the process_directory method and set has_missing_license to true
+        // This will be caught by the process_directory method and set
+        // has_missing_license to true
         return Err(anyhow::anyhow!("Missing license header"));
       } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
         // Check if we would update the year in the license
@@ -801,10 +812,11 @@ impl Processor {
     Ok(())
   }
 
-  /// A more efficient version of process_file that uses a channel for report collection.
+  /// A more efficient version of process_file that uses a channel for report
+  /// collection.
   ///
-  /// This method avoids mutex contention by using a channel to send reports back to the caller.
-  /// It also uses more efficient file I/O operations.
+  /// This method avoids mutex contention by using a channel to send reports
+  /// back to the caller. It also uses more efficient file I/O operations.
   ///
   /// # Parameters
   ///
@@ -1106,7 +1118,8 @@ impl Processor {
   /// # Returns
   ///
   /// A tuple containing:
-  /// - The extracted prefix as a String (with added newlines for proper separation)
+  /// - The extracted prefix as a String (with added newlines for proper
+  ///   separation)
   /// - The remaining content as a string slice
   pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
     // Common prefixes to preserve
@@ -1157,8 +1170,8 @@ impl Processor {
   pub fn update_year_in_license<'a>(&self, content: &'a str) -> Result<Cow<'a, str>> {
     let current_year = &self.license_data.year;
 
-    // Fast path: if the content already contains the current year in a copyright statement,
-    // we can skip the regex processing entirely
+    // Fast path: if the content already contains the current year in a copyright
+    // statement, we can skip the regex processing entirely
     if content.contains(&format!("Copyright (c) {} ", current_year))
       || content.contains(&format!("Copyright © {} ", current_year))
       || content.contains(&format!("Copyright {} ", current_year))
@@ -1201,9 +1214,9 @@ impl Processor {
 
   /// Reads the initial portion of a file for license checking.
   ///
-  /// This method reads up to LICENSE_READ_LIMIT bytes from the start of the file.
-  /// It attempts to interpret the bytes as UTF-8, handling invalid sequences
-  /// by truncating at the last valid character.
+  /// This method reads up to LICENSE_READ_LIMIT bytes from the start of the
+  /// file. It attempts to interpret the bytes as UTF-8, handling invalid
+  /// sequences by truncating at the last valid character.
   ///
   /// # Parameters
   ///

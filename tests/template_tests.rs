@@ -1,9 +1,9 @@
-use anyhow::Result;
 use std::fs;
 use std::path::Path;
-use tempfile::tempdir;
 
+use anyhow::Result;
 use edlicense::templates::{LicenseData, TemplateManager};
+use tempfile::tempdir;
 
 #[test]
 fn test_template_loading() -> Result<()> {

@@ -1,7 +1,8 @@
 //! # Diff Module
 //!
-//! This module contains functionality for creating and rendering diffs between original and modified content.
-//! It's used primarily for showing what would be changed when adding or updating license headers.
+//! This module contains functionality for creating and rendering diffs between
+//! original and modified content. It's used primarily for showing what would be
+//! changed when adding or updating license headers.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -44,12 +45,13 @@ impl DiffManager {
 
   /// Displays and/or saves a diff between the original and new content.
   ///
-  /// This method uses the `similar` crate to generate a diff showing what would be changed in the file.
+  /// This method uses the `similar` crate to generate a diff showing what would
+  /// be changed in the file.
   ///
-  /// If show_diff is enabled, the diff will be displayed to stderr with colorization.
-  /// If save_diff_path is provided, the diff will be saved to that file.
-  /// Multiple diffs from different files will be appended to the same file,
-  /// creating a single consolidated diff file.
+  /// If show_diff is enabled, the diff will be displayed to stderr with
+  /// colorization. If save_diff_path is provided, the diff will be saved to
+  /// that file. Multiple diffs from different files will be appended to the
+  /// same file, creating a single consolidated diff file.
   ///
   /// # Parameters
   ///

@@ -1,13 +1,13 @@
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
-use tempfile::tempdir;
 
+use anyhow::Result;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
+use serde::{Deserialize, Serialize};
+use tempfile::tempdir;
 
 /// Comparative Benchmarking test suite
 /// Compares edlicense performance against Google's addlicense

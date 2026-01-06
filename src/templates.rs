@@ -1,23 +1,27 @@
 //! # Templates Module
 //!
-//! This module provides functionality for managing license templates, rendering them with
-//! specific data (like the copyright year), and formatting them appropriately for different
-//! file types.
+//! This module provides functionality for managing license templates, rendering
+//! them with specific data (like the copyright year), and formatting them
+//! appropriately for different file types.
 //!
 //! The module includes:
 //! - [`TemplateManager`] for loading and rendering license templates
 //! - [`LicenseData`] for providing data to fill in templates
-//! - [`CommentStyle`] for defining how comments should be formatted in different file types
+//! - [`CommentStyle`] for defining how comments should be formatted in
+//!   different file types
 //!
 //! ## Example
 //!
 //! ```rust,no_run
-//! use edlicense::templates::{LicenseData, TemplateManager};
 //! use std::path::Path;
+//!
+//! use edlicense::templates::{LicenseData, TemplateManager};
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! // Create license data with the current year
-//! let license_data = LicenseData { year: "2025".to_string() };
+//! let license_data = LicenseData {
+//!   year: "2025".to_string(),
+//! };
 //!
 //! // Create and initialize template manager
 //! let mut template_manager = TemplateManager::new();
@@ -27,14 +31,16 @@
 //! let license_text = template_manager.render(&license_data)?;
 //!
 //! // Format the license for a specific file type
-//! let formatted_license = template_manager.format_for_file_type(&license_text, Path::new("main.rs"));
+//! let formatted_license =
+//!   template_manager.format_for_file_type(&license_text, Path::new("main.rs"));
 //! # Ok(())
 //! # }
 //! ```
 
-use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
+
+use anyhow::{Context, Result};
 
 use crate::verbose_log;
 
@@ -53,19 +59,23 @@ pub struct LicenseData {
 /// The `TemplateManager` is responsible for:
 /// - Loading license templates from files
 /// - Rendering templates with specific data (like the year)
-/// - Formatting license text with appropriate comment styles for different file types
+/// - Formatting license text with appropriate comment styles for different file
+///   types
 ///
 /// # Examples
 ///
 /// ```rust,no_run
-/// use edlicense::templates::{LicenseData, TemplateManager};
 /// use std::path::Path;
+///
+/// use edlicense::templates::{LicenseData, TemplateManager};
 ///
 /// # fn main() -> anyhow::Result<()> {
 /// let mut manager = TemplateManager::new();
 /// manager.load_template(Path::new("LICENSE.txt"))?;
 ///
-/// let data = LicenseData { year: "2025".to_string() };
+/// let data = LicenseData {
+///   year: "2025".to_string(),
+/// };
 /// let license = manager.render(&data)?;
 ///
 /// // Format for a Rust file
@@ -144,7 +154,8 @@ impl TemplateManager {
   ///
   /// # Returns
   ///
-  /// The rendered license text with variables replaced, or an error if rendering fails.
+  /// The rendered license text with variables replaced, or an error if
+  /// rendering fails.
   pub fn render(&self, data: &LicenseData) -> Result<String> {
     verbose_log!("Rendering template with year: {}", data.year);
 
@@ -154,15 +165,17 @@ impl TemplateManager {
     Ok(rendered)
   }
 
-  /// Formats the license text with the appropriate comment style for the given file type.
+  /// Formats the license text with the appropriate comment style for the given
+  /// file type.
   ///
-  /// This method determines the appropriate comment style based on the file extension
-  /// and formats the license text accordingly.
+  /// This method determines the appropriate comment style based on the file
+  /// extension and formats the license text accordingly.
   ///
   /// # Parameters
   ///
   /// * `license_text` - The rendered license text to format
-  /// * `file_path` - Path to the file, used to determine the appropriate comment style
+  /// * `file_path` - Path to the file, used to determine the appropriate
+  ///   comment style
   ///
   /// # Returns
   ///
@@ -182,8 +195,10 @@ impl TemplateManager {
 /// # Fields
 ///
 /// * `top` - The string to use at the top of a comment block (e.g., "/*")
-/// * `middle` - The string to use at the beginning of each line in the comment block (e.g., " * ")
-/// * `bottom` - The string to use at the bottom of a comment block (e.g., " */")
+/// * `middle` - The string to use at the beginning of each line in the comment
+///   block (e.g., " * ")
+/// * `bottom` - The string to use at the bottom of a comment block (e.g., "
+///   */")
 #[derive(Debug)]
 pub struct CommentStyle {
   /// The string to use at the top of a comment block
@@ -219,7 +234,8 @@ pub struct CommentStyle {
 /// - HTML/XML/Vue: `<!-- comment style -->`
 /// - And many more...
 ///
-/// If the file type cannot be determined, it defaults to C-style line comments (`// `).
+/// If the file type cannot be determined, it defaults to C-style line comments
+/// (`// `).
 fn get_comment_style_for_file(path: &Path) -> CommentStyle {
   let file_name = path
     .file_name()

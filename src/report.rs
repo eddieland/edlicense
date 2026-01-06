@@ -1,16 +1,18 @@
 //! # Report Module
 //!
-//! This module provides functionality for generating reports of license processing
-//! in various formats (HTML, JSON, CSV).
+//! This module provides functionality for generating reports of license
+//! processing in various formats (HTML, JSON, CSV).
 //!
-//! It captures information about each processed file, including its license status
-//! and any actions taken, and can output this information in the requested format.
+//! It captures information about each processed file, including its license
+//! status and any actions taken, and can output this information in the
+//! requested format.
+
+use std::fs;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
 
 /// Information about a processed file for reporting
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,8 +48,9 @@ pub enum FileAction {
 
 /// Helper module for serializing/deserializing PathBuf
 mod path_serialization {
-  use serde::{Deserialize, Deserializer, Serializer};
   use std::path::PathBuf;
+
+  use serde::{Deserialize, Deserializer, Serializer};
 
   pub fn serialize<S>(path: &std::path::Path, serializer: S) -> Result<S::Ok, S::Error>
   where
@@ -132,8 +135,8 @@ impl ReportGenerator {
   ///
   /// # Returns
   ///
-  /// `Ok(())` if the report was generated successfully, or an error if the report
-  /// couldn't be generated or written to disk.
+  /// `Ok(())` if the report was generated successfully, or an error if the
+  /// report couldn't be generated or written to disk.
   pub fn generate(&self, files: &[FileReport], summary: &ProcessingSummary) -> Result<()> {
     let content = match self.format {
       ReportFormat::Html => self.generate_html(files, summary)?,

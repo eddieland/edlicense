@@ -1,13 +1,12 @@
-use anyhow::{Result, anyhow};
-use std::env;
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use tempfile::tempdir;
+use std::{env, fs};
 
+use anyhow::{Result, anyhow};
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
+use tempfile::tempdir;
 
 /// Helper function to create a test processor
 async fn create_test_processor(
@@ -405,7 +404,8 @@ async fn test_tokio_runtime_performance() -> Result<()> {
   Ok(())
 }
 
-/// Helper function to generate test files with specific distribution of licenses
+/// Helper function to generate test files with specific distribution of
+/// licenses
 fn generate_mixed_test_files(
   dir: &Path,
   total_files: usize,
@@ -483,7 +483,8 @@ fn generate_mixed_test_files(
   Ok(())
 }
 
-/// Helper function to create file content of a specific size with a given header
+/// Helper function to create file content of a specific size with a given
+/// header
 fn create_file_content(header: &str, file_size_bytes: usize) -> String {
   // Generate some dummy content to reach the desired file size
   let content_size = file_size_bytes.saturating_sub(header.len());
@@ -548,8 +549,9 @@ fn apply_commit_changes(files: &[PathBuf], commit_index: usize, change_count: us
 }
 
 /// Performance test with realistic repository conditions
-/// This test simulates a repository where most files already have correct licenses,
-/// and only a small percentage need to be fixed (more typical of real-world usage).
+/// This test simulates a repository where most files already have correct
+/// licenses, and only a small percentage need to be fixed (more typical of
+/// real-world usage).
 #[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
 async fn test_realistic_repository_performance() -> Result<()> {

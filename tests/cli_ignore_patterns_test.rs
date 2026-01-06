@@ -1,8 +1,8 @@
-use anyhow::Result;
 use std::fs;
-use tempfile::tempdir;
 
+use anyhow::Result;
 use edlicense::ignore::IgnoreManager;
+use tempfile::tempdir;
 
 #[test]
 fn test_cli_ignore_patterns_directly() -> Result<()> {
