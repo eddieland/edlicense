@@ -129,6 +129,24 @@ fn generate_test_files(dir: &Path, count: usize, with_license: bool, file_size_b
   Ok(())
 }
 
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
+  fs::create_dir_all(dest)?;
+
+  for entry in fs::read_dir(src)? {
+    let entry = entry?;
+    let path = entry.path();
+    let dest_path = dest.join(entry.file_name());
+
+    if path.is_dir() {
+      copy_dir_recursive(&path, &dest_path)?;
+    } else {
+      fs::copy(&path, &dest_path)?;
+    }
+  }
+
+  Ok(())
+}
+
 /// Run an edlicense benchmark
 async fn run_edlicense_benchmark(
   operation: &str,
@@ -251,17 +269,28 @@ async fn run_file_size_benchmarks(file_size: usize, config: &BenchmarkConfig, ou
   for (operation, with_license, check_only) in operation_configs {
     // Create a dedicated temp directory for this test
     let temp_dir = tempdir()?;
-    let test_dir = temp_dir.path().join(format!("bench_{}_{}", operation, file_size));
-    fs::create_dir_all(&test_dir)?;
+    let base_dir = temp_dir.path().join(format!("bench_src_{}_{}", operation, file_size));
+    let edlicense_dir = temp_dir
+      .path()
+      .join(format!("bench_edlicense_{}_{}", operation, file_size));
+    let addlicense_dir = temp_dir
+      .path()
+      .join(format!("bench_addlicense_{}_{}", operation, file_size));
+
+    fs::create_dir_all(&base_dir)?;
 
     // Generate test files
-    generate_test_files(&test_dir, config.file_count, with_license, file_size)?;
+    generate_test_files(&base_dir, config.file_count, with_license, file_size)?;
+
+    // Keep tool runs isolated to avoid one run mutating the other's inputs.
+    copy_dir_recursive(&base_dir, &edlicense_dir)?;
+    copy_dir_recursive(&base_dir, &addlicense_dir)?;
 
     // Run edlicense benchmark
-    let edlicense_results = run_edlicense_benchmark(operation, &test_dir, check_only, config).await?;
+    let edlicense_results = run_edlicense_benchmark(operation, &edlicense_dir, check_only, config).await?;
 
     // Run addlicense benchmark
-    let addlicense_results = run_addlicense_benchmark(operation, &test_dir, check_only, config)?;
+    let addlicense_results = run_addlicense_benchmark(operation, &addlicense_dir, check_only, config)?;
 
     // Combine results and write to file
     let mut all_results = Vec::new();
@@ -354,28 +383,28 @@ fn comparative_benchmark() -> Result<()> {
 
   // Benchmark configuration
   let small_config = BenchmarkConfig {
-    file_count: 1000,
+    file_count: 10000,
     file_size_bytes: 1000, // 1KB
     iterations: 3,
     include_addlicense: true,
   };
 
   let medium_config = BenchmarkConfig {
-    file_count: 500,
+    file_count: 5000,
     file_size_bytes: 10_000, // 10KB
     iterations: 3,
     include_addlicense: true,
   };
 
   let large_config = BenchmarkConfig {
-    file_count: 100,
+    file_count: 1000,
     file_size_bytes: 100_000, // 100KB
     iterations: 3,
     include_addlicense: true,
   };
 
   let thread_config = BenchmarkConfig {
-    file_count: 1000,
+    file_count: 10000,
     file_size_bytes: 1000, // 1KB
     iterations: 3,
     include_addlicense: false, // addlicense doesn't have configurable thread count
