@@ -6,7 +6,7 @@
 
 # Define build argument for mode
 ARG MODE=production
-ARG RUST_VERSION=1.85
+ARG RUST_VERSION=1.92
 # Define build arguments for labels with defaults
 ARG BUILD_DATE=unknown
 ARG BUILD_REVISION=unknown
