@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use anyhow::Result;
+use edlicense::logging::set_quiet;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 use serde::{Deserialize, Serialize};
@@ -211,7 +212,7 @@ fn run_addlicense_benchmark(
     println!("Running iteration {}/{}...", i, config.iterations);
 
     // Build command based on operation
-    let mut cmd = Command::new("/home/ejones/go/bin/addlicense");
+    let mut cmd = Command::new("addlicense");
 
     if check_only {
       cmd.arg("-check");
@@ -376,6 +377,8 @@ fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path) -> R
 #[ignore] // Ignored by default as it's a long-running test
 fn comparative_benchmark() -> Result<()> {
   use std::fs;
+
+  set_quiet();
 
   // Create output directory for benchmark results
   let output_dir = PathBuf::from("target/benchmark_results");

@@ -22,7 +22,7 @@ use clap::Parser;
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
 
 use crate::diff::DiffManager;
-use crate::logging::{ColorMode, set_color_mode, set_verbose};
+use crate::logging::{ColorMode, set_color_mode, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
@@ -119,6 +119,10 @@ struct Args {
   #[arg(long, short = 'v')]
   verbose: bool,
 
+  /// Quiet mode: suppress all output except errors
+  #[arg(long, short = 'q')]
+  quiet: bool,
+
   /// Preserve existing years in license headers
   #[arg(long)]
   preserve_years: bool,
@@ -164,7 +168,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
   let args = Args::parse();
-  set_verbose(args.verbose);
+  if args.quiet && args.verbose {
+    eprintln!("ERROR: Cannot use --quiet and --verbose together");
+    process::exit(1);
+  } else if args.verbose {
+    set_verbose();
+  } else if args.quiet {
+    set_quiet();
+  }
   set_color_mode(args.colors);
 
   // Set global ignore file if provided
