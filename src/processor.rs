@@ -16,12 +16,12 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 use crate::diff::DiffManager;
-use crate::file_filter::{CompositeFilter, FileFilter, create_default_filter};
+use crate::file_filter::{FileFilter, FilterResult, IgnoreFilter, create_default_filter};
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
 use crate::templates::{LicenseData, TemplateManager};
-use crate::{info_log, verbose_log};
+use crate::{git, info_log, verbose_log};
 
 /// Processor for handling license operations on files.
 ///
@@ -41,8 +41,8 @@ pub struct Processor {
   /// License data (year, etc.) for rendering templates
   license_data: LicenseData,
 
-  /// Composite file filter for determining which files to process
-  file_filter: CompositeFilter,
+  /// File filter for determining which files to process
+  file_filter: IgnoreFilter,
 
   /// Manager for handling ignore patterns (used for directory-specific ignore
   /// patterns)
@@ -71,9 +71,30 @@ pub struct Processor {
 
   /// Cache for ignore managers to avoid redundant .licenseignore file loading
   ignore_manager_cache: Arc<tokio::sync::Mutex<std::collections::HashMap<PathBuf, IgnoreManager>>>,
+
+  /// Whether to only process git-tracked files
+  git_only: bool,
+
+  /// Git reference for ratchet mode
+  ratchet_reference: Option<String>,
 }
 
 const LICENSE_READ_LIMIT: usize = 8 * 1024;
+
+enum PatternMatcher {
+  Any,
+  File(PathBuf),
+  Dir(PathBuf),
+  Glob(glob::Pattern),
+}
+
+struct PassthroughFilter;
+
+impl FileFilter for PassthroughFilter {
+  fn should_process(&self, _path: &Path) -> Result<FilterResult> {
+    Ok(FilterResult::process())
+  }
+}
 
 impl Processor {
   /// Creates a new processor with the specified configuration.
@@ -116,7 +137,7 @@ impl Processor {
     let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
 
     // Create a composite file filter with all filtering conditions
-    let file_filter = create_default_filter(ignore_patterns, git_only, ratchet_reference)?;
+    let file_filter = create_default_filter(ignore_patterns)?;
 
     let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
@@ -135,6 +156,8 @@ impl Processor {
       collect_report_data: true, // Enable report data collection by default
       license_detector: Arc::new(license_detector),
       ignore_manager_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+      git_only,
+      ratchet_reference,
     })
   }
 
@@ -165,6 +188,13 @@ impl Processor {
   /// - Directory traversal fails
   pub async fn process(&self, patterns: &[String]) -> Result<bool> {
     let has_missing_license = Arc::new(AtomicBool::new(false));
+
+    if self.should_use_git_list() {
+      let files = self.collect_files(patterns)?;
+      let files = self.filter_files_with_ignore_context(files).await?;
+      let passthrough_filter = PassthroughFilter;
+      return self.process_files_with_filter(files, &passthrough_filter, None).await;
+    }
 
     // Process each pattern
     for pattern in patterns {
@@ -216,6 +246,37 @@ impl Processor {
     }
 
     Ok(has_missing_license.load(Ordering::Relaxed))
+  }
+
+  const fn should_use_git_list(&self) -> bool {
+    self.git_only || self.ratchet_reference.is_some()
+  }
+
+  fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
+    let files = if self.git_only {
+      git::get_git_tracked_files()?.into_iter().collect::<Vec<_>>()
+    } else if let Some(reference) = &self.ratchet_reference {
+      git::get_changed_files(reference)?.into_iter().collect::<Vec<_>>()
+    } else {
+      Vec::new()
+    };
+
+    if files.is_empty() {
+      return Ok(Vec::new());
+    }
+
+    let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
+    let matchers = build_pattern_matchers(patterns, &current_dir)?;
+
+    let mut selected = Vec::new();
+    for file in files {
+      let normalized = normalize_relative_path(&file, &current_dir);
+      if matches_any_pattern(&normalized, &matchers) {
+        selected.push(normalized);
+      }
+    }
+
+    Ok(selected)
   }
 
   /// Process a file with ignore context from its parent directory.
@@ -340,12 +401,8 @@ impl Processor {
   }
 
   async fn process_directory_internal(&self, dir: &Path, concurrency_override: Option<usize>) -> Result<bool> {
-    let has_missing_license = Arc::new(AtomicBool::new(false));
-    let has_missing_clone = Arc::clone(&has_missing_license);
-
     // Pre-allocate vectors for better performance
     let mut all_files = Vec::with_capacity(1000);
-    let mut local_reports = Vec::with_capacity(1000);
 
     // Asynchronous directory traversal with optimized memory usage
     let mut dirs_to_process = std::collections::VecDeque::with_capacity(100);
@@ -382,42 +439,57 @@ impl Processor {
       all_files.len(),
       start_time.elapsed().as_millis()
     );
+    self
+      .process_files_with_filter(all_files, &self.file_filter, concurrency_override)
+      .await
+  }
+
+  async fn process_files_with_filter(
+    &self,
+    files: Vec<PathBuf>,
+    filter: &dyn FileFilter,
+    concurrency_override: Option<usize>,
+  ) -> Result<bool> {
+    let has_missing_license = Arc::new(AtomicBool::new(false));
+    let has_missing_clone = Arc::clone(&has_missing_license);
+
+    if files.is_empty() {
+      verbose_log!("No files to process");
+      return Ok(false);
+    }
+
+    let mut local_reports = Vec::with_capacity(1000);
 
     // Filter files using the file_filter directly - optimized to avoid unnecessary
     // clones
     let filter_start = std::time::Instant::now();
-    let files: Vec<_> = all_files
+    let files: Vec<_> = files
       .into_iter()
-      .filter(|p| {
-        // Check if the file should be processed
-        match self.file_filter.should_process(p) {
-          Ok(result) => {
-            if !result.should_process {
-              // Clone reason once and use the clone for both purposes
-              let reason_clone = result.reason.clone();
-              let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
-              verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+      .filter(|p| match filter.should_process(p) {
+        Ok(result) => {
+          if !result.should_process {
+            let reason_clone = result.reason.clone();
+            let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+            verbose_log!("Skipping: {} ({})", p.display(), reason_display);
 
-              // Add skipped file to local reports directly without spawning a task
-              if self.collect_report_data {
-                let file_report = FileReport {
-                  path: p.to_path_buf(),
-                  has_license: false,
-                  action_taken: Some(FileAction::Skipped),
-                  ignored: true,
-                  ignored_reason: reason_clone,
-                };
+            if self.collect_report_data {
+              let file_report = FileReport {
+                path: p.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: reason_clone,
+              };
 
-                local_reports.push(file_report);
-              }
-
-              false
-            } else {
-              true
+              local_reports.push(file_report);
             }
+
+            false
+          } else {
+            true
           }
-          Err(_) => false,
         }
+        Err(_) => false,
       })
       .collect();
 
@@ -428,9 +500,8 @@ impl Processor {
     );
 
     if files.is_empty() {
-      verbose_log!("No files to process in directory: {}", dir.display());
+      verbose_log!("No files to process after filtering");
 
-      // Update the shared reports with the local collection
       if self.collect_report_data && !local_reports.is_empty() {
         let mut reports = self.file_reports.lock().await;
         reports.extend(local_reports);
@@ -439,11 +510,10 @@ impl Processor {
       return Ok(false);
     }
 
-    // Determine optimal concurrency based on CPU cores and file count
     let num_cpus = num_cpus::get();
     let files_len = files.len();
     let mut concurrency = std::cmp::min(num_cpus * 4, files_len);
-    concurrency = std::cmp::max(concurrency, 1); // At least 1
+    concurrency = std::cmp::max(concurrency, 1);
 
     if let Some(override_concurrency) = concurrency_override {
       let override_concurrency = std::cmp::max(override_concurrency, 1);
@@ -457,10 +527,8 @@ impl Processor {
       verbose_log!("Processing {} files with concurrency {}", files_len, concurrency);
     }
 
-    // Create a channel for collecting reports from worker tasks
     let (report_sender, report_receiver) = tokio::sync::mpsc::channel::<FileReport>(concurrency * 2);
 
-    // Process files concurrently with optimized parallelism
     use futures::stream::{self, StreamExt};
 
     let process_start = std::time::Instant::now();
@@ -472,30 +540,23 @@ impl Processor {
         let sender = report_sender.clone();
 
         async move {
-          // Use a more efficient version that doesn't require mutex locking
-          let result = processor.process_file_efficient(&path, sender.clone()).await;
+          let result = processor.process_file_efficient_no_filter(&path, sender.clone()).await;
           if let Err(e) = result {
-            // If we're in check-only mode and the error is "Missing license header",
-            // this is expected and we should set has_missing_license to true
             if processor.check_only && e.to_string().contains("Missing license header") {
               has_missing.store(true, Ordering::Relaxed);
             } else {
-              // For other errors, print them
               eprintln!("Error processing {}: {}", path.display(), e);
-              // Still set has_missing_license to true for any error
               has_missing.store(true, Ordering::Relaxed);
             }
           }
         }
       })
-      .buffer_unordered(concurrency) // Use optimal concurrency
+      .buffer_unordered(concurrency)
       .collect::<Vec<_>>()
       .await;
 
-    // Drop the sender to close the channel
     drop(report_sender);
 
-    // Collect all reports from the channel
     let mut receiver = report_receiver;
     while let Ok(report) = receiver.try_recv() {
       local_reports.push(report);
@@ -507,13 +568,68 @@ impl Processor {
       process_start.elapsed().as_millis()
     );
 
-    // After processing all files, update the shared reports once
     if self.collect_report_data && !local_reports.is_empty() {
       let mut reports = self.file_reports.lock().await;
       reports.extend(local_reports);
     }
 
     Ok(has_missing_clone.load(Ordering::Relaxed))
+  }
+
+  async fn filter_files_with_ignore_context(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let mut filtered = Vec::with_capacity(files.len());
+    let mut local_reports = Vec::new();
+
+    for path in files {
+      let mut ignored = false;
+
+      if let Some(parent_dir) = path.parent()
+        && parent_dir.exists()
+      {
+        let ignore_manager = {
+          let mut cache = self.ignore_manager_cache.lock().await;
+
+          if let Some(cached_manager) = cache.get(parent_dir) {
+            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+            cached_manager.clone()
+          } else {
+            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+            let mut new_manager = self.ignore_manager.clone();
+            new_manager.load_licenseignore_files(parent_dir)?;
+            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+            new_manager
+          }
+        };
+
+        if ignore_manager.is_ignored(&path) {
+          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+          ignored = true;
+
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+            };
+
+            local_reports.push(file_report);
+          }
+        }
+      }
+
+      if !ignored {
+        filtered.push(path);
+      }
+    }
+
+    if self.collect_report_data && !local_reports.is_empty() {
+      let mut reports = self.file_reports.lock().await;
+      reports.extend(local_reports);
+    }
+
+    Ok(filtered)
   }
 
   /// Processes a single file, adding or checking a license header.
@@ -829,6 +945,7 @@ impl Processor {
   /// - The file cannot be read or written
   /// - The file is missing a license header in check-only mode
   /// - License template rendering fails
+  #[allow(dead_code)]
   pub async fn process_file_efficient(
     &self,
     path: &Path,
@@ -864,6 +981,31 @@ impl Processor {
       return Ok(());
     }
 
+    self.process_file_efficient_no_filter(path, report_sender).await
+  }
+
+  /// A more efficient version of process_file that uses a channel for report
+  /// collection but does not apply filtering.
+  ///
+  /// This method avoids mutex contention by using a channel to send reports
+  /// back to the caller. It also uses more efficient file I/O operations.
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to process
+  /// * `report_sender` - Channel sender for file reports
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if the file was processed successfully, or an error if:
+  /// - The file cannot be read or written
+  /// - The file is missing a license header in check-only mode
+  /// - License template rendering fails
+  async fn process_file_efficient_no_filter(
+    &self,
+    path: &Path,
+    report_sender: tokio::sync::mpsc::Sender<FileReport>,
+  ) -> Result<()> {
     // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -1253,5 +1395,72 @@ impl Processor {
     fs::read_to_string(path)
       .await
       .with_context(|| format!("Failed to read file: {}", path.display()))
+  }
+}
+
+fn build_pattern_matchers(patterns: &[String], current_dir: &Path) -> Result<Vec<PatternMatcher>> {
+  if patterns.is_empty() {
+    return Ok(Vec::new());
+  }
+
+  let mut matchers = Vec::with_capacity(patterns.len());
+  for pattern in patterns {
+    let raw_path = PathBuf::from(pattern);
+    if raw_path.exists() {
+      let normalized = normalize_relative_path(&raw_path, current_dir);
+      if raw_path.is_dir() {
+        if normalized.as_os_str() == "." {
+          matchers.push(PatternMatcher::Any);
+        } else {
+          matchers.push(PatternMatcher::Dir(normalized));
+        }
+      } else if raw_path.is_file() {
+        matchers.push(PatternMatcher::File(normalized));
+      }
+    } else {
+      let glob_pattern = glob::Pattern::new(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+      matchers.push(PatternMatcher::Glob(glob_pattern));
+    }
+  }
+
+  Ok(matchers)
+}
+
+fn matches_any_pattern(path: &Path, matchers: &[PatternMatcher]) -> bool {
+  if matchers.is_empty() {
+    return true;
+  }
+
+  matchers.iter().any(|matcher| match matcher {
+    PatternMatcher::Any => true,
+    PatternMatcher::File(file_path) => path == file_path,
+    PatternMatcher::Dir(dir_path) => path.starts_with(dir_path),
+    PatternMatcher::Glob(pattern) => pattern.matches_path(path),
+  })
+}
+
+fn normalize_relative_path(path: &Path, current_dir: &Path) -> PathBuf {
+  if path.is_absolute() {
+    if let Ok(stripped) = path.strip_prefix(current_dir) {
+      return stripped.to_path_buf();
+    }
+
+    if let Some(rel_path) = pathdiff::diff_paths(path, current_dir) {
+      return rel_path;
+    }
+  }
+
+  let mut normalized = PathBuf::new();
+  for component in path.components() {
+    if matches!(component, std::path::Component::CurDir) {
+      continue;
+    }
+    normalized.push(component.as_os_str());
+  }
+
+  if normalized.as_os_str().is_empty() {
+    PathBuf::from(".")
+  } else {
+    normalized
   }
 }

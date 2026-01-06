@@ -579,10 +579,6 @@ async fn test_ratchet_mode_directory() -> Result<()> {
   )
   .await?;
 
-  // Create a version of the file paths as would be seen from git's perspective
-  let rel_file1 = std::path::Path::new("file1.rs");
-  let rel_file2 = std::path::Path::new("file2.rs");
-
   // Get direct insight into git's changed files list
   println!("Checking git's view of changed files...");
   let changed_files = edlicense::git::get_changed_files(&commit_ref)?;
@@ -591,27 +587,9 @@ async fn test_ratchet_mode_directory() -> Result<()> {
     println!("  Changed file: {}", file.display());
   }
 
-  // Explicitly check if our files would be detected as changed
-  use edlicense::file_filter::{FileFilter, RatchetFilter};
-  let ratchet_filter = RatchetFilter::from_reference(&commit_ref)?;
-
-  // Test both absolute and relative paths
-  println!("Testing with absolute paths:");
-  let file1_result = ratchet_filter.should_process(&file1)?;
-  let file2_result = ratchet_filter.should_process(&file2)?;
-  println!("  file1.rs should be processed: {}", file1_result.should_process);
-  println!("  file2.rs should be processed: {}", file2_result.should_process);
-
-  println!("Testing with relative paths:");
-  let rel1_result = ratchet_filter.should_process(rel_file1)?;
-  let rel2_result = ratchet_filter.should_process(rel_file2)?;
-  println!("  file1.rs (rel) should be processed: {}", rel1_result.should_process);
-  println!("  file2.rs (rel) should be processed: {}", rel2_result.should_process);
-
   // Now process the files using the processor
   println!("Processing files using processor...");
-  processor.process_file(&file1).await?; // Should add license to file1 (modified)
-  processor.process_file(&file2).await?; // Should NOT add license to file2 (unmodified)
+  processor.process(&[".".to_string()]).await?;
 
   // Go back to original directory
   std::env::set_current_dir(process_dir)?;
@@ -705,34 +683,8 @@ async fn test_manual_ratchet_mode() -> Result<()> {
   // Use relative paths as that's what git would typically provide
   use std::collections::HashSet;
 
-  use edlicense::file_filter::{FileFilter, RatchetFilter};
-
   let mut changed_files = HashSet::new();
   changed_files.insert(std::path::PathBuf::from("file1.rs"));
-
-  let ratchet_filter = RatchetFilter::new(changed_files);
-
-  // Test filter decisions
-  let file1_result = ratchet_filter.should_process(&file1)?;
-  let file2_result = ratchet_filter.should_process(&file2)?;
-
-  println!("RatchetFilter decisions from manual test:");
-  println!("  file1.rs should be processed: {}", file1_result.should_process);
-  println!("  file2.rs should be processed: {}", file2_result.should_process);
-
-  // The filter should indicate file1 should be processed (as it's in our changed
-  // files)
-  assert!(
-    file1_result.should_process,
-    "Changed file should be processed in ratchet mode"
-  );
-
-  // The filter should indicate file2 should NOT be processed (as it's not in our
-  // changed files)
-  assert!(
-    !file2_result.should_process,
-    "Unchanged file should NOT be processed in ratchet mode"
-  );
 
   // Now test with a processor using our manual RatchetFilter
   let (processor, _) = create_test_processor(
