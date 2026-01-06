@@ -5,6 +5,7 @@
 //!
 //! The [`Processor`] struct is the main entry point for all file operations.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -625,7 +626,9 @@ impl Processor {
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
           // Generate and display/save the diff
-          self.diff_manager.display_diff(path, &content, &updated_content)?;
+          self
+            .diff_manager
+            .display_diff(path, &content, updated_content.as_ref())?;
         }
 
         // Add to local reports if collecting report data
@@ -667,7 +670,7 @@ impl Processor {
         if updated_content != content {
           verbose_log!("Updating year in: {}", path.display());
 
-          fs::write(path, &updated_content)
+          fs::write(path, updated_content.as_ref().as_bytes())
             .await
             .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
@@ -894,7 +897,7 @@ impl Processor {
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
           // Generate and display/save the diff
-          if let Err(e) = self.diff_manager.display_diff(path, &content, &updated_content) {
+          if let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref()) {
             eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
           }
         }
@@ -936,7 +939,7 @@ impl Processor {
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
           // Write the updated content back to the file with optimized I/O
-          if let Err(e) = fs::write(path, &updated_content).await {
+          if let Err(e) = fs::write(path, updated_content.as_ref().as_bytes()).await {
             return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
           }
 
@@ -1107,7 +1110,7 @@ impl Processor {
   ///
   /// The updated content with the year references replaced, or an error if the
   /// regex pattern compilation fails.
-  pub fn update_year_in_license(&self, content: &str) -> Result<String> {
+  pub fn update_year_in_license<'a>(&self, content: &'a str) -> Result<Cow<'a, str>> {
     let current_year = &self.license_data.year;
 
     // Fast path: if the content already contains the current year in a copyright statement,
@@ -1116,28 +1119,38 @@ impl Processor {
       || content.contains(&format!("Copyright © {} ", current_year))
       || content.contains(&format!("Copyright {} ", current_year))
     {
-      return Ok(content.to_string());
+      return Ok(Cow::Borrowed(content));
     }
 
     // Regex to find copyright year patterns - match all copyright symbol formats
     static YEAR_REGEX: LazyLock<Regex> =
       LazyLock::new(|| Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)").expect("year regex must compile"));
 
-    // Update single year to current year
-    let content = YEAR_REGEX
-      .replace_all(content, |caps: &regex::Captures| {
-        let prefix = &caps[1];
-        let year = &caps[2];
-        let suffix = &caps[3];
+    let mut needs_update = false;
+    for caps in YEAR_REGEX.captures_iter(content) {
+      if &caps[2] != current_year {
+        needs_update = true;
+        break;
+      }
+    }
 
-        if year != current_year {
-          format!("{}{}{}", prefix, current_year, suffix)
-        } else {
-          // Keep as is if already current
-          caps[0].to_string()
-        }
-      })
-      .to_string();
+    if !needs_update {
+      return Ok(Cow::Borrowed(content));
+    }
+
+    // Update single year to current year
+    let content = YEAR_REGEX.replace_all(content, |caps: &regex::Captures| {
+      let prefix = &caps[1];
+      let year = &caps[2];
+      let suffix = &caps[3];
+
+      if year != current_year {
+        format!("{}{}{}", prefix, current_year, suffix)
+      } else {
+        // Keep as is if already current
+        caps[0].to_string()
+      }
+    });
 
     Ok(content)
   }
