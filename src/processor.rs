@@ -1110,7 +1110,7 @@ impl Processor {
   ///
   /// The updated content with the year references replaced, or an error if the
   /// regex pattern compilation fails.
-  pub fn update_year_in_license(&self, content: &str) -> Result<Cow<'_, str>> {
+  pub fn update_year_in_license<'a>(&self, content: &'a str) -> Result<Cow<'a, str>> {
     let current_year = &self.license_data.year;
 
     // Fast path: if the content already contains the current year in a copyright statement,
@@ -1127,7 +1127,7 @@ impl Processor {
       LazyLock::new(|| Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)").expect("year regex must compile"));
 
     let mut needs_update = false;
-    for caps in year_regex.captures_iter(content) {
+    for caps in YEAR_REGEX.captures_iter(content) {
       if &caps[2] != current_year {
         needs_update = true;
         break;
