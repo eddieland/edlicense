@@ -423,11 +423,11 @@ impl Processor {
       while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
 
-        // Use metadata instead of file_type for better performance
-        if let Ok(metadata) = entry.metadata().await {
-          if metadata.is_dir() {
+        // Prefer cached dirent file type to avoid extra syscalls where possible.
+        if let Ok(file_type) = entry.file_type().await {
+          if file_type.is_dir() {
             dirs_to_process.push_back(path);
-          } else if metadata.is_file() {
+          } else if file_type.is_file() {
             all_files.push(path);
           }
         }
