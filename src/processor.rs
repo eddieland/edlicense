@@ -10,13 +10,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-// HashMap is used in the ignore_manager_cache type
-// but not directly imported since we use the full path
 
 use anyhow::{Context, Result};
 use regex::Regex;
 use tokio::fs;
-// WalkDir is no longer used since we implemented async directory traversal
+use tokio::io::AsyncReadExt;
 
 use crate::diff::DiffManager;
 use crate::file_filter::{CompositeFilter, FileFilter, create_default_filter};
@@ -74,6 +72,8 @@ pub struct Processor {
   /// Cache for ignore managers to avoid redundant .licenseignore file loading
   ignore_manager_cache: Arc<tokio::sync::Mutex<std::collections::HashMap<PathBuf, IgnoreManager>>>,
 }
+
+const LICENSE_READ_LIMIT: usize = 8 * 1024;
 
 impl Processor {
   /// Creates a new processor with the specified configuration.
@@ -570,13 +570,27 @@ impl Processor {
     // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    // Read file content
-    let content = fs::read_to_string(path)
-      .await
-      .with_context(|| format!("Failed to read file: {}", path.display()))?;
+    let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
+    let prefix_content = self.read_license_check_prefix(path).await?;
+    let has_license = self.has_license(&prefix_content);
+    let needs_full_content = if self.check_only {
+      if !has_license {
+        diff_requested
+      } else {
+        !self.preserve_years && diff_requested
+      }
+    } else if has_license {
+      !self.preserve_years
+    } else {
+      true
+    };
 
-    // Check if the file already has a license
-    let has_license = self.has_license(&content);
+    let content = if needs_full_content {
+      self.read_full_content(path).await?
+    } else {
+      prefix_content
+    };
+
     verbose_log!("File has license: {}", has_license);
 
     if self.check_only {
@@ -844,16 +858,26 @@ impl Processor {
       return Ok(());
     }
 
-    // Read file content with optimized buffer
-    let content = match fs::read_to_string(path).await {
-      Ok(content) => content,
-      Err(e) => {
-        return Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e));
+    let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
+    let prefix_content = self.read_license_check_prefix(path).await?;
+    let has_license = self.has_license(&prefix_content);
+    let needs_full_content = if self.check_only {
+      if !has_license {
+        diff_requested
+      } else {
+        !self.preserve_years && diff_requested
       }
+    } else if has_license {
+      !self.preserve_years
+    } else {
+      true
     };
 
-    // Check if the file already has a license - use a cached detector for better performance
-    let has_license = self.has_license(&content);
+    let content = if needs_full_content {
+      self.read_full_content(path).await?
+    } else {
+      prefix_content
+    };
 
     if self.check_only {
       if !has_license {
@@ -1153,5 +1177,48 @@ impl Processor {
     });
 
     Ok(content)
+  }
+
+  /// Reads the initial portion of a file for license checking.
+  ///
+  /// This method reads up to LICENSE_READ_LIMIT bytes from the start of the file.
+  /// It attempts to interpret the bytes as UTF-8, handling invalid sequences
+  /// by truncating at the last valid character.
+  ///
+  /// # Parameters
+  ///
+  /// * `path` - Path to the file to read
+  ///
+  /// # Returns
+  ///
+  /// A String containing the read content, or an error if reading fails.
+  async fn read_license_check_prefix(&self, path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path)
+      .await
+      .with_context(|| format!("Failed to read file: {}", path.display()))?;
+    let mut buf = vec![0u8; LICENSE_READ_LIMIT];
+    let read_len = file
+      .read(&mut buf)
+      .await
+      .with_context(|| format!("Failed to read file: {}", path.display()))?;
+    buf.truncate(read_len);
+
+    match std::str::from_utf8(&buf) {
+      Ok(prefix) => Ok(prefix.to_string()),
+      Err(e) => {
+        let valid_up_to = e.valid_up_to();
+        if valid_up_to == 0 {
+          Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e))
+        } else {
+          Ok(String::from_utf8_lossy(&buf[..valid_up_to]).to_string())
+        }
+      }
+    }
+  }
+
+  async fn read_full_content(&self, path: &Path) -> Result<String> {
+    fs::read_to_string(path)
+      .await
+      .with_context(|| format!("Failed to read file: {}", path.display()))
   }
 }
