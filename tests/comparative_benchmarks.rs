@@ -175,6 +175,11 @@ fn run_addlicense_benchmark(
   check_only: bool,
   config: &BenchmarkConfig,
 ) -> Result<Vec<BenchmarkResult>> {
+  if operation == "update" {
+    println!("\n=== Skipping addlicense benchmark for update (unsupported) ===");
+    return Ok(vec![]);
+  }
+
   if !config.include_addlicense {
     println!("\n=== Skipping addlicense benchmark (disabled) ===");
     return Ok(vec![]);

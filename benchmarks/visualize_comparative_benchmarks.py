@@ -23,6 +23,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import re
 
+COMPARATIVE_OPERATIONS = ["add", "check"]
+
 
 def load_benchmark_results(results_dir):
     """Load all benchmark JSON files from the specified directory."""
@@ -46,9 +48,10 @@ def load_benchmark_results(results_dir):
 
 
 def plot_operation_comparison(df, output_dir):
-    """Create a plot comparing operations (add/update/check) between tools."""
+    """Create a plot comparing add/check operations between tools."""
     # Filter out thread-specific benchmarks
     df_ops = df[df["source_file"].str.contains("add|update|check")]
+    df_ops = df_ops[df_ops["operation"].isin(COMPARATIVE_OPERATIONS)]
 
     # Group by relevant factors and calculate mean duration
     grouped = df_ops.groupby(["tool", "operation", "file_size_kb"]).agg({"duration_ms": ["mean", "std"]}).reset_index()
@@ -67,7 +70,7 @@ def plot_operation_comparison(df, output_dir):
         file_count = df_ops[df_ops["file_size_kb"] == file_size]["file_count"].iloc[0]
 
         # Set up bar positions
-        operations = ["add", "update", "check"]
+        operations = COMPARATIVE_OPERATIONS
         x_pos = np.arange(len(operations))
         width = 0.35
 
@@ -197,6 +200,7 @@ def plot_file_size_impact(df, output_dir):
     """Create a plot showing the impact of file size on performance."""
     # Filter out thread-specific benchmarks
     df_sizes = df[~df["source_file"].str.contains("thread_impact")]
+    df_sizes = df_sizes[df_sizes["operation"].isin(COMPARATIVE_OPERATIONS)]
 
     # Group by relevant factors and calculate mean duration
     grouped = df_sizes.groupby(["tool", "operation", "file_size_kb"]).agg({"duration_ms": ["mean"]}).reset_index()
@@ -264,6 +268,7 @@ def generate_summary_table(df, output_dir):
     """Generate a summary table of benchmark results."""
     # Filter out thread-specific benchmarks
     df_summary = df[~df["source_file"].str.contains("thread_impact")]
+    df_summary = df_summary[df_summary["operation"].isin(COMPARATIVE_OPERATIONS)]
 
     # Group by relevant factors and calculate statistics
     grouped = (
@@ -405,6 +410,10 @@ def generate_report(df, summary_df, output_dir):
                 across different operations, file sizes, and file counts. The tables and charts include
                 information about the number of files processed in each benchmark to provide a more
                 comprehensive view of performance characteristics.
+            </p>
+            <p>
+                Note: addlicense does not support updating existing license years, so update benchmarks
+                are excluded from comparative tables and charts.
             </p>
         </div>
         
