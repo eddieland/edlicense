@@ -439,6 +439,10 @@ impl Processor {
       all_files.len(),
       start_time.elapsed().as_millis()
     );
+
+    // Filter files with .licenseignore context before processing
+    let all_files = self.filter_files_with_ignore_context(all_files).await?;
+
     self
       .process_files_with_filter(all_files, &self.file_filter, concurrency_override)
       .await

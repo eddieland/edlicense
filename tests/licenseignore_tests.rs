@@ -696,3 +696,237 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   Ok(())
 }
+
+/// Test that running from a subdirectory properly respects .licenseignore files
+/// in parent directories
+#[tokio::test]
+async fn test_subdirectory_respects_parent_licenseignore() -> Result<()> {
+  // Create a temporary directory structure:
+  // root/
+  //   .licenseignore (ignores *.json)
+  //   test.rs
+  //   test.json
+  //   src/
+  //     .licenseignore (ignores *.txt)
+  //     lib.rs
+  //     lib.json (should be ignored by parent)
+  //     lib.txt (should be ignored by local)
+  //     utils/
+  //       util.rs
+  //       util.json (should be ignored by root)
+  //       util.txt (should be ignored by src)
+
+  let temp_dir = tempdir()?;
+  let temp_path = temp_dir.path();
+
+  // Create root .licenseignore
+  fs::write(temp_path.join(".licenseignore"), "*.json\n")?;
+
+  // Create root files
+  fs::write(temp_path.join("test.rs"), "// Root Rust file")?;
+  fs::write(temp_path.join("test.json"), "// Root JSON file")?;
+
+  // Create src directory and its .licenseignore
+  let src_path = temp_path.join("src");
+  fs::create_dir(&src_path)?;
+  fs::write(src_path.join(".licenseignore"), "*.txt\n")?;
+
+  // Create src files
+  fs::write(src_path.join("lib.rs"), "// Src Rust file")?;
+  fs::write(src_path.join("lib.json"), "// Src JSON file")?;
+  fs::write(src_path.join("lib.txt"), "Src text file")?;
+
+  // Create utils directory
+  let utils_path = src_path.join("utils");
+  fs::create_dir(&utils_path)?;
+
+  // Create utils files
+  fs::write(utils_path.join("util.rs"), "// Utils Rust file")?;
+  fs::write(utils_path.join("util.json"), "// Utils JSON file")?;
+  fs::write(utils_path.join("util.txt"), "Utils text file")?;
+
+  // Create a license template
+  let license_path = temp_path.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) 2025 Test")?;
+
+  // Test 1: Load ignore manager from root directory
+  let mut root_manager = IgnoreManager::new(vec![])?;
+  root_manager.load_licenseignore_files(temp_path)?;
+
+  assert!(
+    !root_manager.is_ignored(&temp_path.join("test.rs")),
+    "Root RS file should not be ignored"
+  );
+  assert!(
+    root_manager.is_ignored(&temp_path.join("test.json")),
+    "Root JSON file should be ignored"
+  );
+  assert!(
+    !root_manager.is_ignored(&src_path.join("lib.rs")),
+    "Src RS file should not be ignored by root manager"
+  );
+  assert!(
+    root_manager.is_ignored(&src_path.join("lib.json")),
+    "Src JSON file should be ignored by root .licenseignore"
+  );
+  // txt files not ignored by root
+  assert!(
+    !root_manager.is_ignored(&src_path.join("lib.txt")),
+    "Src TXT file should NOT be ignored by root manager"
+  );
+
+  // Test 2: Load ignore manager from src directory (should include both root and src)
+  let mut src_manager = IgnoreManager::new(vec![])?;
+  src_manager.load_licenseignore_files(&src_path)?;
+
+  assert!(
+    !src_manager.is_ignored(&src_path.join("lib.rs")),
+    "Src RS file should not be ignored"
+  );
+  assert!(
+    src_manager.is_ignored(&src_path.join("lib.json")),
+    "Src JSON file should be ignored (from root .licenseignore)"
+  );
+  assert!(
+    src_manager.is_ignored(&src_path.join("lib.txt")),
+    "Src TXT file should be ignored (from src .licenseignore)"
+  );
+
+  // Test 3: Load ignore manager from utils directory (should include root and src)
+  let mut utils_manager = IgnoreManager::new(vec![])?;
+  utils_manager.load_licenseignore_files(&utils_path)?;
+
+  assert!(
+    !utils_manager.is_ignored(&utils_path.join("util.rs")),
+    "Utils RS file should not be ignored"
+  );
+  assert!(
+    utils_manager.is_ignored(&utils_path.join("util.json")),
+    "Utils JSON file should be ignored (from root .licenseignore)"
+  );
+  assert!(
+    utils_manager.is_ignored(&utils_path.join("util.txt")),
+    "Utils TXT file should be ignored (from src .licenseignore)"
+  );
+
+  // Test 4: Use the processor from the utils directory
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![], // No CLI ignore patterns
+    true,   // Check-only mode
+    false,  // Don't preserve years
+    None,   // No ratchet reference
+    None,   // Use default diff_manager
+    false,  // Don't use git_only
+    None,   // Use default LicenseDetector
+  )?;
+
+  // Process files from utils directory using absolute paths
+  let util_rs = utils_path.join("util.rs");
+  let util_json = utils_path.join("util.json");
+  let util_txt = utils_path.join("util.txt");
+
+  let initial_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  // Process all three files
+  processor
+    .process(&[
+      util_rs.to_string_lossy().to_string(),
+      util_json.to_string_lossy().to_string(),
+      util_txt.to_string_lossy().to_string(),
+    ])
+    .await?;
+
+  let final_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  // Only util.rs should be processed (util.json ignored by root, util.txt ignored by
+  // src)
+  assert_eq!(
+    final_count - initial_count,
+    1,
+    "Only util.rs should be processed; util.json and util.txt should be ignored"
+  );
+
+  Ok(())
+}
+
+/// Test that .licenseignore in a subdirectory is used when processing files from
+/// that subdirectory
+#[tokio::test]
+async fn test_processor_from_subdirectory() -> Result<()> {
+  // Create a directory structure:
+  // root/
+  //   .licenseignore (ignores *.log)
+  //   LICENSE.txt
+  //   project/
+  //     .licenseignore (ignores *.tmp)
+  //     src/
+  //       main.rs
+  //       debug.log (should be ignored)
+  //       cache.tmp (should be ignored)
+
+  let temp_dir = tempdir()?;
+  let temp_path = temp_dir.path();
+
+  // Create root .licenseignore
+  fs::write(temp_path.join(".licenseignore"), "*.log\n")?;
+
+  // Create project directory and its .licenseignore
+  let project_path = temp_path.join("project");
+  fs::create_dir(&project_path)?;
+  fs::write(project_path.join(".licenseignore"), "*.tmp\n")?;
+
+  // Create src directory
+  let src_path = project_path.join("src");
+  fs::create_dir(&src_path)?;
+
+  // Create files
+  fs::write(src_path.join("main.rs"), "fn main() {}")?;
+  fs::write(src_path.join("debug.log"), "Debug logs")?;
+  fs::write(src_path.join("cache.tmp"), "Temp cache")?;
+
+  // Create license template
+  let license_path = temp_path.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) 2025 Test")?;
+
+  // Create and initialize template manager
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  // Create processor
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![], // No CLI ignore patterns
+    true,   // Check-only mode
+    false,  // Don't preserve years
+    None,   // No ratchet reference
+    None,   // Use default diff_manager
+    false,  // Don't use git_only
+    None,   // Use default LicenseDetector
+  )?;
+
+  let initial_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  // Process the src directory
+  processor.process(&[src_path.to_string_lossy().to_string()]).await?;
+
+  let final_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  // Only main.rs should be processed (debug.log and cache.tmp should be ignored)
+  assert_eq!(
+    final_count - initial_count,
+    1,
+    "Only main.rs should be processed; debug.log and cache.tmp should be ignored by parent .licenseignore files"
+  );
+
+  Ok(())
+}
