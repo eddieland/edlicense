@@ -553,6 +553,57 @@ fn test_processor_with_licenseignore() -> Result<()> {
   Ok(())
 }
 
+#[tokio::test]
+async fn test_parent_licenseignore_applied_in_subdir() -> Result<()> {
+  let original_dir = env::current_dir()?;
+
+  let temp_dir = tempdir()?;
+  let temp_path = temp_dir.path();
+
+  fs::write(temp_path.join(".licenseignore"), "*.rs\n")?;
+
+  let subdir = temp_path.join("subdir");
+  fs::create_dir_all(&subdir)?;
+
+  let rust_file_path = subdir.join("ignored.rs");
+  fs::write(&rust_file_path, "fn main() {}")?;
+
+  let license_path = temp_path.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) {{year}} Test")?;
+
+  env::set_current_dir(&subdir)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    true,
+    false,
+    None,
+    None,
+    false,
+    None,
+  )?;
+
+  let initial_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+  processor.process(&[".".to_string()]).await?;
+  let final_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  assert_eq!(
+    final_count, initial_count,
+    "Files in subdirectories should respect parent .licenseignore files"
+  );
+
+  env::set_current_dir(original_dir)?;
+
+  Ok(())
+}
+
 /// Test that explicitly named files still respect .licenseignore patterns
 #[tokio::test]
 async fn test_explicit_file_names_with_licenseignore() -> Result<()> {

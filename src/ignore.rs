@@ -110,28 +110,6 @@ impl IgnoreManager {
   /// - The .licenseignore file exists but cannot be read
   /// - The global ignore file exists but cannot be read
   pub fn load_licenseignore_files(&mut self, dir: &Path) -> Result<()> {
-    let mut builder = GitignoreBuilder::new(dir);
-
-    // Add global ignore file if specified by environment variable
-    if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
-      let global_path = PathBuf::from(global_ignore_path);
-      if global_path.exists() {
-        verbose_log!("Loading global ignore file: {}", global_path.display());
-        let content = fs::read_to_string(&global_path)
-          .with_context(|| format!("Failed to read global ignore file: {}", global_path.display()))?;
-
-        for line in content.lines() {
-          if !line.trim().is_empty() && !line.trim().starts_with('#') {
-            builder
-              .add_line(None, line)
-              .with_context(|| format!("Failed to add line from global ignore file: {}", global_path.display()))?;
-          }
-        }
-      } else {
-        verbose_log!("Global ignore file not found: {}", global_path.display());
-      }
-    }
-
     // Find and load .licenseignore files from the current directory all the way up
     // to the root We load them starting from the root and moving down to ensure
     // proper pattern precedence
@@ -156,6 +134,33 @@ impl IgnoreManager {
     // target directory override those from higher up
     licenseignore_files.reverse();
 
+    let root_dir = licenseignore_files
+      .first()
+      .map(|(dir_path, _)| dir_path.clone())
+      .unwrap_or_else(|| dir.to_path_buf());
+
+    let mut builder = GitignoreBuilder::new(&root_dir);
+
+    // Add global ignore file if specified by environment variable
+    if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
+      let global_path = PathBuf::from(global_ignore_path);
+      if global_path.exists() {
+        verbose_log!("Loading global ignore file: {}", global_path.display());
+        let content = fs::read_to_string(&global_path)
+          .with_context(|| format!("Failed to read global ignore file: {}", global_path.display()))?;
+
+        for line in content.lines() {
+          if !line.trim().is_empty() && !line.trim().starts_with('#') {
+            builder
+              .add_line(None, line)
+              .with_context(|| format!("Failed to add line from global ignore file: {}", global_path.display()))?;
+          }
+        }
+      } else {
+        verbose_log!("Global ignore file not found: {}", global_path.display());
+      }
+    }
+
     // Now load each .licenseignore file in order from root to target dir
     for (dir_path, ignore_path) in licenseignore_files {
       verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
@@ -175,7 +180,7 @@ impl IgnoreManager {
     let gitignore = builder.build().with_context(|| "Failed to build gitignore matcher")?;
 
     self.gitignore = Some(gitignore);
-    self.root_dir = Some(dir.to_path_buf());
+    self.root_dir = Some(root_dir);
 
     Ok(())
   }

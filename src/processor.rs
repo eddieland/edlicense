@@ -289,63 +289,35 @@ impl Processor {
 
     // Get the parent directory of the file to load directory-specific ignore
     // patterns
-    if let Some(parent_dir) = path.parent() {
-      // Create a temporary ignore filter with the parent directory's ignore patterns
-      if parent_dir.exists() {
-        // Check cache first for the ignore manager
-        let ignore_manager = {
-          let mut cache = self.ignore_manager_cache.lock().await;
-
-          if let Some(cached_manager) = cache.get(parent_dir) {
-            // Use cached ignore manager
-            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
-            cached_manager.clone()
-          } else {
-            // Create new ignore manager and cache it
-            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
-            let mut new_manager = self.ignore_manager.clone();
-            new_manager.load_licenseignore_files(parent_dir)?;
-
-            // Store in cache
-            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
-            new_manager
-          }
+    if self.is_ignored_by_licenseignore(path).await? {
+      // Add to local reports if collecting report data
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false, // We don't know, but we're skipping it
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("Matches .licenseignore pattern".to_string()),
         };
 
-        // Check if the file is ignored by the parent directory-specific patterns
-        if ignore_manager.is_ignored(path) {
-          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+        let mut reports = local_reports.lock().await;
+        reports.push(file_report);
+      }
 
-          // Add to local reports if collecting report data
-          if self.collect_report_data {
-            let file_report = FileReport {
-              path: path.to_path_buf(),
-              has_license: false, // We don't know, but we're skipping it
-              action_taken: Some(FileAction::Skipped),
-              ignored: true,
-              ignored_reason: Some("Matches .licenseignore pattern".to_string()),
-            };
+      // Update the shared reports with the local collection
+      if self.collect_report_data {
+        let local_report_data = {
+          let mut reports = local_reports.lock().await;
+          std::mem::take(&mut *reports)
+        };
 
-            let mut reports = local_reports.lock().await;
-            reports.push(file_report);
-          }
-
-          // Update the shared reports with the local collection
-          if self.collect_report_data {
-            let local_report_data = {
-              let mut reports = local_reports.lock().await;
-              std::mem::take(&mut *reports)
-            };
-
-            if !local_report_data.is_empty() {
-              let mut reports = self.file_reports.lock().await;
-              reports.extend(local_report_data);
-            }
-          }
-
-          return Ok(());
+        if !local_report_data.is_empty() {
+          let mut reports = self.file_reports.lock().await;
+          reports.extend(local_report_data);
         }
       }
+
+      return Ok(());
     }
 
     // Process the file normally with the local reports collection
@@ -463,43 +435,59 @@ impl Processor {
     // Filter files using the file_filter directly - optimized to avoid unnecessary
     // clones
     let filter_start = std::time::Instant::now();
-    let files: Vec<_> = files
-      .into_iter()
-      .filter(|p| match filter.should_process(p) {
-        Ok(result) => {
-          if !result.should_process {
-            let reason_clone = result.reason.clone();
-            let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
-            verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+    let mut files_to_process = Vec::with_capacity(files.len());
+    for path in files {
+      let filter_result = match filter.should_process(&path) {
+        Ok(result) => result,
+        Err(_) => continue,
+      };
 
-            if self.collect_report_data {
-              let file_report = FileReport {
-                path: p.to_path_buf(),
-                has_license: false,
-                action_taken: Some(FileAction::Skipped),
-                ignored: true,
-                ignored_reason: reason_clone,
-              };
+      if !filter_result.should_process {
+        let reason_clone = filter_result.reason.clone();
+        let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+        verbose_log!("Skipping: {} ({})", path.display(), reason_display);
 
-              local_reports.push(file_report);
-            }
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: false,
+            action_taken: Some(FileAction::Skipped),
+            ignored: true,
+            ignored_reason: reason_clone,
+          };
 
-            false
-          } else {
-            true
-          }
+          local_reports.push(file_report);
         }
-        Err(_) => false,
-      })
-      .collect();
+
+        continue;
+      }
+
+      if self.is_ignored_by_licenseignore(&path).await? {
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: false,
+            action_taken: Some(FileAction::Skipped),
+            ignored: true,
+            ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+          };
+
+          local_reports.push(file_report);
+        }
+
+        continue;
+      }
+
+      files_to_process.push(path);
+    }
 
     verbose_log!(
       "Filtered to {} files to process in {}ms",
-      files.len(),
+      files_to_process.len(),
       filter_start.elapsed().as_millis()
     );
 
-    if files.is_empty() {
+    if files_to_process.is_empty() {
       verbose_log!("No files to process after filtering");
 
       if self.collect_report_data && !local_reports.is_empty() {
@@ -511,7 +499,7 @@ impl Processor {
     }
 
     let num_cpus = num_cpus::get();
-    let files_len = files.len();
+    let files_len = files_to_process.len();
     let mut concurrency = std::cmp::min(num_cpus * 4, files_len);
     concurrency = std::cmp::max(concurrency, 1);
 
@@ -533,7 +521,7 @@ impl Processor {
 
     let process_start = std::time::Instant::now();
 
-    stream::iter(files)
+    stream::iter(files_to_process)
       .map(|path| {
         let has_missing = Arc::clone(&has_missing_license);
         let processor = self;
@@ -581,45 +569,19 @@ impl Processor {
     let mut local_reports = Vec::new();
 
     for path in files {
-      let mut ignored = false;
+      if self.is_ignored_by_licenseignore(&path).await? {
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: false,
+            action_taken: Some(FileAction::Skipped),
+            ignored: true,
+            ignored_reason: Some("Matches .licenseignore pattern".to_string()),
+          };
 
-      if let Some(parent_dir) = path.parent()
-        && parent_dir.exists()
-      {
-        let ignore_manager = {
-          let mut cache = self.ignore_manager_cache.lock().await;
-
-          if let Some(cached_manager) = cache.get(parent_dir) {
-            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
-            cached_manager.clone()
-          } else {
-            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
-            let mut new_manager = self.ignore_manager.clone();
-            new_manager.load_licenseignore_files(parent_dir)?;
-            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
-            new_manager
-          }
-        };
-
-        if ignore_manager.is_ignored(&path) {
-          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
-          ignored = true;
-
-          if self.collect_report_data {
-            let file_report = FileReport {
-              path: path.to_path_buf(),
-              has_license: false,
-              action_taken: Some(FileAction::Skipped),
-              ignored: true,
-              ignored_reason: Some("Matches .licenseignore pattern".to_string()),
-            };
-
-            local_reports.push(file_report);
-          }
+          local_reports.push(file_report);
         }
-      }
-
-      if !ignored {
+      } else {
         filtered.push(path);
       }
     }
@@ -1222,6 +1184,49 @@ impl Processor {
     }
 
     Ok(())
+  }
+
+  async fn is_ignored_by_licenseignore(&self, path: &Path) -> Result<bool> {
+    let mut parent_dir = match path.parent() {
+      Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+      _ => std::env::current_dir().with_context(|| "Failed to resolve current directory for .licenseignore lookup")?,
+    };
+
+    if !parent_dir.is_absolute() {
+      parent_dir = std::env::current_dir()
+        .with_context(|| "Failed to resolve current directory for .licenseignore lookup")?
+        .join(parent_dir);
+    }
+
+    if parent_dir.exists() {
+      let ignore_manager = {
+        let mut cache = self.ignore_manager_cache.lock().await;
+
+        if let Some(cached_manager) = cache.get(&parent_dir) {
+          verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+          cached_manager.clone()
+        } else {
+          verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+          let mut new_manager = self.ignore_manager.clone();
+          new_manager.load_licenseignore_files(&parent_dir)?;
+          cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+          new_manager
+        }
+      };
+
+      let candidate_path = if path.is_absolute() {
+        path.to_path_buf()
+      } else {
+        parent_dir.join(path)
+      };
+
+      if ignore_manager.is_ignored(&candidate_path) {
+        verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+        return Ok(true);
+      }
+    }
+
+    Ok(false)
   }
 
   /// Checks if the content already has a license header.
