@@ -418,11 +418,10 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
     "Text file in level2 should NOT be ignored"
   );
 
-  // Verify patterns are applied to parent directories (upward propagation not
-  // applicable)
+  // Verify patterns are applied to parent directories (workspace root applies)
   assert!(
-    !ignore_manager.is_ignored(&level1_path.join("test.js")),
-    "JS file in level1 should NOT be ignored when loading from level2"
+    ignore_manager.is_ignored(&level1_path.join("test.js")),
+    "JS file in level1 should be ignored when loading from level2"
   );
 
   // Test loading from level1

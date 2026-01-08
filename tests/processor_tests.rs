@@ -569,17 +569,29 @@ async fn test_ratchet_mode_directory() -> Result<()> {
 
   // Create a processor with ratchet mode enabled, using the original commit as
   // reference
-  let (processor, _) = create_test_processor(
-    "Copyright (c) {{year}} Test Company",
+  let template_path = test_dir.join("license_template.txt");
+  fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  let license_data = LicenseData {
+    year: "2025".to_string(),
+  };
+
+  let processor = Processor::new(
+    template_manager,
+    license_data,
     vec![],
     false,
     false,
     Some(commit_ref.clone()), // Use the first commit as reference
     None,
-    None,
     false,
-  )
-  .await?;
+    None, // Use default LicenseDetector
+    test_dir.to_path_buf(),
+    true,
+  )?;
 
   // Get direct insight into git's changed files list
   println!("Checking git's view of changed files...");
