@@ -1,4 +1,5 @@
 # Dockerfile for edlicense with optimized BuildKit features
+# Requires BuildKit (Docker 18.09+ with DOCKER_BUILDKIT=1, or Docker 23.0+ by default)
 # Build with:
 #   - Default (production): docker build .
 #   - Distroless: docker build --build-arg MODE=distroless .
@@ -15,55 +16,51 @@ ARG BUILD_VERSION=dev
 # Base build stage
 FROM rust:${RUST_VERSION}-slim AS builder
 
-# Install build dependencies
-RUN apt-get update && \
+# Install build dependencies with apt cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
-    git \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    git
 
 WORKDIR /usr/src/edlicense
 
-# Copy only the files needed for dependency resolution first
-COPY Cargo.toml Cargo.lock* rust-toolchain.toml* ./
-
-# Create a dummy main.rs to build dependencies
-RUN mkdir -p src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
-
-# Copy the actual source code
+# Copy the source code
 COPY . .
 
-# Build the application
-RUN cargo build --release && \
+# Build the application with BuildKit cache mounts for faster rebuilds
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/edlicense/target \
+    cargo build --release && \
     cp target/release/edlicense /usr/local/bin/
 
 # Debug image with full toolchain
 FROM rust:${RUST_VERSION} AS debug
 
-# Install additional development tools
-RUN apt-get update && \
+# Install additional development tools with apt cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
     libssl-dev \
-    pkg-config \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    pkg-config
 
 WORKDIR /usr/src/edlicense
 
 # Copy the entire project
 COPY . .
 
-# Build the project in debug mode
-RUN cargo build
+# Build the project in debug mode with BuildKit cache mounts
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/edlicense/target \
+    cargo build
 
-# Install development tools
-RUN cargo install cargo-watch cargo-outdated
+# Install development tools with cache mount
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo install cargo-watch cargo-outdated
 
 # Set environment variables
 ENV RUST_BACKTRACE=1
@@ -74,11 +71,11 @@ CMD ["cargo", "nextest", "run"]
 # Production image (minimal Debian-based)
 FROM debian:bookworm-slim AS production
 
-# Install minimal runtime dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends libssl-dev ca-certificates && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Install minimal runtime dependencies with apt cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libssl-dev ca-certificates
 
 WORKDIR /app
 
@@ -95,10 +92,10 @@ CMD ["--help"]
 FROM debian:bookworm-slim AS cert-stage
 
 # Install CA certificates package to ensure /etc/ssl/certs exists
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates
 
 # Distroless image (even more minimal)
 FROM gcr.io/distroless/cc-debian12 AS distroless
