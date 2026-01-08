@@ -15,12 +15,16 @@ ARG BUILD_VERSION=dev
 # Base build stage
 FROM rust:${RUST_VERSION}-slim AS builder
 
+ARG MUSL_TARGET=x86_64-unknown-linux-musl
+
 # Install build dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    musl-tools \
     pkg-config \
     libssl-dev \
     git \
+    && rustup target add ${MUSL_TARGET} \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,15 +36,15 @@ COPY Cargo.toml Cargo.lock* rust-toolchain.toml* ./
 # Create a dummy main.rs to build dependencies
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
+    cargo build --release --target ${MUSL_TARGET} && \
     rm -rf src
 
 # Copy the actual source code
 COPY . .
 
 # Build the application
-RUN cargo build --release && \
-    cp target/release/edlicense /usr/local/bin/
+RUN cargo build --release --target ${MUSL_TARGET} && \
+    cp target/${MUSL_TARGET}/release/edlicense /usr/local/bin/
 
 # Debug image with full toolchain
 FROM rust:${RUST_VERSION} AS debug
@@ -108,17 +112,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Distroless image (even more minimal)
-FROM gcr.io/distroless/cc-debian12 AS distroless
+FROM gcr.io/distroless/static-debian12 AS distroless
 
 # Copy SSL certificates for git operations
 COPY --from=cert-stage /etc/ssl/certs /etc/ssl/certs
-
-# Copy necessary shared libraries from the builder
-# Use more specific paths for better multi-platform support
-COPY --from=builder /usr/lib/*/libgit2.so* /usr/lib/
-COPY --from=builder /usr/lib/*/libssl.so* /usr/lib/
-COPY --from=builder /usr/lib/*/libcrypto.so* /usr/lib/
-COPY --from=builder /lib/*/libz.so* /lib/
 
 WORKDIR /app
 
