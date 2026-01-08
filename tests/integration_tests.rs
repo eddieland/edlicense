@@ -246,3 +246,103 @@ fn test_custom_year() -> Result<()> {
 
   Ok(())
 }
+
+// Helper function to check if git is available
+fn is_git_available() -> bool {
+  Command::new("git").arg("--version").status().is_ok()
+}
+
+#[test]
+fn test_git_only_from_subdirectory() -> Result<()> {
+  // Skip test if git is not available
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = tempdir()?;
+
+  // Initialize git repository
+  Command::new("git")
+    .args(["init"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  // Configure git user for commits
+  Command::new("git")
+    .args(["config", "user.name", "Test User"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  Command::new("git")
+    .args(["config", "user.email", "test@example.com"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  // Create a license template at the repo root
+  let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
+  fs::write(temp_dir.path().join("license_template.txt"), template_content)?;
+
+  // Create a subdirectory structure
+  fs::create_dir_all(temp_dir.path().join("src/nested"))?;
+
+  // Create test files at different levels
+  fs::write(temp_dir.path().join("root.rs"), "fn root() {}")?;
+  fs::write(temp_dir.path().join("src/lib.rs"), "fn lib() {}")?;
+  fs::write(temp_dir.path().join("src/nested/module.rs"), "fn module() {}")?;
+
+  // Add and commit all files
+  Command::new("git")
+    .args(["add", "."])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  Command::new("git")
+    .args(["commit", "-m", "Initial commit"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  // Run edlicense from the src/nested subdirectory with --git-only
+  // Use **/*.rs pattern to match all Rust files across the repo
+  let subdir = temp_dir.path().join("src/nested");
+  let repo_root = temp_dir.path().to_string_lossy().to_string();
+  let args = &[
+    "--modify",
+    "--git-only=true",
+    "--year=2025",
+    "--license-file",
+    "../../license_template.txt",
+    "--verbose",
+    &format!("{}/**/*.rs", repo_root),
+  ];
+
+  let (status, _stdout, stderr) = run_edlicense(args, &subdir)?;
+
+  // Check that the command succeeded
+  assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
+
+  // Verify all .rs files at different levels got license headers
+  // (This proves paths resolve correctly even when CWD is a subdirectory)
+  let root_content = fs::read_to_string(temp_dir.path().join("root.rs"))?;
+  assert!(
+    root_content.contains("Copyright (c)"),
+    "root.rs should have license header but has:\n{}",
+    root_content
+  );
+
+  let lib_content = fs::read_to_string(temp_dir.path().join("src/lib.rs"))?;
+  assert!(
+    lib_content.contains("Copyright (c)"),
+    "src/lib.rs should have license header but has:\n{}",
+    lib_content
+  );
+
+  let module_content = fs::read_to_string(temp_dir.path().join("src/nested/module.rs"))?;
+  assert!(
+    module_content.contains("Copyright (c)"),
+    "src/nested/module.rs should have license header but has:\n{}",
+    module_content
+  );
+
+  Ok(())
+}

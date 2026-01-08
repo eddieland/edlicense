@@ -290,7 +290,9 @@ impl Processor {
     for file in files {
       let normalized = normalize_relative_path(&file, &self.workspace_root);
       if matches_any_pattern(&normalized, &matchers) {
-        selected.push(normalized);
+        // Convert to absolute path using workspace_root so file I/O works
+        // regardless of the current working directory
+        selected.push(self.workspace_root.join(&normalized));
       }
     }
 
