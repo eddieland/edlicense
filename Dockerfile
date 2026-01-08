@@ -82,8 +82,15 @@ RUN apt-get update && \
 
 WORKDIR /app
 
+# Create a non-root user for runtime
+RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin edlicense && \
+    chown -R edlicense:edlicense /app
+
 # Copy the binary from the builder stage - already in /usr/local/bin from our optimized build
 COPY --from=builder /usr/local/bin/edlicense /usr/local/bin/edlicense
+
+# Drop privileges
+USER edlicense
 
 # Set the entrypoint
 ENTRYPOINT ["edlicense"]
@@ -116,7 +123,10 @@ COPY --from=builder /lib/*/libz.so* /lib/
 WORKDIR /app
 
 # Copy the binary from the builder stage - already in /usr/local/bin from our optimized build
-COPY --from=builder /usr/local/bin/edlicense /usr/bin/edlicense
+COPY --from=builder --chown=nonroot:nonroot /usr/local/bin/edlicense /usr/bin/edlicense
+
+# Drop privileges
+USER nonroot
 
 # Set the entrypoint
 ENTRYPOINT ["/usr/bin/edlicense"]
