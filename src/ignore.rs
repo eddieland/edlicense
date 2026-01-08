@@ -10,6 +10,7 @@
 //!   variable
 //! - Command-line ignore patterns
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -38,8 +39,8 @@ use crate::verbose_log;
 /// // Create a new ignore manager with command-line ignore patterns
 /// let mut manager = IgnoreManager::new(vec!["**/*.json".to_string()])?;
 ///
-/// // Load .licenseignore files from the current directory
-/// manager.load_licenseignore_files(Path::new("."))?;
+/// // Load .licenseignore files from the current directory up to the workspace root
+/// manager.load_licenseignore_files(Path::new("."), Path::new("."))?;
 ///
 /// // Check if a file should be ignored
 /// let should_ignore = manager.is_ignored(Path::new("src/config.json"));
@@ -56,7 +57,7 @@ pub struct IgnoreManager {
   /// Gitignore matcher for .licenseignore files
   gitignore: Option<Gitignore>,
 
-  /// Path to the root directory where .licenseignore was found
+  /// Workspace root used for .licenseignore matching
   root_dir: Option<PathBuf>,
 }
 
@@ -91,7 +92,7 @@ impl IgnoreManager {
   }
 
   /// Loads .licenseignore files from the specified directory and its parents up
-  /// to the root directory.
+  /// to the workspace root.
   ///
   /// This method also loads the global ignore file specified by the
   /// GLOBAL_LICENSE_IGNORE environment variable, if set.
@@ -99,6 +100,7 @@ impl IgnoreManager {
   /// # Parameters
   ///
   /// * `dir` - Directory to start searching for .licenseignore files
+  /// * `workspace_root` - Root of the workspace for ignore traversal
   ///
   /// # Returns
   ///
@@ -109,8 +111,13 @@ impl IgnoreManager {
   /// Returns an error if:
   /// - The .licenseignore file exists but cannot be read
   /// - The global ignore file exists but cannot be read
-  pub fn load_licenseignore_files(&mut self, dir: &Path) -> Result<()> {
-    let mut builder = GitignoreBuilder::new(dir);
+  pub fn load_licenseignore_files(&mut self, dir: &Path, workspace_root: &Path) -> Result<()> {
+    let root_dir = if dir.starts_with(workspace_root) {
+      workspace_root
+    } else {
+      dir
+    };
+    let mut builder = GitignoreBuilder::new(root_dir);
 
     // Add global ignore file if specified by environment variable
     if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
@@ -133,7 +140,7 @@ impl IgnoreManager {
     }
 
     // Find and load .licenseignore files from the current directory all the way up
-    // to the root We load them starting from the root and moving down to ensure
+    // to the workspace root. We load them starting from the root and moving down to ensure
     // proper pattern precedence
     let mut licenseignore_files = Vec::new();
     let mut current_dir = dir.to_path_buf();
@@ -143,6 +150,11 @@ impl IgnoreManager {
       let ignore_path = current_dir.join(".licenseignore");
       if ignore_path.exists() {
         licenseignore_files.push((current_dir.clone(), ignore_path));
+      }
+
+      // Stop at the workspace root if we're inside one.
+      if current_dir == root_dir {
+        break;
       }
 
       // Move up to parent directory
@@ -175,7 +187,7 @@ impl IgnoreManager {
     let gitignore = builder.build().with_context(|| "Failed to build gitignore matcher")?;
 
     self.gitignore = Some(gitignore);
-    self.root_dir = Some(dir.to_path_buf());
+    self.root_dir = Some(root_dir.to_path_buf());
 
     Ok(())
   }
@@ -204,6 +216,11 @@ impl IgnoreManager {
     if let Some(ref gitignore) = self.gitignore
       && let Some(ref root_dir) = self.root_dir
     {
+      let path = if path.is_absolute() {
+        Cow::Borrowed(path)
+      } else {
+        Cow::Owned(root_dir.join(path))
+      };
       // Get the path relative to the root directory
       if let Ok(rel_path) = path.strip_prefix(root_dir) {
         let match_result = gitignore.matched_path_or_any_parents(rel_path, false);

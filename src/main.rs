@@ -11,6 +11,7 @@ mod logging;
 mod processor;
 mod report;
 mod templates;
+mod workspace;
 
 use std::path::PathBuf;
 use std::process;
@@ -26,6 +27,7 @@ use crate::logging::{ColorMode, set_color_mode, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
+use crate::workspace::resolve_workspace;
 
 const CUSTOM_STYLES: Styles = Styles::styled()
   .header(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold())
@@ -210,13 +212,14 @@ async fn main() -> Result<()> {
 
   let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
 
+  let workspace = resolve_workspace(&args.patterns)?;
+  let workspace_root = workspace.root().to_path_buf();
+
   let git_only = args.git_only.unwrap_or(false);
   if git_only {
-    let is_git_repo = git::is_git_repository();
-
-    if is_git_repo {
+    if workspace.is_git() {
       info_log!("Git repository detected, only processing tracked files");
-      verbose_log!("Using current working directory to determine git repository and tracked files");
+      verbose_log!("Using workspace root: {}", workspace_root.display());
     } else {
       eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
       eprintln!("When --git-only=true, you must run edlicense from inside a git repository");
@@ -234,6 +237,8 @@ async fn main() -> Result<()> {
     Some(diff_manager),
     git_only,
     None, // Use the default LicenseDetector implementation
+    workspace_root,
+    workspace.is_git(),
   )?;
 
   // Start timing

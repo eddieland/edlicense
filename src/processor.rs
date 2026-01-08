@@ -35,6 +35,9 @@ use crate::{git, info_log, verbose_log};
 /// - Filtering files based on git repository (when git_only is enabled)
 /// - Collecting report data about processed files
 pub struct Processor {
+  /// Root of the current workspace.
+  workspace_root: PathBuf,
+
   /// Template manager for rendering license templates
   template_manager: TemplateManager,
 
@@ -111,6 +114,8 @@ impl Processor {
   ///   changed files)
   /// * `diff_manager` - Optional manager for handling diff creation and
   ///   rendering. If not provided, a default one will be created.
+  /// * `workspace_root` - Root directory for the current workspace
+  /// * `workspace_is_git` - Whether the workspace is backed by git
   ///
   /// # Returns
   ///
@@ -132,7 +137,15 @@ impl Processor {
     diff_manager: Option<DiffManager>,
     git_only: bool,
     license_detector: Option<Box<dyn LicenseDetector + Send + Sync>>,
+    workspace_root: PathBuf,
+    workspace_is_git: bool,
   ) -> Result<Self> {
+    if (git_only || ratchet_reference.is_some()) && !workspace_is_git {
+      return Err(anyhow::anyhow!(
+        "Git-only or ratchet mode requires a git-backed workspace"
+      ));
+    }
+
     // Create ignore manager for base ignore patterns
     let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
 
@@ -151,6 +164,7 @@ impl Processor {
       check_only,
       preserve_years,
       diff_manager,
+      workspace_root,
       files_processed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
       file_reports: Arc::new(tokio::sync::Mutex::new(Vec::new())),
       collect_report_data: true, // Enable report data collection by default
@@ -254,9 +268,11 @@ impl Processor {
 
   fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
     let files = if self.git_only {
-      git::get_git_tracked_files()?.into_iter().collect::<Vec<_>>()
+      git::get_git_tracked_files(&self.workspace_root)?.into_iter().collect::<Vec<_>>()
     } else if let Some(reference) = &self.ratchet_reference {
-      git::get_changed_files(reference)?.into_iter().collect::<Vec<_>>()
+      git::get_changed_files_for_workspace(&self.workspace_root, reference)?
+        .into_iter()
+        .collect::<Vec<_>>()
     } else {
       Vec::new()
     };
@@ -266,11 +282,11 @@ impl Processor {
     }
 
     let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
-    let matchers = build_pattern_matchers(patterns, &current_dir)?;
+    let matchers = build_pattern_matchers(patterns, &current_dir, &self.workspace_root)?;
 
     let mut selected = Vec::new();
     for file in files {
-      let normalized = normalize_relative_path(&file, &current_dir);
+      let normalized = normalize_relative_path(&file, &self.workspace_root);
       if matches_any_pattern(&normalized, &matchers) {
         selected.push(normalized);
       }
@@ -289,7 +305,8 @@ impl Processor {
 
     // Get the parent directory of the file to load directory-specific ignore
     // patterns
-    if let Some(parent_dir) = path.parent() {
+    let absolute_path = absolutize_path(path)?;
+    if let Some(parent_dir) = absolute_path.parent() {
       // Create a temporary ignore filter with the parent directory's ignore patterns
       if parent_dir.exists() {
         // Check cache first for the ignore manager
@@ -304,7 +321,7 @@ impl Processor {
             // Create new ignore manager and cache it
             verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
             let mut new_manager = self.ignore_manager.clone();
-            new_manager.load_licenseignore_files(parent_dir)?;
+            new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
 
             // Store in cache
             cache.insert(parent_dir.to_path_buf(), new_manager.clone());
@@ -313,7 +330,7 @@ impl Processor {
         };
 
         // Check if the file is ignored by the parent directory-specific patterns
-        if ignore_manager.is_ignored(path) {
+        if ignore_manager.is_ignored(&absolute_path) {
           verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
 
           // Add to local reports if collecting report data
@@ -582,8 +599,9 @@ impl Processor {
 
     for path in files {
       let mut ignored = false;
+      let absolute_path = absolutize_path(&path)?;
 
-      if let Some(parent_dir) = path.parent()
+      if let Some(parent_dir) = absolute_path.parent()
         && parent_dir.exists()
       {
         let ignore_manager = {
@@ -595,13 +613,13 @@ impl Processor {
           } else {
             verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
             let mut new_manager = self.ignore_manager.clone();
-            new_manager.load_licenseignore_files(parent_dir)?;
+            new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
             cache.insert(parent_dir.to_path_buf(), new_manager.clone());
             new_manager
           }
         };
 
-        if ignore_manager.is_ignored(&path) {
+        if ignore_manager.is_ignored(&absolute_path) {
           verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
           ignored = true;
 
@@ -1413,7 +1431,7 @@ impl Processor {
   }
 }
 
-fn build_pattern_matchers(patterns: &[String], current_dir: &Path) -> Result<Vec<PatternMatcher>> {
+fn build_pattern_matchers(patterns: &[String], current_dir: &Path, workspace_root: &Path) -> Result<Vec<PatternMatcher>> {
   if patterns.is_empty() {
     return Ok(Vec::new());
   }
@@ -1422,7 +1440,12 @@ fn build_pattern_matchers(patterns: &[String], current_dir: &Path) -> Result<Vec
   for pattern in patterns {
     let raw_path = PathBuf::from(pattern);
     if raw_path.exists() {
-      let normalized = normalize_relative_path(&raw_path, current_dir);
+      let abs_path = if raw_path.is_absolute() {
+        raw_path.clone()
+      } else {
+        current_dir.join(&raw_path)
+      };
+      let normalized = normalize_relative_path(&abs_path, workspace_root);
       if raw_path.is_dir() {
         if normalized.as_os_str() == "." {
           matchers.push(PatternMatcher::Any);
@@ -1433,12 +1456,35 @@ fn build_pattern_matchers(patterns: &[String], current_dir: &Path) -> Result<Vec
         matchers.push(PatternMatcher::File(normalized));
       }
     } else {
-      let glob_pattern = glob::Pattern::new(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+      let mut glob_source = pattern.as_str().to_string();
+      if raw_path.is_absolute() {
+        if let Ok(rel_path) = raw_path.strip_prefix(workspace_root) {
+          glob_source = rel_path.to_string_lossy().replace("\\", "/");
+        }
+      } else {
+        if let Ok(workspace_relative_cwd) = current_dir.strip_prefix(workspace_root) {
+          if !workspace_relative_cwd.as_os_str().is_empty() && workspace_relative_cwd.as_os_str() != "." {
+            let cwd_prefix = workspace_relative_cwd.to_string_lossy().replace("\\", "/");
+            glob_source = format!("{}/{}", cwd_prefix, glob_source);
+          }
+        }
+      }
+      let glob_pattern =
+        glob::Pattern::new(&glob_source).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
       matchers.push(PatternMatcher::Glob(glob_pattern));
     }
   }
 
   Ok(matchers)
+}
+
+fn absolutize_path(path: &Path) -> Result<PathBuf> {
+  if path.is_absolute() {
+    Ok(path.to_path_buf())
+  } else {
+    let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
+    Ok(current_dir.join(path))
+  }
 }
 
 fn matches_any_pattern(path: &Path, matchers: &[PatternMatcher]) -> bool {

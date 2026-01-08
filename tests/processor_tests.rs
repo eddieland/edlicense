@@ -42,6 +42,8 @@ async fn create_test_processor(
     diff_manager,
     git_only,
     None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
   )?;
 
   Ok((processor, temp_dir))
@@ -193,7 +195,7 @@ async fn test_ignore_patterns() -> Result<()> {
   // Create an IgnoreManager and load the .licenseignore file
   use edlicense::ignore::IgnoreManager;
   let mut ignore_manager = IgnoreManager::new(vec![])?;
-  ignore_manager.load_licenseignore_files(temp_path)?;
+  ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Test files that should be ignored
   assert!(

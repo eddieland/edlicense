@@ -44,7 +44,7 @@ fn test_cli_ignore_patterns_directly() -> Result<()> {
     let mut ignore_manager = IgnoreManager::new(patterns.clone())?;
 
     // Load .licenseignore files (none in this case)
-    ignore_manager.load_licenseignore_files(temp_path)?;
+    ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
     // Test JSON file (should be ignored by *.json pattern)
     let json_ignored = ignore_manager.is_ignored(&temp_path.join("test.json"));
