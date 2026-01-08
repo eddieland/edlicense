@@ -51,10 +51,10 @@ fn resolve_workspace_from_patterns(patterns: &[String], current_dir: &Path) -> O
         return Some(abs_path_or_current(&candidate, current_dir));
       }
 
-      if candidate.is_file() {
-        if let Some(parent) = candidate.parent() {
-          return Some(abs_path_or_current(parent, current_dir));
-        }
+      if candidate.is_file()
+        && let Some(parent) = candidate.parent()
+      {
+        return Some(abs_path_or_current(parent, current_dir));
       }
     }
   }

@@ -140,8 +140,8 @@ impl IgnoreManager {
     }
 
     // Find and load .licenseignore files from the current directory all the way up
-    // to the workspace root. We load them starting from the root and moving down to ensure
-    // proper pattern precedence
+    // to the workspace root. We load them starting from the root and moving down to
+    // ensure proper pattern precedence
     let mut licenseignore_files = Vec::new();
     let mut current_dir = dir.to_path_buf();
 

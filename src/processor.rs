@@ -268,7 +268,9 @@ impl Processor {
 
   fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
     let files = if self.git_only {
-      git::get_git_tracked_files(&self.workspace_root)?.into_iter().collect::<Vec<_>>()
+      git::get_git_tracked_files(&self.workspace_root)?
+        .into_iter()
+        .collect::<Vec<_>>()
     } else if let Some(reference) = &self.ratchet_reference {
       git::get_changed_files_for_workspace(&self.workspace_root, reference)?
         .into_iter()
@@ -1431,7 +1433,11 @@ impl Processor {
   }
 }
 
-fn build_pattern_matchers(patterns: &[String], current_dir: &Path, workspace_root: &Path) -> Result<Vec<PatternMatcher>> {
+fn build_pattern_matchers(
+  patterns: &[String],
+  current_dir: &Path,
+  workspace_root: &Path,
+) -> Result<Vec<PatternMatcher>> {
   if patterns.is_empty() {
     return Ok(Vec::new());
   }
@@ -1462,11 +1468,12 @@ fn build_pattern_matchers(patterns: &[String], current_dir: &Path, workspace_roo
           glob_source = rel_path.to_string_lossy().replace("\\", "/");
         }
       } else {
-        if let Ok(workspace_relative_cwd) = current_dir.strip_prefix(workspace_root) {
-          if !workspace_relative_cwd.as_os_str().is_empty() && workspace_relative_cwd.as_os_str() != "." {
-            let cwd_prefix = workspace_relative_cwd.to_string_lossy().replace("\\", "/");
-            glob_source = format!("{}/{}", cwd_prefix, glob_source);
-          }
+        if let Ok(workspace_relative_cwd) = current_dir.strip_prefix(workspace_root)
+          && !workspace_relative_cwd.as_os_str().is_empty()
+          && workspace_relative_cwd.as_os_str() != "."
+        {
+          let cwd_prefix = workspace_relative_cwd.to_string_lossy().replace("\\", "/");
+          glob_source = format!("{}/{}", cwd_prefix, glob_source);
         }
       }
       let glob_pattern =
