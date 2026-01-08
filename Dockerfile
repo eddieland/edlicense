@@ -76,7 +76,7 @@ FROM debian:bookworm-slim AS production
 
 # Install minimal runtime dependencies
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libssl-dev ca-certificates && \
+    apt-get install -y --no-install-recommends libssl3 ca-certificates && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
