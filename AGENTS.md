@@ -9,8 +9,8 @@ This file provides guidance to agents working with code in this repository.
 cargo build              # Debug build
 cargo build --release    # Release build
 
-# Test
-cargo nextest run        # Run tests (uses nextest)
+# Test (IMPORTANT: Always use cargo nextest, never cargo test)
+cargo nextest run        # Run all tests
 cargo nextest run -E 'test(test_name)'  # Run single test
 
 # Lint and Format
