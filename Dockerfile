@@ -15,16 +15,19 @@ ARG BUILD_VERSION=dev
 # Base build stage
 FROM rust:${RUST_VERSION}-slim AS builder
 
-ARG MUSL_TARGET=x86_64-unknown-linux-musl
+# Target is specified in rust-toolchain.toml and installed automatically
+ENV MUSL_TARGET=x86_64-unknown-linux-musl
 
 # Install build dependencies
+# Note: cmake, perl, and make are needed for vendored OpenSSL/libgit2 builds
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     musl-tools \
     pkg-config \
-    libssl-dev \
+    cmake \
+    make \
+    perl \
     git \
-    && rustup target add ${MUSL_TARGET} \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -59,6 +62,9 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/edlicense
+
+# Install development tools
+RUN cargo install cargo-watch cargo-outdated
 
 # Copy the entire project
 COPY . .
