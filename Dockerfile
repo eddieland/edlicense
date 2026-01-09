@@ -63,7 +63,7 @@ COPY . .
 RUN cargo build
 
 # Install development tools
-RUN cargo install cargo-watch cargo-outdated
+RUN cargo install cargo-nextest
 
 # Set environment variables
 ENV RUST_BACKTRACE=1
