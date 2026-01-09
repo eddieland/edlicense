@@ -5,4 +5,5 @@ components = [
     "rustfmt",
     "rust-src"
 ]
+targets = ["x86_64-unknown-linux-musl"]
 profile = "default"
