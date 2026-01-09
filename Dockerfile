@@ -79,16 +79,13 @@ RUN apt-get update && \
 WORKDIR /usr/src/edlicense
 
 # Install development tools
-RUN cargo install cargo-watch cargo-outdated
+RUN cargo install cargo-nextest
 
 # Copy the entire project
 COPY . .
 
 # Build the project in debug mode
 RUN cargo build
-
-# Install development tools
-RUN cargo install cargo-nextest
 
 # Set environment variables
 ENV RUST_BACKTRACE=1
