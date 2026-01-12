@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{Context, Result};
-use glob::Pattern;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::verbose_log;
@@ -51,8 +51,9 @@ use crate::verbose_log;
 /// ```
 #[derive(Clone)]
 pub struct IgnoreManager {
-  /// Patterns from command-line arguments
-  cli_patterns: Vec<Pattern>,
+  /// Pre-compiled glob set from command-line arguments for zero-allocation
+  /// matching
+  cli_glob_set: GlobSet,
 
   /// Gitignore matcher for .licenseignore files
   gitignore: Option<Gitignore>,
@@ -77,15 +78,47 @@ impl IgnoreManager {
   ///
   /// Returns an error if any of the command-line patterns are invalid.
   pub fn new(cli_patterns: Vec<String>) -> Result<Self> {
-    // Compile glob patterns from command-line
-    let cli_patterns = cli_patterns
-      .into_iter()
-      .map(|p| Pattern::new(&p))
-      .collect::<Result<Vec<_>, _>>()
-      .with_context(|| "Invalid glob pattern")?;
+    // Build a GlobSet from command-line patterns for zero-allocation matching
+    let mut builder = GlobSetBuilder::new();
+
+    for pattern in cli_patterns {
+      // Normalize pattern: convert backslashes to forward slashes
+      let pattern = pattern.replace('\\', "/");
+
+      // Helper to add a pattern to the builder
+      let add_pattern = |b: &mut GlobSetBuilder, p: &str| -> Result<()> {
+        b.add(Glob::new(p).with_context(|| format!("Invalid glob pattern: {}", p))?);
+        Ok(())
+      };
+
+      // Handle directory patterns (ending with /)
+      if let Some(dir_pattern) = pattern.strip_suffix('/') {
+        // Add both the exact directory match and recursive match
+        add_pattern(&mut builder, dir_pattern)?;
+        add_pattern(&mut builder, &format!("{}/**", dir_pattern))?;
+        add_pattern(&mut builder, &format!("**/{}/**", dir_pattern))?;
+        add_pattern(&mut builder, &format!("**/{}", dir_pattern))?;
+      } else if !pattern.contains('*') && !pattern.contains('?') {
+        // Plain name without wildcards - treat as potential directory or file match
+        add_pattern(&mut builder, &pattern)?;
+        add_pattern(&mut builder, &format!("**/{}", pattern))?;
+        add_pattern(&mut builder, &format!("{}/**", pattern))?;
+        add_pattern(&mut builder, &format!("**/{}/**", pattern))?;
+      } else {
+        // Regular glob pattern with wildcards
+        add_pattern(&mut builder, &pattern)?;
+
+        // Also add **/ prefix to match pattern anywhere in path (for absolute paths)
+        if !pattern.starts_with("**/") {
+          add_pattern(&mut builder, &format!("**/{}", pattern))?;
+        }
+      }
+    }
+
+    let cli_glob_set = builder.build().with_context(|| "Failed to build glob set")?;
 
     Ok(Self {
-      cli_patterns,
+      cli_glob_set,
       gitignore: None,
       root_dir: None,
     })
@@ -236,6 +269,8 @@ impl IgnoreManager {
 
   /// Checks if a file should be ignored based on command-line ignore patterns.
   ///
+  /// This uses a pre-compiled GlobSet for zero-allocation matching.
+  ///
   /// # Parameters
   ///
   /// * `path` - Path to the file to check
@@ -244,99 +279,10 @@ impl IgnoreManager {
   ///
   /// `true` if the file should be ignored, `false` otherwise.
   fn is_ignored_by_cli_patterns(&self, path: &Path) -> bool {
-    if let Some(path_str) = path.to_str() {
-      // Convert to a relative path string for matching
-      let path_str = path_str.replace("\\", "/"); // Normalize for Windows paths
-
-      // Get the file name and parent directories for more targeted matching
-      let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-      // Extract the last few components of the path for matching
-      // This helps with patterns like "vendor/" that should match regardless of the
-      // full path
-      let components: Vec<_> = path.components().collect();
-      let mut partial_paths = Vec::new();
-
-      // Build partial paths from the components
-      for i in 0..components.len() {
-        let partial_path = components[i..].iter().fold(String::new(), |mut acc, c| {
-          if !acc.is_empty() {
-            acc.push('/');
-          }
-          acc.push_str(c.as_os_str().to_str().unwrap_or(""));
-          acc
-        });
-        partial_paths.push(partial_path);
-      }
-
-      for pattern in &self.cli_patterns {
-        let pattern_str = pattern.as_str();
-
-        // Special handling for directory patterns (ending with /)
-        if let Some(dir_pattern) = pattern_str.strip_suffix('/') {
-          // Check if any partial path matches the directory pattern
-          for partial_path in &partial_paths {
-            if partial_path.starts_with(dir_pattern)
-              && (partial_path.len() == dir_pattern.len() || partial_path[dir_pattern.len()..].starts_with('/'))
-            {
-              verbose_log!(
-                "Skipping: {} (matches CLI directory pattern: {})",
-                path.display(),
-                pattern
-              );
-              return true;
-            }
-          }
-        }
-
-        // Try matching the pattern against the path
-        if pattern.matches(&path_str) {
-          verbose_log!("Skipping: {} (matches CLI ignore pattern: {})", path.display(), pattern);
-          return true;
-        }
-
-        // Try matching against file name
-        if pattern.matches(file_name) {
-          verbose_log!(
-            "Skipping: {} (matches CLI ignore pattern for file name: {})",
-            path.display(),
-            pattern
-          );
-          return true;
-        }
-
-        // Try matching against partial paths
-        for partial_path in &partial_paths {
-          if pattern.matches(partial_path) {
-            verbose_log!(
-              "Skipping: {} (matches CLI ignore pattern for partial path: {})",
-              path.display(),
-              pattern
-            );
-            return true;
-          }
-        }
-
-        // Special handling for directory patterns without trailing slash
-        // This handles patterns like "vendor" or "vendor/**"
-        if !pattern_str.contains('*') && !pattern_str.contains('?') && !pattern_str.ends_with('/') {
-          // Check if any partial path starts with the pattern
-          for partial_path in &partial_paths {
-            if partial_path.starts_with(pattern_str)
-              && (partial_path.len() == pattern_str.len() || partial_path[pattern_str.len()..].starts_with('/'))
-            {
-              verbose_log!(
-                "Skipping: {} (matches CLI directory name pattern: {})",
-                path.display(),
-                pattern
-              );
-              return true;
-            }
-          }
-        }
-      }
+    if self.cli_glob_set.is_match(path) {
+      verbose_log!("Skipping: {} (matches CLI ignore pattern)", path.display());
+      return true;
     }
-
     false
   }
 }
