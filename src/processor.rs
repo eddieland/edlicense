@@ -466,9 +466,12 @@ impl Processor {
   }
 
   /// Batch size for processing files to reduce async overhead.
-  /// Larger batches reduce task scheduling overhead but may reduce parallelism
-  /// for small file counts.
-  const BATCH_SIZE: usize = 64;
+  /// Smaller batches allow more parallelism while still reducing per-file
+  /// task spawning overhead. The optimal size balances async overhead reduction
+  /// against parallelism - too large serializes work, too small loses batching
+  /// benefits. Empirically tuned: 8 provides good balance between overhead
+  /// and parallelism.
+  const BATCH_SIZE: usize = 8;
 
   async fn process_files_with_filter(
     &self,
@@ -563,9 +566,8 @@ impl Processor {
     let batches: Vec<Vec<PathBuf>> = files.chunks(Self::BATCH_SIZE).map(|chunk| chunk.to_vec()).collect();
 
     let batch_count = batches.len();
-    // Limit concurrent batches to the configured concurrency divided by batch size,
-    // but always allow at least 1 and at most the number of batches
-    let batch_concurrency = std::cmp::max(1, std::cmp::min(concurrency / 4, batch_count));
+    // Run as many batches concurrently as we have concurrency slots.
+    let batch_concurrency = std::cmp::max(1, std::cmp::min(concurrency, batch_count));
 
     verbose_log!(
       "Processing {} files in {} batches (batch size: {}, batch concurrency: {})",
