@@ -1454,6 +1454,9 @@ fn build_pattern_matchers(
         current_dir.join(&raw_path)
       };
       let normalized = normalize_relative_path(&abs_path, workspace_root);
+      // Collapse any remaining .. segments so paths like src/nested/../other become
+      // src/other
+      let normalized = PathBuf::from(normalize_path_string(&normalized.to_string_lossy().replace('\\', "/")));
       if raw_path.is_dir() {
         if normalized.as_os_str() == "." {
           matchers.push(PatternMatcher::Any);
