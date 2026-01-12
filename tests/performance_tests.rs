@@ -39,6 +39,8 @@ async fn create_test_processor(
     None,
     false,
     None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
   )?;
 
   Ok((processor, temp_dir))
@@ -52,6 +54,7 @@ async fn create_test_processor_with_git(
   preserve_years: bool,
   ratchet_reference: Option<String>,
   git_only: bool,
+  workspace_root: PathBuf,
 ) -> Result<(Processor, tempfile::TempDir)> {
   let temp_dir = tempdir()?;
   let template_path = temp_dir.path().join("test_template.txt");
@@ -76,6 +79,8 @@ async fn create_test_processor_with_git(
     None,
     git_only,
     None, // Use default LicenseDetector
+    workspace_root,
+    true,
   )?;
 
   Ok((processor, temp_dir))
@@ -672,6 +677,7 @@ async fn test_monorepo_git_history_benchmark() -> Result<()> {
     false,
     Some(ratchet_ref),
     true,
+    repo_dir.clone(),
   )
   .await?;
 

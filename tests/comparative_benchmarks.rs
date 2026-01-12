@@ -64,6 +64,8 @@ async fn create_test_processor(
     None,
     false,
     None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
   )?;
 
   Ok((processor, temp_dir))

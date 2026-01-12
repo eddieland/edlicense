@@ -5,7 +5,7 @@
 //! files tracked by git.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use git2::Repository;
@@ -22,43 +22,47 @@ use crate::verbose_log;
 ///
 /// `true` if the current directory is inside a git repository, `false`
 /// otherwise.
+#[allow(dead_code)]
 pub fn is_git_repository() -> bool {
   let current_dir = match std::env::current_dir() {
     Ok(dir) => dir,
     Err(_) => return false,
   };
 
-  match Repository::discover(&current_dir) {
-    Ok(repo) => repo.workdir().is_some(),
-    Err(_) => false,
+  matches!(discover_repo_root(&current_dir), Ok(Some(_)))
+}
+
+/// Discover the root of a git repository starting from the given directory.
+pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
+  match Repository::discover(start_dir) {
+    Ok(repo) => Ok(repo.workdir().map(|root| root.to_path_buf())),
+    Err(_) => Ok(None),
   }
 }
 
 /// Gets all files tracked by git in the current repository.
 ///
 /// This function is used to limit processing to only files that are tracked by
-/// git. It works correctly even when called from a subdirectory of the git
-/// repository. The function uses your current working directory (`$CWD`) to
-/// determine the git repository and which files are tracked. You should always
-/// run edlicense from inside the git repository when git detection mode is
-/// enabled.
+/// git. It discovers the git repository from the provided workspace root and
+/// returns paths relative to that root.
 ///
 /// # Returns
 ///
 /// A `HashSet` of file paths that are tracked by git or an error if the git
-/// operations fail. The paths are relative to the current working directory.
+/// operations fail. The paths are relative to the workspace root.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - The git repository cannot be opened
 /// - Git operations fail
-pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
+pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> {
   verbose_log!("Getting all files tracked by git");
 
-  let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
-
-  let repo = Repository::discover(&current_dir).with_context(|| "Failed to discover git repository")?;
+  let repo = Repository::discover(workspace_root).with_context(|| "Failed to discover git repository")?;
+  let workdir = repo
+    .workdir()
+    .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
 
   let mut tracked_files = HashSet::new();
 
@@ -79,17 +83,14 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
           };
 
           // Convert the repository-relative path to an absolute path
-          if let Some(workdir) = repo.workdir() {
-            let abs_path = workdir.join(&repo_relative_path);
-            // Get path relative to current directory
-            let rel_path = abs_path
-              .strip_prefix(&current_dir)
-              .ok()
-              .map(|path| path.to_path_buf())
-              .or_else(|| pathdiff::diff_paths(&abs_path, &current_dir))
-              .unwrap_or_else(|| repo_relative_path.clone());
-            tracked_files.insert(rel_path);
-          }
+          let abs_path = workdir.join(&repo_relative_path);
+          let rel_path = abs_path
+            .strip_prefix(workspace_root)
+            .ok()
+            .map(|path| path.to_path_buf())
+            .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
+            .unwrap_or_else(|| repo_relative_path.clone());
+          tracked_files.insert(rel_path);
         }
       }
       0
@@ -119,13 +120,26 @@ pub fn get_git_tracked_files() -> Result<HashSet<PathBuf>> {
 /// - The git repository cannot be opened
 /// - The specified commit cannot be found
 /// - Git operations fail
+#[allow(dead_code)]
 pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
   verbose_log!("Getting changed files since commit: {}", commit);
 
   let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
   verbose_log!("Current directory: {}", current_dir.display());
 
-  let repo = Repository::discover(&current_dir).with_context(|| "Failed to discover git repository")?;
+  get_changed_files_for_workspace(&current_dir, commit)
+}
+
+/// Gets the list of files that have changed since a specific commit.
+///
+/// The returned paths are relative to the provided workspace root.
+pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> Result<HashSet<PathBuf>> {
+  verbose_log!("Getting changed files since commit: {}", commit);
+
+  let repo = Repository::discover(workspace_root).with_context(|| "Failed to discover git repository")?;
+  let workdir = repo
+    .workdir()
+    .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
 
   // Get the commit object for the reference commit
   let commit_obj = repo
@@ -173,22 +187,15 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
         if let Some(new_file) = diff_delta.new_file().path() {
           verbose_log!("Found changed file in git: {:?}", new_file);
 
-          let abs_path = repo
-            .workdir()
-            .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))
+          let abs_path = workdir.join(new_file);
+          let rel_path = abs_path
+            .strip_prefix(workspace_root)
             .ok()
-            .map(|workdir| workdir.join(new_file));
-
-          if let Some(abs_path) = abs_path {
-            let rel_path = abs_path
-              .strip_prefix(&current_dir)
-              .ok()
-              .map(|path| path.to_path_buf())
-              .or_else(|| pathdiff::diff_paths(&abs_path, &current_dir))
-              .unwrap_or_else(|| new_file.to_path_buf());
-            verbose_log!("Added relative path: {}", rel_path.display());
-            changed_files.insert(rel_path);
-          }
+            .map(|path| path.to_path_buf())
+            .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
+            .unwrap_or_else(|| new_file.to_path_buf());
+          verbose_log!("Added relative path: {}", rel_path.display());
+          changed_files.insert(rel_path);
         }
         true
       }),

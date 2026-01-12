@@ -114,7 +114,7 @@ fn test_get_git_tracked_files() -> Result<()> {
   std::env::set_current_dir(&temp_dir)?;
 
   // Get tracked files
-  let tracked_files = git::get_git_tracked_files()?;
+  let tracked_files = git::get_git_tracked_files(temp_dir.path())?;
 
   // Print the tracked files for debugging
   println!("Tracked files:");
@@ -231,7 +231,7 @@ fn test_git_from_subdirectory() -> Result<()> {
   std::env::set_current_dir(temp_dir.path().join("subdir/subsubdir"))?;
 
   // Get tracked files from subsubdir
-  let tracked_files = git::get_git_tracked_files()?;
+  let tracked_files = git::get_git_tracked_files(temp_dir.path())?;
 
   // Print the tracked files for debugging
   println!("Tracked files from subsubdir:");
@@ -241,19 +241,19 @@ fn test_git_from_subdirectory() -> Result<()> {
 
   // Verify expected files are tracked
   assert!(
-    tracked_files.contains(&PathBuf::from("../../initial.txt")),
+    tracked_files.contains(&PathBuf::from("initial.txt")),
     "Should contain initial.txt"
   );
   assert!(
-    tracked_files.contains(&PathBuf::from("../../root.rs")),
+    tracked_files.contains(&PathBuf::from("root.rs")),
     "Should contain root.rs"
   );
   assert!(
-    tracked_files.contains(&PathBuf::from("../subdir.rs")),
+    tracked_files.contains(&PathBuf::from("subdir/subdir.rs")),
     "Should contain subdir.rs"
   );
   assert!(
-    tracked_files.contains(&PathBuf::from("subsubdir.rs")),
+    tracked_files.contains(&PathBuf::from("subdir/subsubdir/subsubdir.rs")),
     "Should contain subsubdir.rs"
   );
 

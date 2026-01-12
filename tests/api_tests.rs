@@ -44,6 +44,8 @@ async fn test_public_api() -> Result<()> {
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
   )?;
 
   // Process a single file
@@ -122,6 +124,8 @@ async fn test_api_with_check_only() -> Result<()> {
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
   )?;
 
   // Process the file with license - should succeed
@@ -216,6 +220,8 @@ async fn test_show_diff_mode() -> Result<()> {
     Some(DiffManager::new(true, None)),
     false,
     None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
   )?;
 
   // Process the file - should fail but show diff

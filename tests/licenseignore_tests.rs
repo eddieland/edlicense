@@ -25,7 +25,7 @@ fn test_licenseignore_basic() -> Result<()> {
 
   // Create an IgnoreManager and load .licenseignore files
   let mut ignore_manager = IgnoreManager::new(vec![])?;
-  ignore_manager.load_licenseignore_files(temp_path)?;
+  ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Test which files are ignored
   assert!(
@@ -65,7 +65,7 @@ fn test_licenseignore_with_cli_patterns() -> Result<()> {
 
   // Create an IgnoreManager with CLI patterns
   let mut ignore_manager = IgnoreManager::new(vec!["*.md".to_string()])?;
-  ignore_manager.load_licenseignore_files(temp_path)?;
+  ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Test which files are ignored
   assert!(
@@ -111,7 +111,7 @@ fn test_global_licenseignore() -> Result<()> {
 
   // Create an IgnoreManager
   let mut ignore_manager = IgnoreManager::new(vec![])?;
-  ignore_manager.load_licenseignore_files(temp_path)?;
+  ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Test which files are ignored
   assert!(
@@ -173,11 +173,11 @@ fn test_hierarchical_licenseignore() -> Result<()> {
 
   // Create an IgnoreManager for parent directory
   let mut parent_ignore_manager = IgnoreManager::new(vec![])?;
-  parent_ignore_manager.load_licenseignore_files(temp_path)?;
+  parent_ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Create an IgnoreManager for subdirectory
   let mut subdir_ignore_manager = IgnoreManager::new(vec![])?;
-  subdir_ignore_manager.load_licenseignore_files(&temp_path.join("subdir"))?;
+  subdir_ignore_manager.load_licenseignore_files(&temp_path.join("subdir"), temp_path)?;
 
   // Test parent directory files
   assert!(
@@ -262,7 +262,7 @@ docs/*.md
 
   // Create an IgnoreManager and load .licenseignore files
   let mut ignore_manager = IgnoreManager::new(vec![])?;
-  ignore_manager.load_licenseignore_files(temp_path)?;
+  ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Test which files are ignored
   assert!(
@@ -324,7 +324,7 @@ fn test_path_normalization() -> Result<()> {
 
   // Create an IgnoreManager and load .licenseignore files
   let mut ignore_manager = IgnoreManager::new(vec![])?;
-  ignore_manager.load_licenseignore_files(temp_path)?;
+  ignore_manager.load_licenseignore_files(temp_path, temp_path)?;
 
   // Test with different path formats
   let absolute_path = temp_path.join("test.json");
@@ -397,7 +397,7 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
   // Test loading .licenseignore files from level2 (deepest directory)
   // This should load both level1 and root .licenseignore files
   let mut ignore_manager = IgnoreManager::new(vec![])?;
-  ignore_manager.load_licenseignore_files(&level2_path)?;
+  ignore_manager.load_licenseignore_files(&level2_path, temp_path)?;
 
   // Verify that patterns from both .licenseignore files are applied
   // Root .licenseignore ignores .js files
@@ -418,16 +418,15 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
     "Text file in level2 should NOT be ignored"
   );
 
-  // Verify patterns are applied to parent directories (upward propagation not
-  // applicable)
+  // Verify patterns are applied to parent directories (workspace root applies)
   assert!(
-    !ignore_manager.is_ignored(&level1_path.join("test.js")),
-    "JS file in level1 should NOT be ignored when loading from level2"
+    ignore_manager.is_ignored(&level1_path.join("test.js")),
+    "JS file in level1 should be ignored when loading from level2"
   );
 
   // Test loading from level1
   let mut level1_ignore_manager = IgnoreManager::new(vec![])?;
-  level1_ignore_manager.load_licenseignore_files(&level1_path)?;
+  level1_ignore_manager.load_licenseignore_files(&level1_path, temp_path)?;
 
   // Verify patterns from both .licenseignore files when loading from level1
   assert!(
@@ -472,7 +471,7 @@ fn test_recursive_licenseignore_loading() -> Result<()> {
 
   // Load .licenseignore files from child directory
   let mut conflict_manager = IgnoreManager::new(vec![])?;
-  conflict_manager.load_licenseignore_files(&child_path)?;
+  conflict_manager.load_licenseignore_files(&child_path, conflict_path)?;
 
   // Verify that negation pattern in child directory takes precedence
   assert!(
@@ -533,6 +532,8 @@ fn test_processor_with_licenseignore() -> Result<()> {
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
+    temp_path.to_path_buf(),
+    false,
   )?;
 
   // Read the file content and directly test the has_license method
@@ -603,6 +604,8 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
+    temp_path.to_path_buf(),
+    false,
   )?;
 
   // Store the initial files_processed count
@@ -663,6 +666,8 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
+    rust_path.to_path_buf(),
+    false,
   )?;
 
   // Store the initial files_processed count for the rust processor

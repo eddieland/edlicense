@@ -71,15 +71,15 @@ impl IgnoreFilter {
 
   /// Updates the ignore manager with .licenseignore files from a directory.
   #[allow(dead_code)]
-  pub fn load_licenseignore_files(&mut self, dir: &Path) -> Result<()> {
-    self.ignore_manager.load_licenseignore_files(dir)
+  pub fn load_licenseignore_files(&mut self, dir: &Path, workspace_root: &Path) -> Result<()> {
+    self.ignore_manager.load_licenseignore_files(dir, workspace_root)
   }
 
   /// Creates a new IgnoreFilter with updated ignore patterns from a directory.
   #[allow(dead_code)]
-  pub fn with_licenseignore_files(&self, dir: &Path) -> Result<Self> {
+  pub fn with_licenseignore_files(&self, dir: &Path, workspace_root: &Path) -> Result<Self> {
     let mut ignore_manager = self.ignore_manager.clone();
-    ignore_manager.load_licenseignore_files(dir)?;
+    ignore_manager.load_licenseignore_files(dir, workspace_root)?;
     Ok(Self { ignore_manager })
   }
 }
