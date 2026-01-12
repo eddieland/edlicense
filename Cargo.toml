@@ -1,6 +1,6 @@
 [package]
 name = "edlicense"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Edward Jones <edwardrjones97@gmail.com>"]
 categories = ["command-line-utilities", "development-tools"]
 description = "A high-performance Rust tool that ensures source code files have copyright license headers. Features Git integration and automatic year updates. Recursively scans codebases with performance optimizations for large projects - a modern alternative to addlicense."
