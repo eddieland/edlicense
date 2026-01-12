@@ -161,15 +161,55 @@ fn generate_chaotic_structure(dir: &Path, config: &ChaoticConfig) -> Result<Chao
   let mut stats = ChaoticStats::default();
 
   // Realistic directory name patterns
-  let root_dirs = ["src", "lib", "pkg", "internal", "cmd", "tests", "examples", "vendor", "third_party"];
+  let root_dirs = [
+    "src",
+    "lib",
+    "pkg",
+    "internal",
+    "cmd",
+    "tests",
+    "examples",
+    "vendor",
+    "third_party",
+  ];
   let sub_dirs = [
-    "utils", "helpers", "common", "core", "api", "handlers", "models", "services",
-    "controllers", "middleware", "config", "types", "interfaces", "impl", "proto",
-    "generated", "mocks", "fixtures", "testdata", "bench", "docs", "scripts",
+    "utils",
+    "helpers",
+    "common",
+    "core",
+    "api",
+    "handlers",
+    "models",
+    "services",
+    "controllers",
+    "middleware",
+    "config",
+    "types",
+    "interfaces",
+    "impl",
+    "proto",
+    "generated",
+    "mocks",
+    "fixtures",
+    "testdata",
+    "bench",
+    "docs",
+    "scripts",
   ];
   let deep_dirs = [
-    "v1", "v2", "internal", "detail", "private", "public", "experimental",
-    "deprecated", "legacy", "compat", "platform", "arch", "os",
+    "v1",
+    "v2",
+    "internal",
+    "detail",
+    "private",
+    "public",
+    "experimental",
+    "deprecated",
+    "legacy",
+    "compat",
+    "platform",
+    "arch",
+    "os",
   ];
 
   // File extensions with realistic weights
@@ -193,31 +233,61 @@ fn generate_chaotic_structure(dir: &Path, config: &ChaoticConfig) -> Result<Chao
 
   // File size distribution (bytes) - weighted towards smaller files
   let file_sizes: Vec<(usize, u32)> = vec![
-    (200, 20),     // Tiny (interface files, constants)
-    (500, 30),     // Small
-    (1000, 25),    // Medium-small (1KB)
-    (3000, 15),    // Medium
-    (10000, 7),    // Large (10KB)
-    (50000, 2),    // Very large
-    (100000, 1),   // Huge (100KB)
+    (200, 20),   // Tiny (interface files, constants)
+    (500, 30),   // Small
+    (1000, 25),  // Medium-small (1KB)
+    (3000, 15),  // Medium
+    (10000, 7),  // Large (10KB)
+    (50000, 2),  // Very large
+    (100000, 1), // Huge (100KB)
   ];
 
   // File naming patterns
   let prefixes = ["", "test_", "spec_", "bench_", "mock_", "fake_", "stub_"];
   let base_names = [
-    "main", "lib", "mod", "index", "init", "utils", "helpers", "common",
-    "client", "server", "handler", "service", "repository", "model",
-    "controller", "middleware", "config", "types", "errors", "constants",
-    "factory", "builder", "adapter", "proxy", "decorator", "observer",
-    "strategy", "command", "state", "visitor", "iterator", "mediator",
+    "main",
+    "lib",
+    "mod",
+    "index",
+    "init",
+    "utils",
+    "helpers",
+    "common",
+    "client",
+    "server",
+    "handler",
+    "service",
+    "repository",
+    "model",
+    "controller",
+    "middleware",
+    "config",
+    "types",
+    "errors",
+    "constants",
+    "factory",
+    "builder",
+    "adapter",
+    "proxy",
+    "decorator",
+    "observer",
+    "strategy",
+    "command",
+    "state",
+    "visitor",
+    "iterator",
+    "mediator",
   ];
 
-  println!("Generating chaotic file structure (target: {} files, seed: {})...",
-           config.target_file_count, config.seed);
+  println!(
+    "Generating chaotic file structure (target: {} files, seed: {})...",
+    config.target_file_count, config.seed
+  );
 
   let mut files_created = 0;
 
-  // Keep generating until we hit the target - loop through root dirs multiple times if needed
+  // Keep generating until we hit the target - loop through root dirs multiple
+  // times if needed
   let mut round = 0;
   while files_created < config.target_file_count {
     round += 1;
@@ -252,17 +322,36 @@ fn generate_chaotic_structure(dir: &Path, config: &ChaoticConfig) -> Result<Chao
           // Flat structure with many files
           let file_count = (rng.random_range(50..=200) as f64 * scale_factor) as usize;
           let file_count = file_count.min(remaining);
-          files_created += create_files_in_dir(&root_path, file_count, &extensions, &file_sizes,
-                                               &prefixes, &base_names, config.with_license, &mut rng, &mut stats)?;
+          files_created += create_files_in_dir(
+            &root_path,
+            file_count,
+            &extensions,
+            &file_sizes,
+            &prefixes,
+            &base_names,
+            config.with_license,
+            &mut rng,
+            &mut stats,
+          )?;
         }
         1 => {
           // Deep nesting with files at each level
           let depth = rng.random_range(3..=8);
           let files_per_level = (rng.random_range(10..=50) as f64 * scale_factor) as usize;
-          files_created += create_deep_structure(&root_path, depth, &sub_dirs, &deep_dirs,
-                                                 &extensions, &file_sizes, &prefixes, &base_names,
-                                                 files_per_level.min(remaining),
-                                                 config.with_license, &mut rng, &mut stats)?;
+          files_created += create_deep_structure(
+            &root_path,
+            depth,
+            &sub_dirs,
+            &deep_dirs,
+            &extensions,
+            &file_sizes,
+            &prefixes,
+            &base_names,
+            files_per_level.min(remaining),
+            config.with_license,
+            &mut rng,
+            &mut stats,
+          )?;
         }
         2 => {
           // Moderate nesting with varying file counts - create more subdirs
@@ -283,24 +372,52 @@ fn generate_chaotic_structure(dir: &Path, config: &ChaoticConfig) -> Result<Chao
               rng.random_range(10..=50)
             };
             let files_here = files_here.min(config.target_file_count - files_created);
-            files_created += create_files_in_dir(&subdir_path, files_here, &extensions, &file_sizes,
-                                                 &prefixes, &base_names, config.with_license, &mut rng, &mut stats)?;
+            files_created += create_files_in_dir(
+              &subdir_path,
+              files_here,
+              &extensions,
+              &file_sizes,
+              &prefixes,
+              &base_names,
+              config.with_license,
+              &mut rng,
+              &mut stats,
+            )?;
 
             // Maybe add deeper nesting
             if rng.random_bool(0.3) {
               let extra_depth = rng.random_range(2..=5);
-              files_created += create_deep_structure(&subdir_path, extra_depth, &sub_dirs, &deep_dirs,
-                                                     &extensions, &file_sizes, &prefixes, &base_names,
-                                                     (config.target_file_count - files_created).min(100),
-                                                     config.with_license, &mut rng, &mut stats)?;
+              files_created += create_deep_structure(
+                &subdir_path,
+                extra_depth,
+                &sub_dirs,
+                &deep_dirs,
+                &extensions,
+                &file_sizes,
+                &prefixes,
+                &base_names,
+                (config.target_file_count - files_created).min(100),
+                config.with_license,
+                &mut rng,
+                &mut stats,
+              )?;
             }
           }
         }
         _ => {
           // Mixed: some files at root, many subdirs with varying structures
           let root_files = rng.random_range(20..=80).min(config.target_file_count - files_created);
-          files_created += create_files_in_dir(&root_path, root_files, &extensions, &file_sizes,
-                                               &prefixes, &base_names, config.with_license, &mut rng, &mut stats)?;
+          files_created += create_files_in_dir(
+            &root_path,
+            root_files,
+            &extensions,
+            &file_sizes,
+            &prefixes,
+            &base_names,
+            config.with_license,
+            &mut rng,
+            &mut stats,
+          )?;
 
           let num_subdirs = rng.random_range(5..=20);
           for i in 0..num_subdirs {
@@ -317,15 +434,27 @@ fn generate_chaotic_structure(dir: &Path, config: &ChaoticConfig) -> Result<Chao
             stats.total_dirs += 1;
 
             let files_here = rng.random_range(20..=100).min(config.target_file_count - files_created);
-            files_created += create_files_in_dir(&subdir_path, files_here, &extensions, &file_sizes,
-                                                 &prefixes, &base_names, config.with_license, &mut rng, &mut stats)?;
+            files_created += create_files_in_dir(
+              &subdir_path,
+              files_here,
+              &extensions,
+              &file_sizes,
+              &prefixes,
+              &base_names,
+              config.with_license,
+              &mut rng,
+              &mut stats,
+            )?;
           }
         }
       }
 
       // Occasionally add empty directories
       if rng.random_bool(0.1) {
-        let empty_dir = root_path.join(format!(".{}", ["cache", "tmp", "build", "output"].choose(&mut rng).unwrap_or(&"empty")));
+        let empty_dir = root_path.join(format!(
+          ".{}",
+          ["cache", "tmp", "build", "output"].choose(&mut rng).unwrap_or(&"empty")
+        ));
         fs::create_dir_all(&empty_dir)?;
         stats.total_dirs += 1;
         stats.empty_dirs += 1;
@@ -335,8 +464,17 @@ fn generate_chaotic_structure(dir: &Path, config: &ChaoticConfig) -> Result<Chao
 
   // Add some files at the root level (like a real project)
   let root_files = rng.random_range(1..=10);
-  files_created += create_files_in_dir(dir, root_files, &extensions, &file_sizes,
-                                       &prefixes, &base_names, config.with_license, &mut rng, &mut stats)?;
+  files_created += create_files_in_dir(
+    dir,
+    root_files,
+    &extensions,
+    &file_sizes,
+    &prefixes,
+    &base_names,
+    config.with_license,
+    &mut rng,
+    &mut stats,
+  )?;
 
   stats.total_files = files_created;
 
@@ -458,8 +596,17 @@ fn create_deep_structure(
     };
     let files_here = files_here.min(max_files - files_created);
 
-    files_created += create_files_in_dir(&current_path, files_here, extensions, file_sizes,
-                                         prefixes, base_names, with_license, rng, stats)?;
+    files_created += create_files_in_dir(
+      &current_path,
+      files_here,
+      extensions,
+      file_sizes,
+      prefixes,
+      base_names,
+      with_license,
+      rng,
+      stats,
+    )?;
 
     // Sometimes branch out
     if rng.random_bool(0.2) && max_depth > 2 && depth < max_depth - 2 {
@@ -470,8 +617,17 @@ fn create_deep_structure(
           fs::create_dir_all(&sibling)?;
           stats.total_dirs += 1;
           let sibling_files = rng.random_range(1..=5).min(max_files - files_created);
-          files_created += create_files_in_dir(&sibling, sibling_files, extensions, file_sizes,
-                                               prefixes, base_names, with_license, rng, stats)?;
+          files_created += create_files_in_dir(
+            &sibling,
+            sibling_files,
+            extensions,
+            file_sizes,
+            prefixes,
+            base_names,
+            with_license,
+            rng,
+            stats,
+          )?;
         }
       }
     }
@@ -487,10 +643,8 @@ fn generate_file_content(ext: &str, target_size: usize, with_license: bool, rng:
       "rs" | "go" | "c" | "cpp" | "h" | "hpp" | "java" | "kt" | "scala" | "swift" | "js" | "ts" => {
         "// Copyright (c) 2024 Test Company\n// Licensed under MIT\n\n"
       }
-      "py" | "rb" | "sh" => {
-        "# Copyright (c) 2024 Test Company\n# Licensed under MIT\n\n"
-      }
-      _ => "// Copyright (c) 2024 Test Company\n\n"
+      "py" | "rb" | "sh" => "# Copyright (c) 2024 Test Company\n# Licensed under MIT\n\n",
+      _ => "// Copyright (c) 2024 Test Company\n\n",
     }
   } else {
     ""
@@ -915,7 +1069,10 @@ async fn run_chaotic_edlicense_benchmark(
   scenario: &str,
   iterations: usize,
 ) -> Result<Vec<ChaoticBenchmarkResult>> {
-  println!("\n=== Running edlicense chaotic benchmark: {} ({}) ===", operation, scenario);
+  println!(
+    "\n=== Running edlicense chaotic benchmark: {} ({}) ===",
+    operation, scenario
+  );
 
   let mut results = Vec::with_capacity(iterations);
 
@@ -962,7 +1119,10 @@ fn run_chaotic_addlicense_benchmark(
     return Ok(vec![]);
   }
 
-  println!("\n=== Running addlicense chaotic benchmark: {} ({}) ===", operation, scenario);
+  println!(
+    "\n=== Running addlicense chaotic benchmark: {} ({}) ===",
+    operation, scenario
+  );
 
   let mut results = Vec::with_capacity(iterations);
 
@@ -1033,20 +1193,23 @@ fn chaotic_benchmark() -> Result<()> {
 
   for (scenario_name, target_files, seed) in scenarios {
     println!("\n{}", "=".repeat(60));
-    println!("=== Chaotic Scenario: {} (target: {} files, seed: {}) ===", scenario_name, target_files, seed);
+    println!(
+      "=== Chaotic Scenario: {} (target: {} files, seed: {}) ===",
+      scenario_name, target_files, seed
+    );
     println!("{}", "=".repeat(60));
 
-    let operation_configs = [
-      ("add", false, false),
-      ("update", true, false),
-      ("check", true, true),
-    ];
+    let operation_configs = [("add", false, false), ("update", true, false), ("check", true, true)];
 
     for (operation, with_license, check_only) in operation_configs {
       let temp_dir = tempdir()?;
       let base_dir = temp_dir.path().join(format!("chaotic_{}_{}", scenario_name, operation));
-      let edlicense_dir = temp_dir.path().join(format!("edlicense_{}_{}", scenario_name, operation));
-      let addlicense_dir = temp_dir.path().join(format!("addlicense_{}_{}", scenario_name, operation));
+      let edlicense_dir = temp_dir
+        .path()
+        .join(format!("edlicense_{}_{}", scenario_name, operation));
+      let addlicense_dir = temp_dir
+        .path()
+        .join(format!("addlicense_{}_{}", scenario_name, operation));
 
       fs::create_dir_all(&base_dir)?;
 
@@ -1073,7 +1236,8 @@ fn chaotic_benchmark() -> Result<()> {
           seed,
           scenario_name,
           iterations,
-        ).await
+        )
+        .await
       })?;
 
       let addlicense_results = run_chaotic_addlicense_benchmark(
@@ -1099,16 +1263,28 @@ fn chaotic_benchmark() -> Result<()> {
 
   // Print summary
   println!("\n=== Chaotic Benchmark Summary ===");
-  println!("{:<20} {:<10} {:<12} {:<12} {:<10}", "Scenario", "Operation", "edlicense", "addlicense", "Speedup");
+  println!(
+    "{:<20} {:<10} {:<12} {:<12} {:<10}",
+    "Scenario", "Operation", "edlicense", "addlicense", "Speedup"
+  );
   println!("{}", "-".repeat(64));
 
-  for scenario in ["small_chaos", "medium_chaos", "large_chaos", "deep_nest", "varied_seed_a", "varied_seed_b"] {
+  for scenario in [
+    "small_chaos",
+    "medium_chaos",
+    "large_chaos",
+    "deep_nest",
+    "varied_seed_a",
+    "varied_seed_b",
+  ] {
     for operation in ["add", "check"] {
-      let ed_times: Vec<u128> = all_results.iter()
+      let ed_times: Vec<u128> = all_results
+        .iter()
         .filter(|r| r.scenario == scenario && r.operation == operation && r.tool == "edlicense")
         .map(|r| r.duration_ms)
         .collect();
-      let add_times: Vec<u128> = all_results.iter()
+      let add_times: Vec<u128> = all_results
+        .iter()
         .filter(|r| r.scenario == scenario && r.operation == operation && r.tool == "addlicense")
         .map(|r| r.duration_ms)
         .collect();
@@ -1123,10 +1299,18 @@ fn chaotic_benchmark() -> Result<()> {
 
         let speedup = if add_avg > 0.0 { add_avg / ed_avg } else { 0.0 };
 
-        println!("{:<20} {:<10} {:<12.1}ms {:<12}ms {:<10.2}x",
-                 scenario, operation, ed_avg,
-                 if add_avg > 0.0 { format!("{:.1}", add_avg) } else { "N/A".to_string() },
-                 if speedup > 0.0 { speedup } else { 0.0 });
+        println!(
+          "{:<20} {:<10} {:<12.1}ms {:<12}ms {:<10.2}x",
+          scenario,
+          operation,
+          ed_avg,
+          if add_avg > 0.0 {
+            format!("{:.1}", add_avg)
+          } else {
+            "N/A".to_string()
+          },
+          if speedup > 0.0 { speedup } else { 0.0 }
+        );
       }
     }
   }
