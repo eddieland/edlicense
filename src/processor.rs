@@ -6,6 +6,7 @@
 //! The [`Processor`] struct is the main entry point for all file operations.
 
 use std::borrow::Cow;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -630,8 +631,10 @@ impl Processor {
     let mut batch_reports = Vec::with_capacity(files.len());
     let mut has_missing = false;
 
+    // Process all files in batch using sync I/O
+    // This avoids tokio::fs spawn_blocking overhead for each file operation
     for path in files {
-      let result = self.process_file_batch_item(&path, &mut batch_reports).await;
+      let result = self.process_file_batch_item_sync(&path, &mut batch_reports);
       if let Err(e) = result {
         if self.check_only && e.to_string().contains("Missing license header") {
           has_missing = true;
@@ -647,22 +650,18 @@ impl Processor {
 
   /// Process a single file within a batch, collecting reports locally.
   ///
-  /// This is similar to `process_file_efficient_no_filter` but collects reports
-  /// into a local Vec instead of sending through a channel, reducing overhead.
-  async fn process_file_batch_item(&self, path: &Path, batch_reports: &mut Vec<FileReport>) -> Result<()> {
+  /// Uses synchronous I/O to avoid tokio::fs spawn_blocking overhead.
+  /// Since batches run concurrently via buffer_unordered, blocking within
+  /// one batch doesn't block other batches.
+  fn process_file_batch_item_sync(&self, path: &Path, batch_reports: &mut Vec<FileReport>) -> Result<()> {
     // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    // Get file metadata to check if we need to read the file
-    let metadata = match tokio::fs::metadata(path).await {
-      Ok(meta) => meta,
-      Err(e) => {
-        return Err(anyhow::anyhow!("Failed to get metadata for {}: {}", path.display(), e));
-      }
-    };
+    // Read file prefix using sync I/O (combines open + metadata + read into one)
+    let (prefix_bytes, prefix_content, file_len) = Self::read_license_check_prefix_sync(path)?;
 
     // Skip empty files
-    if metadata.len() == 0 {
+    if file_len == 0 {
       if self.collect_report_data {
         batch_reports.push(FileReport {
           path: path.to_path_buf(),
@@ -676,7 +675,6 @@ impl Processor {
     }
 
     let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
-    let (mut file, prefix_bytes, prefix_content) = self.read_license_check_prefix(path).await?;
     let has_license = self.has_license(&prefix_content);
     let needs_full_content = if self.check_only {
       if !has_license {
@@ -690,10 +688,12 @@ impl Processor {
       true
     };
 
-    let content = if needs_full_content {
-      self
-        .read_full_content_from_handle(&mut file, prefix_bytes, path)
-        .await?
+    // Only read full content if needed, using sync I/O
+    let content = if needs_full_content && prefix_bytes.len() as u64 >= file_len {
+      // We already have all the content from the prefix read
+      prefix_content
+    } else if needs_full_content {
+      Self::read_full_content_sync(path)?
     } else {
       prefix_content
     };
@@ -775,10 +775,8 @@ impl Processor {
         // Fast path: check if we need to update the year
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
-          // Write the updated content back to the file with optimized I/O
-          if let Err(e) = fs::write(path, updated_content.as_ref().as_bytes()).await {
-            return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
-          }
+          // Write the updated content back to the file using sync I/O
+          Self::write_file_sync(path, updated_content.as_ref())?;
 
           // Log the updated file with colors
           info_log!("Updated year in: {}", path.display());
@@ -828,10 +826,8 @@ impl Processor {
       let (prefix, content_remainder) = self.extract_prefix(&content);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 
-      // Write the updated content back to the file with optimized I/O
-      if let Err(e) = fs::write(path, &new_content).await {
-        return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
-      }
+      // Write the updated content back to the file using sync I/O
+      Self::write_file_sync(path, &new_content)?;
 
       // Log the added license with colors
       info_log!("Added license to: {}", path.display());
@@ -1686,6 +1682,49 @@ impl Processor {
       Ok(content) => Ok(content),
       Err(e) => Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e)),
     }
+  }
+
+  /// Synchronous version of read_license_check_prefix for use in spawn_blocking.
+  /// Returns (prefix_bytes, prefix_content, file_length) to avoid needing to keep file handle.
+  fn read_license_check_prefix_sync(path: &Path) -> Result<(Vec<u8>, String, u64)> {
+    let mut file = std::fs::File::open(path)
+      .with_context(|| format!("Failed to open file: {}", path.display()))?;
+
+    let file_len = file
+      .metadata()
+      .map(|m| m.len())
+      .unwrap_or(0);
+
+    let mut buf = vec![0u8; LICENSE_READ_LIMIT];
+    let read_len = file
+      .read(&mut buf)
+      .with_context(|| format!("Failed to read file: {}", path.display()))?;
+    buf.truncate(read_len);
+
+    let prefix_content = match std::str::from_utf8(&buf) {
+      Ok(prefix) => prefix.to_string(),
+      Err(e) => {
+        let valid_up_to = e.valid_up_to();
+        if valid_up_to == 0 {
+          return Err(anyhow::anyhow!("Failed to read file {}: {}", path.display(), e));
+        }
+        String::from_utf8_lossy(&buf[..valid_up_to]).to_string()
+      }
+    };
+
+    Ok((buf, prefix_content, file_len))
+  }
+
+  /// Read full file content synchronously.
+  fn read_full_content_sync(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path)
+      .with_context(|| format!("Failed to read file: {}", path.display()))
+  }
+
+  /// Write file content synchronously.
+  fn write_file_sync(path: &Path, content: &str) -> Result<()> {
+    std::fs::write(path, content)
+      .with_context(|| format!("Failed to write file: {}", path.display()))
   }
 }
 
