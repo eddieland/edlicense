@@ -49,20 +49,22 @@ impl Default for SimpleLicenseDetector {
 impl LicenseDetector for SimpleLicenseDetector {
   /// Checks if the content already has a license header.
   ///
-  /// The check is case-insensitive and only examines the first 1000 characters
+  /// The check is case-insensitive and only examines the first 1000 bytes
   /// of the file for performance reasons, as license headers are typically
   /// at the beginning of files.
+  ///
+  /// This implementation uses zero-allocation byte-level comparison for
+  /// optimal performance.
   fn has_license(&self, content: &str) -> bool {
-    // Take the first 1000 characters (or less if the file is shorter)
+    // Take the first 1000 bytes (or less if the file is shorter)
     let check_len = std::cmp::min(content.len(), 1000);
-    let check_content = &content[..check_len];
+    let bytes = content.as_bytes();
+    let check_bytes = &bytes[..check_len];
 
-    // Convert to lowercase for case-insensitive matching
-    let check_content_lower = check_content.to_lowercase();
-
-    // Based on addlicense's implementation, we check for common license indicators
-    // without requiring the specific year (which is too strict)
-    check_content_lower.contains("copyright")
+    // Case-insensitive search for "copyright" without allocation.
+    // Uses byte-level comparison with eq_ignore_ascii_case which is O(n)
+    // and avoids the String allocation from to_lowercase().
+    check_bytes.windows(9).any(|w| w.eq_ignore_ascii_case(b"copyright"))
   }
 }
 
