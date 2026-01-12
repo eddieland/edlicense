@@ -465,6 +465,11 @@ impl Processor {
       .await
   }
 
+  /// Batch size for processing files to reduce async overhead.
+  /// Larger batches reduce task scheduling overhead but may reduce parallelism
+  /// for small file counts.
+  const BATCH_SIZE: usize = 64;
+
   async fn process_files_with_filter(
     &self,
     files: Vec<PathBuf>,
@@ -548,39 +553,45 @@ impl Processor {
       verbose_log!("Processing {} files with concurrency {}", files_len, concurrency);
     }
 
-    let (report_sender, report_receiver) = tokio::sync::mpsc::channel::<FileReport>(concurrency * 2);
-
     use futures::stream::{self, StreamExt};
 
     let process_start = std::time::Instant::now();
 
-    stream::iter(files)
-      .map(|path| {
-        let has_missing = Arc::clone(&has_missing_license);
-        let processor = self;
-        let sender = report_sender.clone();
+    // Batch processing: process files in chunks to reduce async overhead.
+    // Each batch is processed as a single async task, collecting reports locally
+    // before merging. This reduces per-file task spawning and channel overhead.
+    let batches: Vec<Vec<PathBuf>> = files.chunks(Self::BATCH_SIZE).map(|chunk| chunk.to_vec()).collect();
 
-        async move {
-          let result = processor.process_file_efficient_no_filter(&path, sender.clone()).await;
-          if let Err(e) = result {
-            if processor.check_only && e.to_string().contains("Missing license header") {
-              has_missing.store(true, Ordering::Relaxed);
-            } else {
-              eprintln!("Error processing {}: {}", path.display(), e);
-              has_missing.store(true, Ordering::Relaxed);
-            }
-          }
-        }
+    let batch_count = batches.len();
+    // Limit concurrent batches to the configured concurrency divided by batch size,
+    // but always allow at least 1 and at most the number of batches
+    let batch_concurrency = std::cmp::max(1, std::cmp::min(concurrency / 4, batch_count));
+
+    verbose_log!(
+      "Processing {} files in {} batches (batch size: {}, batch concurrency: {})",
+      files_len,
+      batch_count,
+      Self::BATCH_SIZE,
+      batch_concurrency
+    );
+
+    // Process batches concurrently, each batch returns its local reports and error
+    // status
+    let batch_results: Vec<(Vec<FileReport>, bool)> = stream::iter(batches)
+      .map(|batch| {
+        let processor = self;
+        async move { processor.process_file_batch(batch).await }
       })
-      .buffer_unordered(concurrency)
-      .collect::<Vec<_>>()
+      .buffer_unordered(batch_concurrency)
+      .collect()
       .await;
 
-    drop(report_sender);
-
-    let mut receiver = report_receiver;
-    while let Ok(report) = receiver.try_recv() {
-      local_reports.push(report);
+    // Merge results from all batches
+    for (batch_reports, batch_has_missing) in batch_results {
+      local_reports.extend(batch_reports);
+      if batch_has_missing {
+        has_missing_license.store(true, Ordering::Relaxed);
+      }
     }
 
     verbose_log!(
@@ -595,6 +606,247 @@ impl Processor {
     }
 
     Ok(has_missing_clone.load(Ordering::Relaxed))
+  }
+
+  /// Process a batch of files and return collected reports and error status.
+  ///
+  /// This method processes multiple files sequentially within a single async
+  /// task, which reduces async runtime overhead compared to spawning a task
+  /// per file. Reports are collected locally and returned to the caller for
+  /// batch merging.
+  ///
+  /// # Parameters
+  ///
+  /// * `files` - Vector of file paths to process in this batch
+  ///
+  /// # Returns
+  ///
+  /// A tuple containing:
+  /// - Vector of FileReports for processed files
+  /// - Boolean indicating if any files had missing licenses
+  async fn process_file_batch(&self, files: Vec<PathBuf>) -> (Vec<FileReport>, bool) {
+    let mut batch_reports = Vec::with_capacity(files.len());
+    let mut has_missing = false;
+
+    for path in files {
+      let result = self.process_file_batch_item(&path, &mut batch_reports).await;
+      if let Err(e) = result {
+        if self.check_only && e.to_string().contains("Missing license header") {
+          has_missing = true;
+        } else {
+          eprintln!("Error processing {}: {}", path.display(), e);
+          has_missing = true;
+        }
+      }
+    }
+
+    (batch_reports, has_missing)
+  }
+
+  /// Process a single file within a batch, collecting reports locally.
+  ///
+  /// This is similar to `process_file_efficient_no_filter` but collects reports
+  /// into a local Vec instead of sending through a channel, reducing overhead.
+  async fn process_file_batch_item(&self, path: &Path, batch_reports: &mut Vec<FileReport>) -> Result<()> {
+    // Increment the files processed counter
+    self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    // Get file metadata to check if we need to read the file
+    let metadata = match tokio::fs::metadata(path).await {
+      Ok(meta) => meta,
+      Err(e) => {
+        return Err(anyhow::anyhow!("Failed to get metadata for {}: {}", path.display(), e));
+      }
+    };
+
+    // Skip empty files
+    if metadata.len() == 0 {
+      if self.collect_report_data {
+        batch_reports.push(FileReport {
+          path: path.to_path_buf(),
+          has_license: false,
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("Empty file".to_string()),
+        });
+      }
+      return Ok(());
+    }
+
+    let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
+    let (mut file, prefix_bytes, prefix_content) = self.read_license_check_prefix(path).await?;
+    let has_license = self.has_license(&prefix_content);
+    let needs_full_content = if self.check_only {
+      if !has_license {
+        diff_requested
+      } else {
+        !self.preserve_years && diff_requested
+      }
+    } else if has_license {
+      !self.preserve_years
+    } else {
+      true
+    };
+
+    let content = if needs_full_content {
+      self
+        .read_full_content_from_handle(&mut file, prefix_bytes, path)
+        .await?
+    } else {
+      prefix_content
+    };
+
+    if self.check_only {
+      if !has_license {
+        // In check-only mode, we need to signal that a license is missing
+
+        // Generate diffs if show_diff is enabled or save_diff_path is provided
+        if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
+          // Generate what the content would look like with a license
+          let license_text = match self.template_manager.render(&self.license_data) {
+            Ok(text) => text,
+            Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
+          };
+
+          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          let (prefix, content_without_prefix) = self.extract_prefix(&content);
+          let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
+
+          // Generate and display/save the diff
+          if let Err(e) = self.diff_manager.display_diff(path, &content, &new_content) {
+            eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
+          }
+        }
+
+        // Collect report locally
+        if self.collect_report_data {
+          batch_reports.push(FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: None, // No action taken in check mode
+            ignored: false,
+            ignored_reason: None,
+          });
+        }
+
+        // Signal that a license is missing by returning an error
+        return Err(anyhow::anyhow!("Missing license header"));
+      } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
+        // Check if we would update the year in the license
+        let updated_content = self.update_year_in_license(&content)?;
+        if updated_content != content {
+          // Generate and display/save the diff
+          if let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref()) {
+            eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
+          }
+        }
+
+        // Collect report locally
+        if self.collect_report_data {
+          batch_reports.push(FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: None, // No action taken in check mode, but would update year
+            ignored: false,
+            ignored_reason: None,
+          });
+        }
+      } else {
+        // File has license and we wouldn't update it
+        if self.collect_report_data {
+          batch_reports.push(FileReport {
+            path: path.to_path_buf(),
+            has_license,
+            action_taken: Some(FileAction::NoActionNeeded),
+            ignored: false,
+            ignored_reason: None,
+          });
+        }
+      }
+      return Ok(());
+    }
+
+    if has_license {
+      // If the file has a license and we're not in preserve_years mode,
+      // check if we need to update the year
+      if !self.preserve_years {
+        // Fast path: check if we need to update the year
+        let updated_content = self.update_year_in_license(&content)?;
+        if updated_content != content {
+          // Write the updated content back to the file with optimized I/O
+          if let Err(e) = fs::write(path, updated_content.as_ref().as_bytes()).await {
+            return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
+          }
+
+          // Log the updated file with colors
+          info_log!("Updated year in: {}", path.display());
+
+          // Collect report locally
+          if self.collect_report_data {
+            batch_reports.push(FileReport {
+              path: path.to_path_buf(),
+              has_license: true,
+              action_taken: Some(FileAction::YearUpdated),
+              ignored: false,
+              ignored_reason: None,
+            });
+          }
+        } else {
+          // No changes needed - add to report
+          if self.collect_report_data {
+            batch_reports.push(FileReport {
+              path: path.to_path_buf(),
+              has_license: true,
+              action_taken: Some(FileAction::NoActionNeeded),
+              ignored: false,
+              ignored_reason: None,
+            });
+          }
+        }
+      } else {
+        // Preserve years mode enabled - add to report
+        if self.collect_report_data {
+          batch_reports.push(FileReport {
+            path: path.to_path_buf(),
+            has_license: true,
+            action_taken: Some(FileAction::NoActionNeeded),
+            ignored: false,
+            ignored_reason: None,
+          });
+        }
+      }
+    } else {
+      // Add license to the file
+      let license_text = match self.template_manager.render(&self.license_data) {
+        Ok(text) => text,
+        Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
+      };
+
+      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      let (prefix, content_remainder) = self.extract_prefix(&content);
+      let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
+
+      // Write the updated content back to the file with optimized I/O
+      if let Err(e) = fs::write(path, &new_content).await {
+        return Err(anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e));
+      }
+
+      // Log the added license with colors
+      info_log!("Added license to: {}", path.display());
+
+      // Collect report locally
+      if self.collect_report_data {
+        batch_reports.push(FileReport {
+          path: path.to_path_buf(),
+          has_license: true, // Now it has a license
+          action_taken: Some(FileAction::Added),
+          ignored: false,
+          ignored_reason: None,
+        });
+      }
+    }
+
+    Ok(())
   }
 
   async fn filter_files_with_ignore_context(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
