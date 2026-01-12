@@ -1475,7 +1475,7 @@ fn build_pattern_matchers(
           && workspace_relative_cwd.as_os_str() != "."
         {
           let cwd_prefix = workspace_relative_cwd.to_string_lossy().replace("\\", "/");
-          glob_source = format!("{}/{}", cwd_prefix, glob_source);
+          glob_source = normalize_path_string(&format!("{}/{}", cwd_prefix, glob_source));
         }
       }
       let glob_pattern =
@@ -1533,4 +1533,39 @@ fn normalize_relative_path(path: &Path, current_dir: &Path) -> PathBuf {
   } else {
     normalized
   }
+}
+
+/// Normalizes a path string by resolving `..` segments.
+///
+/// This is useful for glob patterns where we can't use PathBuf directly
+/// since they may contain wildcards. The function resolves `..` by removing
+/// the preceding path component when possible.
+///
+/// # Examples
+/// - `subdir/../other/**/*.rs` -> `other/**/*.rs`
+/// - `a/b/../../c/*.rs` -> `c/*.rs`
+/// - `../other/*.rs` -> `../other/*.rs` (can't resolve, keeps as-is)
+fn normalize_path_string(path: &str) -> String {
+  let mut components: Vec<&str> = Vec::new();
+
+  for segment in path.split('/') {
+    if segment == ".." {
+      // Pop the last component if it exists and isn't ".."
+      if let Some(last) = components.last()
+        && *last != ".."
+        && !last.is_empty()
+      {
+        components.pop();
+        continue;
+      }
+      components.push(segment);
+    } else if segment == "." {
+      // Skip current directory markers
+      continue;
+    } else {
+      components.push(segment);
+    }
+  }
+
+  components.join("/")
 }

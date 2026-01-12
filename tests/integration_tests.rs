@@ -263,10 +263,7 @@ fn test_git_only_from_subdirectory() -> Result<()> {
   let temp_dir = tempdir()?;
 
   // Initialize git repository
-  Command::new("git")
-    .args(["init"])
-    .current_dir(&temp_dir)
-    .status()?;
+  Command::new("git").args(["init"]).current_dir(&temp_dir).status()?;
 
   // Configure git user for commits
   Command::new("git")
@@ -292,10 +289,7 @@ fn test_git_only_from_subdirectory() -> Result<()> {
   fs::write(temp_dir.path().join("src/nested/module.rs"), "fn module() {}")?;
 
   // Add and commit all files
-  Command::new("git")
-    .args(["add", "."])
-    .current_dir(&temp_dir)
-    .status()?;
+  Command::new("git").args(["add", "."]).current_dir(&temp_dir).status()?;
 
   Command::new("git")
     .args(["commit", "-m", "Initial commit"])
@@ -341,6 +335,102 @@ fn test_git_only_from_subdirectory() -> Result<()> {
   assert!(
     module_content.contains("Copyright (c)"),
     "src/nested/module.rs should have license header but has:\n{}",
+    module_content
+  );
+
+  Ok(())
+}
+
+/// Test that glob patterns with `..` segments work correctly when running
+/// from a subdirectory in git-only mode.
+///
+/// This verifies that patterns like `../other/**/*.rs` are normalized correctly
+/// when prefixed with the workspace-relative CWD (e.g., `src/nested/../other`
+/// becomes `src/other`).
+#[test]
+fn test_git_only_glob_with_parent_dir_segments() -> Result<()> {
+  // Skip test if git is not available
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = tempdir()?;
+
+  // Initialize git repository
+  Command::new("git").args(["init"]).current_dir(&temp_dir).status()?;
+
+  // Configure git user for commits
+  Command::new("git")
+    .args(["config", "user.name", "Test User"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  Command::new("git")
+    .args(["config", "user.email", "test@example.com"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  // Create a license template at the repo root
+  let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
+  fs::write(temp_dir.path().join("license_template.txt"), template_content)?;
+
+  // Create sibling directories under src/
+  fs::create_dir_all(temp_dir.path().join("src/nested"))?;
+  fs::create_dir_all(temp_dir.path().join("src/other/deep"))?;
+
+  // Create test files in both directories
+  fs::write(temp_dir.path().join("src/nested/module.rs"), "fn module() {}")?;
+  fs::write(temp_dir.path().join("src/other/sibling.rs"), "fn sibling() {}")?;
+  fs::write(temp_dir.path().join("src/other/deep/nested.rs"), "fn nested() {}")?;
+
+  // Add and commit all files
+  Command::new("git").args(["add", "."]).current_dir(&temp_dir).status()?;
+
+  Command::new("git")
+    .args(["commit", "-m", "Initial commit"])
+    .current_dir(&temp_dir)
+    .status()?;
+
+  // Run edlicense from the src/nested subdirectory with --git-only
+  // Use a relative pattern with `..` to match files in the sibling directory
+  let subdir = temp_dir.path().join("src/nested");
+  let args = &[
+    "--modify",
+    "--git-only=true",
+    "--year=2025",
+    "--license-file",
+    "../../license_template.txt",
+    "--verbose",
+    "../other/**/*.rs", // This pattern uses .. to reach the sibling directory
+  ];
+
+  let (status, _stdout, stderr) = run_edlicense(args, &subdir)?;
+
+  // Check that the command succeeded
+  assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
+
+  // Verify the files in src/other/ got license headers
+  // (This proves that ../other/**/*.rs was normalized correctly)
+  let sibling_content = fs::read_to_string(temp_dir.path().join("src/other/sibling.rs"))?;
+  assert!(
+    sibling_content.contains("Copyright (c)"),
+    "src/other/sibling.rs should have license header but has:\n{}",
+    sibling_content
+  );
+
+  let nested_content = fs::read_to_string(temp_dir.path().join("src/other/deep/nested.rs"))?;
+  assert!(
+    nested_content.contains("Copyright (c)"),
+    "src/other/deep/nested.rs should have license header but has:\n{}",
+    nested_content
+  );
+
+  // Verify the file in src/nested/ was NOT modified (not matched by pattern)
+  let module_content = fs::read_to_string(temp_dir.path().join("src/nested/module.rs"))?;
+  assert!(
+    !module_content.contains("Copyright (c)"),
+    "src/nested/module.rs should NOT have license header but has:\n{}",
     module_content
   );
 
