@@ -1684,16 +1684,13 @@ impl Processor {
     }
   }
 
-  /// Synchronous version of read_license_check_prefix for use in spawn_blocking.
-  /// Returns (prefix_bytes, prefix_content, file_length) to avoid needing to keep file handle.
+  /// Synchronous version of read_license_check_prefix for use in
+  /// spawn_blocking. Returns (prefix_bytes, prefix_content, file_length) to
+  /// avoid needing to keep file handle.
   fn read_license_check_prefix_sync(path: &Path) -> Result<(Vec<u8>, String, u64)> {
-    let mut file = std::fs::File::open(path)
-      .with_context(|| format!("Failed to open file: {}", path.display()))?;
+    let mut file = std::fs::File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
 
-    let file_len = file
-      .metadata()
-      .map(|m| m.len())
-      .unwrap_or(0);
+    let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
 
     let mut buf = vec![0u8; LICENSE_READ_LIMIT];
     let read_len = file
@@ -1717,14 +1714,12 @@ impl Processor {
 
   /// Read full file content synchronously.
   fn read_full_content_sync(path: &Path) -> Result<String> {
-    std::fs::read_to_string(path)
-      .with_context(|| format!("Failed to read file: {}", path.display()))
+    std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {}", path.display()))
   }
 
   /// Write file content synchronously.
   fn write_file_sync(path: &Path, content: &str) -> Result<()> {
-    std::fs::write(path, content)
-      .with_context(|| format!("Failed to write file: {}", path.display()))
+    std::fs::write(path, content).with_context(|| format!("Failed to write file: {}", path.display()))
   }
 }
 
