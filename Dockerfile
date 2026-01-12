@@ -15,8 +15,21 @@ ARG BUILD_VERSION=dev
 # Base build stage
 FROM rust:${RUST_VERSION}-slim AS builder
 
-# Target is specified in rust-toolchain.toml and installed automatically
-ENV MUSL_TARGET=x86_64-unknown-linux-musl
+# TARGETPLATFORM is automatically provided by Docker buildx for multi-arch builds
+# Format: linux/amd64, linux/arm64, etc.
+ARG TARGETPLATFORM=linux/amd64
+
+# Derive the musl target from TARGETPLATFORM to support multi-arch builds
+# This maps Docker platforms to Rust target triples:
+#   linux/amd64 -> x86_64-unknown-linux-musl
+#   linux/arm64 -> aarch64-unknown-linux-musl
+RUN case "${TARGETPLATFORM}" in \
+      "linux/amd64") MUSL_TARGET="x86_64-unknown-linux-musl" ;; \
+      "linux/arm64") MUSL_TARGET="aarch64-unknown-linux-musl" ;; \
+      *) echo "Unsupported platform: ${TARGETPLATFORM}" && exit 1 ;; \
+    esac && \
+    echo "export MUSL_TARGET=${MUSL_TARGET}" > /etc/profile.d/musl_target.sh && \
+    echo "${MUSL_TARGET}" > /tmp/musl_target
 
 # Install build dependencies
 # Note: cmake, perl, and make are needed for vendored OpenSSL/libgit2 builds
@@ -37,7 +50,8 @@ WORKDIR /usr/src/edlicense
 COPY Cargo.toml Cargo.lock* rust-toolchain.toml* ./
 
 # Create a dummy main.rs to build dependencies
-RUN mkdir -p src && \
+RUN export MUSL_TARGET=$(cat /tmp/musl_target) && \
+    mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release --target ${MUSL_TARGET} && \
     rm -rf src
@@ -46,7 +60,8 @@ RUN mkdir -p src && \
 COPY . .
 
 # Build the application
-RUN cargo build --release --target ${MUSL_TARGET} && \
+RUN export MUSL_TARGET=$(cat /tmp/musl_target) && \
+    cargo build --release --target ${MUSL_TARGET} && \
     cp target/${MUSL_TARGET}/release/edlicense /usr/local/bin/
 
 # Debug image with full toolchain
