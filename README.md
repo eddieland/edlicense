@@ -4,6 +4,17 @@ A tool that ensures source code files have copyright license headers by scanning
 
 `edlicense` modifies source files in place and avoids adding a license header to any file that already has one. It follows the Unix philosophy of tooling where possible and is designed with modern Rust best practices for high-performance CLI tools.
 
+## Philosophy
+
+`edlicense` is built for **large polyglot monorepos** (100k+ files) that lack centralized build systems like Bazel. Our guiding principles:
+
+- **Best-effort, not perfect**: We use fast heuristics adopted from [addlicense](https://github.com/google/addlicense), like checking for the word "copyright" in the first N characters rather than matching exact license text. This trades precision for speed.
+- **Human review is the safety net**: We assume every important file goes through code review where a human can catch formatting oddities. The goal is to get licenses on files reliably, not to handle every edge case perfectly.
+- **Heavy use of `.licenseignore`**: We expect you to liberally ignore files you don't care about or shouldn't add your license to (vendored code, generated files, assets, etc.).
+- **Git-first**: While `edlicense` works without a git repository, we're fundamentally a git-first tool. Features like `--git-only` (default in git repos) and `--ratchet` reflect this.
+
+If you need byte-perfect license validation or work in a tightly controlled build environment, a build-system-integrated solution may serve you better. If you need something fast and pragmatic that scales to massive repos, `edlicense` is for you.
+
 ## Why edlicense over addlicense?
 
 `edlicense` is inspired by Google's [addlicense](https://github.com/google/addlicense) tool but addresses several limitations:
