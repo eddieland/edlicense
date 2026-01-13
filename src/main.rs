@@ -16,10 +16,16 @@ mod workspace;
 
 use anyhow::Result;
 
-use crate::cli::{Cli, run_check};
+use crate::cli::{Cli, Command, run_check, run_tree};
 
 #[tokio::main]
 async fn main() -> Result<()> {
   let cli = Cli::parse_args();
-  run_check(cli.check_args).await
+
+  match cli.command {
+    Some(Command::Check(args)) => run_check(args).await,
+    Some(Command::Tree(args)) => run_tree(args).await,
+    // Default to check command for backward compatibility
+    None => run_check(cli.check_args).await,
+  }
 }

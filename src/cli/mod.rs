@@ -4,9 +4,11 @@
 //! It uses clap for argument parsing.
 
 mod check;
+mod tree;
 
 pub use check::{CheckArgs, run_check};
-use clap::Parser;
+pub use tree::{TreeArgs, run_tree};
+use clap::{Parser, Subcommand};
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
 
 const CUSTOM_STYLES: Styles = Styles::styled()
@@ -27,28 +29,31 @@ const CUSTOM_STYLES: Styles = Styles::styled()
   styles = CUSTOM_STYLES,
   after_help = "Examples:
   # Check license headers without modifying files
-  edlicense --license-file LICENSE.txt src/
+  edlicense check --license-file LICENSE.txt src/
 
   # Add or update license headers
-  edlicense --modify --license-file custom.txt --year 2023 include/ src/
+  edlicense check --modify --license-file custom.txt --year 2023 include/ src/
 
   # Show diff of potential changes without modifying files
-  edlicense --show-diff --license-file LICENSE.txt src/**/*.rs
+  edlicense check --show-diff --license-file LICENSE.txt src/**/*.rs
 
-  # Save diff output to a file
-  edlicense --save-diff changes.diff --license-file LICENSE.txt src/
+  # List files that would be checked
+  edlicense tree src/
+
+  # List files with verbose output showing why files are skipped
+  edlicense tree -v src/
 
   # Only process files changed since a specific git commit
-  edlicense --ratchet=HEAD^ --license-file LICENSE.txt --modify .
+  edlicense check --ratchet=HEAD^ --license-file LICENSE.txt --modify .
 
   # Only process git-tracked files
-  edlicense --git-only --license-file LICENSE.txt --modify .
+  edlicense check --git-only --license-file LICENSE.txt --modify .
 
   # Generate an HTML report of license status
-  edlicense --report-html report.html --license-file LICENSE.txt src/
+  edlicense check --report-html report.html --license-file LICENSE.txt src/
 
   # Ignore specific files or patterns
-  edlicense --ignore \"**/vendor/**\" --ignore \"**/*.json\" --license-file LICENSE.txt src/
+  edlicense check --ignore \"**/vendor/**\" --ignore \"**/*.json\" --license-file LICENSE.txt src/
 ",
   help_template = "{before-help}{name} v{version}
 {about-section}
@@ -58,8 +63,21 @@ const CUSTOM_STYLES: Styles = Styles::styled()
 "
 )]
 pub struct Cli {
+  #[command(subcommand)]
+  pub command: Option<Command>,
+
+  /// For backward compatibility: flatten CheckArgs for when no subcommand is used
   #[command(flatten)]
   pub check_args: CheckArgs,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+  /// Check and optionally modify license headers in files (default command)
+  Check(CheckArgs),
+
+  /// List files that would be checked based on filtering rules
+  Tree(TreeArgs),
 }
 
 impl Cli {
