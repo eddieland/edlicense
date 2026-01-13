@@ -461,8 +461,12 @@ impl Processor {
       all_files.len(),
       start_time.elapsed().as_millis()
     );
+
+    // Create a filter that includes .licenseignore patterns from the directory
+    let filter_with_licenseignore = self.file_filter.with_licenseignore_files(dir, &self.workspace_root)?;
+
     self
-      .process_files_with_filter(all_files, &self.file_filter, concurrency_override)
+      .process_files_with_filter(all_files, &filter_with_licenseignore, concurrency_override)
       .await
   }
 

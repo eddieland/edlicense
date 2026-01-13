@@ -554,6 +554,303 @@ fn test_processor_with_licenseignore() -> Result<()> {
   Ok(())
 }
 
+/// Regression test: `*.png` in root .licenseignore should match PNG files in
+/// all subdirectories, regardless of which directory edlicense is run from.
+///
+/// In gitignore semantics, a pattern without a slash (like `*.png`) should
+/// match the filename in any directory, not just the root.
+#[test]
+fn test_glob_pattern_matches_in_subdirectories_from_any_working_dir() -> Result<()> {
+  // Create a temporary directory structure:
+  // - root/
+  //   - .licenseignore (contains "*.png")
+  //   - root.png
+  //   - subdir1/
+  //     - image1.png
+  //     - subdir2/
+  //       - image2.png
+  //       - deep/
+  //         - nested.png
+
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore in root with *.png pattern
+  fs::write(root.join(".licenseignore"), "*.png\n")?;
+
+  // Create PNG files at various levels
+  fs::write(root.join("root.png"), "PNG at root")?;
+
+  let subdir1 = root.join("subdir1");
+  fs::create_dir(&subdir1)?;
+  fs::write(subdir1.join("image1.png"), "PNG in subdir1")?;
+
+  let subdir2 = subdir1.join("subdir2");
+  fs::create_dir(&subdir2)?;
+  fs::write(subdir2.join("image2.png"), "PNG in subdir2")?;
+
+  let deep = subdir2.join("deep");
+  fs::create_dir(&deep)?;
+  fs::write(deep.join("nested.png"), "PNG deeply nested")?;
+
+  // Also create a non-PNG file to ensure we're not ignoring everything
+  fs::write(deep.join("keep.rs"), "// This should not be ignored")?;
+
+  // Test 1: Load from root directory
+  let mut manager_from_root = IgnoreManager::new(vec![])?;
+  manager_from_root.load_licenseignore_files(root, root)?;
+
+  assert!(
+    manager_from_root.is_ignored(&root.join("root.png")),
+    "PNG at root should be ignored when loading from root"
+  );
+  assert!(
+    manager_from_root.is_ignored(&subdir1.join("image1.png")),
+    "PNG in subdir1 should be ignored when loading from root"
+  );
+  assert!(
+    manager_from_root.is_ignored(&subdir2.join("image2.png")),
+    "PNG in subdir2 should be ignored when loading from root"
+  );
+  assert!(
+    manager_from_root.is_ignored(&deep.join("nested.png")),
+    "PNG deeply nested should be ignored when loading from root"
+  );
+  assert!(
+    !manager_from_root.is_ignored(&deep.join("keep.rs")),
+    "Rust file should NOT be ignored"
+  );
+
+  // Test 2: Load from subdir1 (should still find root .licenseignore)
+  let mut manager_from_subdir1 = IgnoreManager::new(vec![])?;
+  manager_from_subdir1.load_licenseignore_files(&subdir1, root)?;
+
+  assert!(
+    manager_from_subdir1.is_ignored(&root.join("root.png")),
+    "PNG at root should be ignored when loading from subdir1"
+  );
+  assert!(
+    manager_from_subdir1.is_ignored(&subdir1.join("image1.png")),
+    "PNG in subdir1 should be ignored when loading from subdir1"
+  );
+  assert!(
+    manager_from_subdir1.is_ignored(&subdir2.join("image2.png")),
+    "PNG in subdir2 should be ignored when loading from subdir1"
+  );
+  assert!(
+    manager_from_subdir1.is_ignored(&deep.join("nested.png")),
+    "PNG deeply nested should be ignored when loading from subdir1"
+  );
+
+  // Test 3: Load from deep directory (should still find root .licenseignore)
+  let mut manager_from_deep = IgnoreManager::new(vec![])?;
+  manager_from_deep.load_licenseignore_files(&deep, root)?;
+
+  assert!(
+    manager_from_deep.is_ignored(&root.join("root.png")),
+    "PNG at root should be ignored when loading from deep"
+  );
+  assert!(
+    manager_from_deep.is_ignored(&subdir1.join("image1.png")),
+    "PNG in subdir1 should be ignored when loading from deep"
+  );
+  assert!(
+    manager_from_deep.is_ignored(&subdir2.join("image2.png")),
+    "PNG in subdir2 should be ignored when loading from deep"
+  );
+  assert!(
+    manager_from_deep.is_ignored(&deep.join("nested.png")),
+    "PNG deeply nested should be ignored when loading from deep"
+  );
+  assert!(
+    !manager_from_deep.is_ignored(&deep.join("keep.rs")),
+    "Rust file should NOT be ignored when loading from deep"
+  );
+
+  Ok(())
+}
+
+/// Regression test: Processor should skip PNG files in subdirectories when
+/// `*.png` is in root .licenseignore, regardless of which directory edlicense
+/// is run from.
+///
+/// This test explicitly names each file to avoid double-processing issues with
+/// glob patterns that match both directories and their contents.
+#[tokio::test]
+async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
+  let original_dir = env::current_dir()?;
+
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore in root with *.png pattern
+  fs::write(root.join(".licenseignore"), "*.png\n")?;
+
+  // Create a license template
+  let license_path = root.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) 2025 Test")?;
+
+  // Create PNG files at various levels (these should all be ignored)
+  fs::write(root.join("root.png"), "PNG at root")?;
+
+  let subdir1 = root.join("subdir1");
+  fs::create_dir(&subdir1)?;
+  fs::write(subdir1.join("image1.png"), "PNG in subdir1")?;
+
+  let subdir2 = subdir1.join("subdir2");
+  fs::create_dir(&subdir2)?;
+  fs::write(subdir2.join("image2.png"), "PNG in subdir2")?;
+
+  // Create a Rust file that SHOULD be processed
+  fs::write(subdir2.join("code.rs"), "fn main() {}")?;
+
+  // Test running from root - process each file explicitly
+  env::set_current_dir(root)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    true,  // check_only
+    false, // preserve_years
+    None,  // ratchet_reference
+    None,  // diff_manager
+    false, // collect_report_data
+    None,  // license_detector
+    root.to_path_buf(),
+    false, // git_only
+  )?;
+
+  // Process specific files - one PNG at root, one in subdir, one deeply nested,
+  // and one Rust file
+  let files_to_process = vec![
+    "root.png".to_string(),
+    "subdir1/image1.png".to_string(),
+    "subdir1/subdir2/image2.png".to_string(),
+    "subdir1/subdir2/code.rs".to_string(),
+  ];
+
+  let _result = processor.process(&files_to_process).await?;
+
+  let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+  assert_eq!(
+    files_processed, 1,
+    "Only 1 file (code.rs) should be processed, but {} files were processed. PNG files should be ignored by *.png pattern in root .licenseignore.",
+    files_processed
+  );
+
+  // Test running from subdir2 - PNG files should STILL be ignored because
+  // the root .licenseignore should be found and applied
+  env::set_current_dir(&subdir2)?;
+
+  let mut template_manager2 = TemplateManager::new();
+  template_manager2.load_template(&license_path)?;
+
+  let processor2 = Processor::new(
+    template_manager2,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    true,
+    false,
+    None,
+    None,
+    false,
+    None,
+    root.to_path_buf(), // workspace_root is still the root
+    false,
+  )?;
+
+  // Process files from subdir2's perspective
+  let files_to_process2 = vec!["image2.png".to_string(), "code.rs".to_string()];
+
+  let _result2 = processor2.process(&files_to_process2).await?;
+
+  let files_processed2 = processor2.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+  assert_eq!(
+    files_processed2, 1,
+    "Only 1 file (code.rs) should be processed when running from subdir2, but {} files were processed.",
+    files_processed2
+  );
+
+  env::set_current_dir(&original_dir)?;
+  Ok(())
+}
+
+/// Regression test: process_directory should skip PNG files in subdirectories
+/// when `*.png` is in root .licenseignore.
+#[tokio::test]
+async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Result<()> {
+  let original_dir = env::current_dir()?;
+
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore in root with *.png pattern
+  fs::write(root.join(".licenseignore"), "*.png\n")?;
+
+  // Create a license template
+  let license_path = root.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) 2025 Test")?;
+
+  // Create PNG files at various levels (these should all be ignored)
+  fs::write(root.join("root.png"), "PNG at root")?;
+
+  let subdir1 = root.join("subdir1");
+  fs::create_dir(&subdir1)?;
+  fs::write(subdir1.join("image1.png"), "PNG in subdir1")?;
+
+  let subdir2 = subdir1.join("subdir2");
+  fs::create_dir(&subdir2)?;
+  fs::write(subdir2.join("image2.png"), "PNG in subdir2")?;
+
+  // Create a Rust file that SHOULD be processed
+  fs::write(subdir2.join("code.rs"), "fn main() {}")?;
+
+  env::set_current_dir(root)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    true,  // check_only
+    false, // preserve_years
+    None,  // ratchet_reference
+    None,  // diff_manager
+    false, // collect_report_data
+    None,  // license_detector
+    root.to_path_buf(),
+    false, // git_only
+  )?;
+
+  // Process the entire directory tree
+  let _result = processor.process_directory(root).await?;
+
+  let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+  // Expected: 3 files processed - code.rs, .licenseignore, and LICENSE.txt
+  // The key assertion is that PNG files (root.png, image1.png, image2.png) are
+  // NOT processed because they match the *.png pattern in .licenseignore
+  assert_eq!(
+    files_processed, 3,
+    "Expected 3 files (code.rs, .licenseignore, LICENSE.txt) to be processed, but {} files were processed. PNG files should be ignored by *.png pattern.",
+    files_processed
+  );
+
+  env::set_current_dir(&original_dir)?;
+  Ok(())
+}
+
 /// Test that explicitly named files still respect .licenseignore patterns
 #[tokio::test]
 async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
