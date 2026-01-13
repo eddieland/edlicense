@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::ValueEnum;
-use termcolor::ColorChoice;
 
 /// Global atomic flag to control verbose logging.
 ///
@@ -23,15 +22,10 @@ impl OutputMode {
       0 => OutputMode::Normal,
       1 => OutputMode::Quiet,
       2 => OutputMode::Verbose,
-      _ => OutputMode::Normal, // Default to Normal for invalid values
+      _ => OutputMode::Normal, // Default to Invalid values
     }
   }
 }
-
-/// Global atomic value to control color mode.
-///
-/// This is initialized to `0` (Auto) by default.
-static COLOR_MODE: AtomicU8 = AtomicU8::new(0);
 
 /// Enum representing the color mode options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
@@ -46,28 +40,12 @@ pub enum ColorMode {
 }
 
 impl ColorMode {
-  /// Convert from u8 to ColorMode
-  const fn from_u8(value: u8) -> Self {
-    match value {
-      0 => ColorMode::Auto,
-      1 => ColorMode::Never,
-      2 => ColorMode::Always,
-      _ => ColorMode::Auto, // Default to Auto for invalid values
-    }
-  }
-
-  /// Convert to termcolor::ColorChoice
-  pub fn to_color_choice(self) -> ColorChoice {
+  /// Apply the color mode using owo-colors' override mechanism.
+  pub fn apply(self) {
     match self {
-      ColorMode::Auto => {
-        if atty::is(atty::Stream::Stdout) {
-          ColorChoice::Auto
-        } else {
-          ColorChoice::Never
-        }
-      }
-      ColorMode::Never => ColorChoice::Never,
-      ColorMode::Always => ColorChoice::Always,
+      ColorMode::Auto => owo_colors::unset_override(),
+      ColorMode::Never => owo_colors::set_override(false),
+      ColorMode::Always => owo_colors::set_override(true),
     }
   }
 }
@@ -82,26 +60,6 @@ pub fn set_verbose() {
 
 pub fn set_quiet() {
   OUTPUT_MODE.store(OutputMode::Quiet as u8, Ordering::SeqCst);
-}
-
-/// Sets the global color mode.
-///
-/// This controls whether colors are used in the output.
-///
-/// # Parameters
-///
-/// * `mode` - The color mode to use
-pub fn set_color_mode(mode: ColorMode) {
-  COLOR_MODE.store(mode as u8, Ordering::SeqCst);
-}
-
-/// Gets the current color mode.
-///
-/// # Returns
-///
-/// The current color mode.
-pub fn get_color_mode() -> ColorMode {
-  ColorMode::from_u8(COLOR_MODE.load(Ordering::SeqCst))
 }
 
 /// Checks if verbose logging is currently enabled.
