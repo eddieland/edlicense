@@ -311,6 +311,33 @@ impl Processor {
     // Get the parent directory of the file to load directory-specific ignore
     // patterns
     let absolute_path = absolutize_path(path)?;
+
+    // Skip symlinks - use symlink_metadata to check without following
+    // This prevents following symlinks to files outside the workspace
+    match std::fs::symlink_metadata(&absolute_path) {
+      Ok(metadata) => {
+        if metadata.file_type().is_symlink() {
+          verbose_log!("Skipping: {} (symlink)", path.display());
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Symlink".to_string()),
+            };
+            let mut reports = self.file_reports.lock().await;
+            reports.push(file_report);
+          }
+          return Ok(());
+        }
+      }
+      Err(_) => {
+        // Can't stat the file, skip it
+        return Ok(());
+      }
+    }
+
     if let Some(parent_dir) = absolute_path.parent() {
       // Create a temporary ignore filter with the parent directory's ignore patterns
       if parent_dir.exists() {
