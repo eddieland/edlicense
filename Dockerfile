@@ -29,7 +29,8 @@ RUN case "${TARGETPLATFORM}" in \
       *) echo "Unsupported platform: ${TARGETPLATFORM}" && exit 1 ;; \
     esac && \
     echo "export MUSL_TARGET=${MUSL_TARGET}" > /etc/profile.d/musl_target.sh && \
-    echo "${MUSL_TARGET}" > /tmp/musl_target
+    echo "${MUSL_TARGET}" > /tmp/musl_target && \
+    rustup target add ${MUSL_TARGET}
 
 # Install build dependencies
 # Note: cmake, perl, and make are needed for vendored OpenSSL/libgit2 builds
