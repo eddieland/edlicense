@@ -24,24 +24,6 @@ use crate::report::{FileAction, FileReport};
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{git, info_log, verbose_log};
 
-/// Minimum file count threshold for using parallel (rayon) processing in
-/// `collect_files`. Below this threshold, sequential iteration is faster due
-/// to rayon's thread pool overhead dominating the cheap per-file work (path
-/// normalization and glob pattern matching).
-///
-/// Empirical benchmarks (release mode, glob pattern matching workload):
-/// - At 200k files: sequential is still ~16% faster than parallel
-/// - The per-item work (~200ns) is too cheap to amortize rayon's overhead
-/// - No crossover point was found up to 200k files
-///
-/// This threshold is set high to effectively prefer sequential processing,
-/// while preserving the parallel path for potential future use cases with
-/// heavier per-item work.
-///
-/// To re-benchmark: `cargo nextest run test_rayon_threshold_benchmark
-/// --run-ignored all --release`
-const RAYON_PARALLEL_THRESHOLD: usize = 500_000;
-
 /// Processor for handling license operations on files.
 ///
 /// The `Processor` is responsible for:
@@ -286,8 +268,6 @@ impl Processor {
   }
 
   fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
-    use rayon::prelude::*;
-
     let files: Vec<PathBuf> = if self.git_only {
       git::get_git_tracked_files(&self.workspace_root)?.into_iter().collect()
     } else if let Some(reference) = &self.ratchet_reference {
@@ -305,33 +285,17 @@ impl Processor {
     let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
     let matchers = build_pattern_matchers(patterns, &current_dir, &self.workspace_root)?;
 
-    // Use parallel processing only for very large file sets
-    // See RAYON_PARALLEL_THRESHOLD documentation for benchmark details
-    let selected: Vec<PathBuf> = if files.len() > RAYON_PARALLEL_THRESHOLD {
-      files
-        .into_par_iter()
-        .filter_map(|file| {
-          let normalized = normalize_relative_path(&file, &self.workspace_root);
-          if matches_any_pattern(&normalized, &matchers) {
-            Some(self.workspace_root.join(&normalized))
-          } else {
-            None
-          }
-        })
-        .collect()
-    } else {
-      files
-        .into_iter()
-        .filter_map(|file| {
-          let normalized = normalize_relative_path(&file, &self.workspace_root);
-          if matches_any_pattern(&normalized, &matchers) {
-            Some(self.workspace_root.join(&normalized))
-          } else {
-            None
-          }
-        })
-        .collect()
-    };
+    let selected: Vec<PathBuf> = files
+      .into_iter()
+      .filter_map(|file| {
+        let normalized = normalize_relative_path(&file, &self.workspace_root);
+        if matches_any_pattern(&normalized, &matchers) {
+          Some(self.workspace_root.join(&normalized))
+        } else {
+          None
+        }
+      })
+      .collect();
 
     Ok(selected)
   }
