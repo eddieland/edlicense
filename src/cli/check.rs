@@ -12,7 +12,7 @@ use chrono::Datelike;
 use clap::Args;
 
 use crate::diff::DiffManager;
-use crate::logging::{ColorMode, set_color_mode, set_quiet, set_verbose};
+use crate::logging::{ColorMode, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
@@ -147,7 +147,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   } else if args.quiet {
     set_quiet();
   }
-  set_color_mode(args.colors);
+  args.colors.apply();
 
   // Disable git ownership check if requested (useful in Docker)
   if args.skip_git_owner_check {

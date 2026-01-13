@@ -11,14 +11,14 @@
 //! ## Example
 //!
 //! ```rust
-//! use edlicense::logging::{ColorMode, set_color_mode, set_verbose};
+//! use edlicense::logging::{ColorMode, set_verbose};
 //! use edlicense::{info_log, verbose_log};
 //!
 //! // Enable verbose logging
 //! set_verbose();
 //!
-//! // Set color mode to Auto
-//! set_color_mode(ColorMode::Auto);
+//! // Set color mode to Auto (uses owo-colors' automatic TTY detection)
+//! ColorMode::Auto.apply();
 //!
 //! // Log a verbose message (goes to stderr)
 //! verbose_log!("Processing file: {}", "example.rs");
@@ -29,10 +29,8 @@
 
 mod modes;
 
-use std::io::Write;
-
-pub use modes::{ColorMode, get_color_mode, is_quiet, is_verbose, set_color_mode, set_quiet, set_verbose};
-use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
+pub use modes::{ColorMode, is_quiet, is_verbose, set_quiet, set_verbose};
+use owo_colors::{OwoColorize, Stream};
 
 /// Logs a message to stderr if verbose mode is enabled.
 ///
@@ -71,21 +69,5 @@ macro_rules! info_log {
 ///
 /// * `message` - The message to print
 pub fn print_info_log(message: &str) {
-  let color_mode = get_color_mode();
-  let color_choice = color_mode.to_color_choice();
-
-  let mut stdout = StandardStream::stdout(color_choice);
-
-  if let Err(e) = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))) {
-    eprintln!("Error setting color: {}", e);
-  }
-
-  if let Err(e) = writeln!(&mut stdout, "{}", message) {
-    eprintln!("Error writing to stdout: {}", e);
-  }
-
-  // Reset colors
-  if let Err(e) = stdout.reset() {
-    eprintln!("Error resetting colors: {}", e);
-  }
+  println!("{}", message.if_supports_color(Stream::Stdout, |m| m.yellow()));
 }
