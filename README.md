@@ -36,6 +36,22 @@ Key advantages of `edlicense`:
    - Option to only process git-tracked files (default when in a git repository)
 3. **Automatic Updates**: Intelligently updates copyright years without manual intervention
 
+## Performance
+
+Performance is an explicit goal for edlicense. We benchmark regularly against addlicense and work to identify optimization opportunities.
+
+In our synthetic benchmarks processing thousands of files:
+
+| Scenario | edlicense vs addlicense |
+|----------|------------------------|
+| Small files (1KB) | Comparable performance |
+| Medium files (10KB) | ~1.5x faster |
+| Large files (100KB) | ~2-4x faster |
+
+Both tools are fast enough for typical CI usage. Where edlicense tends to pull ahead is with larger codebases and larger source files, where I/O efficiency becomes more important.
+
+Benchmark methodology and raw results are available in `benchmarks/`. Performance characteristics vary by workload, file system, and hardware. Run your own benchmarks if performance is critical for your use case.
+
 ## Features
 
 - Recursively scan directories and add license headers to source files
