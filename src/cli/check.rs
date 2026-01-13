@@ -12,12 +12,12 @@ use chrono::Datelike;
 use clap::Args;
 
 use crate::diff::DiffManager;
-use crate::{info_log, verbose_log};
 use crate::logging::{ColorMode, set_color_mode, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
 use crate::workspace::resolve_workspace;
+use crate::{info_log, verbose_log};
 
 /// Arguments for the check command
 #[derive(Args, Debug, Default)]
@@ -165,7 +165,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   let license_data = LicenseData { year };
 
   // Safe to unwrap because we validated above
-  let license_file = args.license_file.as_ref().unwrap();
+  let license_file = args.license_file.as_ref().expect("a license file");
 
   let mut template_manager = TemplateManager::new();
   template_manager

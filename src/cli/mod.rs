@@ -1,12 +1,12 @@
 //! # CLI Module
 //!
 //! This module contains the command-line interface implementation.
-//! It uses clap for argument parsing and supports subcommands for extensibility.
+//! It uses clap for argument parsing and supports subcommands for
+//! extensibility.
 
 mod check;
 
 pub use check::{CheckArgs, run_check};
-
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
 use clap::{Parser, Subcommand};
 
