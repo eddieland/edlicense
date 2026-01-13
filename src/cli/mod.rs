@@ -1,14 +1,13 @@
 //! # CLI Module
 //!
 //! This module contains the command-line interface implementation.
-//! It uses clap for argument parsing and supports subcommands for
-//! extensibility.
+//! It uses clap for argument parsing.
 
 mod check;
 
 pub use check::{CheckArgs, run_check};
+use clap::Parser;
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
-use clap::{Parser, Subcommand};
 
 const CUSTOM_STYLES: Styles = Styles::styled()
   .header(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold())
@@ -59,31 +58,13 @@ const CUSTOM_STYLES: Styles = Styles::styled()
 "
 )]
 pub struct Cli {
-  #[command(subcommand)]
-  pub command: Option<Command>,
-
   #[command(flatten)]
   pub check_args: CheckArgs,
-}
-
-/// Available subcommands
-#[derive(Subcommand, Debug)]
-pub enum Command {
-  /// Check and optionally modify license headers in source files (default)
-  Check(CheckArgs),
 }
 
 impl Cli {
   /// Parse CLI arguments and return the Cli struct
   pub fn parse_args() -> Self {
     Self::parse()
-  }
-
-  /// Get the effective check arguments, whether from a subcommand or top-level
-  pub fn get_check_args(self) -> CheckArgs {
-    match self.command {
-      Some(Command::Check(args)) => args,
-      None => self.check_args,
-    }
   }
 }

@@ -21,6 +21,5 @@ use crate::cli::{Cli, run_check};
 #[tokio::main]
 async fn main() -> Result<()> {
   let cli = Cli::parse_args();
-  let args = cli.get_check_args();
-  run_check(args).await
+  run_check(cli.check_args).await
 }
