@@ -173,10 +173,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     }
   }
 
-  let year = match args.year {
-    Some(ref y) => y.clone(),
-    None => chrono::Local::now().year().to_string(),
-  };
+  let year = args.year.unwrap_or_else(|| chrono::Local::now().year().to_string());
 
   let license_data = LicenseData { year };
 
@@ -257,31 +254,31 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 
   // Generate HTML report if requested
   if let Some(output_path) = args.report_html {
-    let report_generator = ReportGenerator::new(ReportFormat::Html, output_path.clone());
+    let report_generator = ReportGenerator::new(ReportFormat::Html, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
       eprintln!("Error generating HTML report: {}", e);
     } else {
-      info_log!("Generated HTML report at {}", output_path.display());
+      info_log!("Generated HTML report at {}", report_generator.output_path().display());
     }
   }
 
   // Generate JSON report if requested
   if let Some(output_path) = args.report_json {
-    let report_generator = ReportGenerator::new(ReportFormat::Json, output_path.clone());
+    let report_generator = ReportGenerator::new(ReportFormat::Json, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
       eprintln!("Error generating JSON report: {}", e);
     } else {
-      info_log!("Generated JSON report at {}", output_path.display());
+      info_log!("Generated JSON report at {}", report_generator.output_path().display());
     }
   }
 
   // Generate CSV report if requested
   if let Some(output_path) = args.report_csv {
-    let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path.clone());
+    let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
       eprintln!("Error generating CSV report: {}", e);
     } else {
-      info_log!("Generated CSV report at {}", output_path.display());
+      info_log!("Generated CSV report at {}", report_generator.output_path().display());
     }
   }
 

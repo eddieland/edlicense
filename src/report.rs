@@ -8,7 +8,7 @@
 //! requested format.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -124,6 +124,11 @@ impl ReportGenerator {
   /// * `output_path` - The path where the report will be saved
   pub const fn new(format: ReportFormat, output_path: PathBuf) -> Self {
     Self { format, output_path }
+  }
+
+  /// Returns the output path for this report generator
+  pub fn output_path(&self) -> &Path {
+    &self.output_path
   }
 
   /// Generate a report from a collection of file reports
@@ -326,11 +331,10 @@ impl ReportGenerator {
       file_map.insert("action".to_string(), Value::String(action_str));
 
       // Add ignore reason if applicable
-      if file.ignored && file.ignored_reason.is_some() {
-        file_map.insert(
-          "ignored_reason".to_string(),
-          Value::String(file.ignored_reason.clone().unwrap_or_default()),
-        );
+      if let Some(ref reason) = file.ignored_reason {
+        if file.ignored {
+          file_map.insert("ignored_reason".to_string(), Value::String(reason.clone()));
+        }
       }
 
       files_array.push(Value::Object(file_map));

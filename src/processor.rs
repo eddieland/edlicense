@@ -498,8 +498,7 @@ impl Processor {
       .filter(|p| match filter.should_process(p) {
         Ok(result) => {
           if !result.should_process {
-            let reason_clone = result.reason.clone();
-            let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+            let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
             verbose_log!("Skipping: {} ({})", p.display(), reason_display);
 
             if self.collect_report_data {
@@ -508,7 +507,7 @@ impl Processor {
                 has_license: false,
                 action_taken: Some(FileAction::Skipped),
                 ignored: true,
-                ignored_reason: reason_clone,
+                ignored_reason: result.reason,
               };
 
               local_reports.push(file_report);
