@@ -692,3 +692,88 @@ async fn test_monorepo_git_history_benchmark() -> Result<()> {
   result?;
   Ok(())
 }
+
+/// Benchmark for file filtering throughput with glob pattern matching.
+/// Measures sequential iteration performance at various file counts.
+///
+/// Run with:
+/// ```
+/// cargo nextest run test_file_filter_benchmark --run-ignored all --no-capture --release
+/// ```
+///
+/// Tune with env vars:
+/// - FILTER_BENCH_MAX_FILES (default 100000) - max files to test
+/// - FILTER_BENCH_STEP (default 10000) - step size between test points
+/// - FILTER_BENCH_ITERATIONS (default 10) - iterations per measurement
+#[tokio::test]
+#[ignore]
+async fn test_file_filter_benchmark() -> Result<()> {
+  use std::time::Instant;
+
+  use glob::Pattern;
+
+  let max_files = env_usize("FILTER_BENCH_MAX_FILES", 100_000);
+  let step = env_usize("FILTER_BENCH_STEP", 10_000);
+  let iterations = env_usize("FILTER_BENCH_ITERATIONS", 10);
+
+  println!("\n=== File Filter Throughput Benchmark ===");
+  println!(
+    "Testing file counts from {} to {} (step {}), {} iterations each",
+    step, max_files, step, iterations
+  );
+  println!();
+
+  // Simulate the filtering operation from collect_files
+  let workspace_root = PathBuf::from("/fake/workspace");
+
+  // Create glob patterns similar to real usage (e.g., "**/*.rs", "src/**")
+  let patterns: Vec<Pattern> = vec![
+    Pattern::new("**/*.rs").expect("valid pattern"),
+    Pattern::new("src/**/*.ts").expect("valid pattern"),
+    Pattern::new("lib/**/*.js").expect("valid pattern"),
+  ];
+
+  // Pre-generate a large pool of paths with various extensions
+  let extensions = ["rs", "ts", "js", "py", "go", "java", "c", "cpp", "h", "md"];
+  let all_paths: Vec<PathBuf> = (0..max_files)
+    .map(|i| {
+      let dir = i / 100;
+      let ext = extensions[i % extensions.len()];
+      PathBuf::from(format!("src/module_{}/file_{}.{}", dir, i % 100, ext))
+    })
+    .collect();
+
+  let test_counts: Vec<usize> = (1..=(max_files / step)).map(|i| i * step).collect();
+
+  for &count in &test_counts {
+    let files: Vec<PathBuf> = all_paths[..count].to_vec();
+
+    let mut total = Duration::ZERO;
+    for _ in 0..iterations {
+      let files_clone = files.clone();
+      let workspace = workspace_root.clone();
+      let patterns_ref = &patterns;
+
+      let start = Instant::now();
+      let _result: Vec<PathBuf> = files_clone
+        .into_iter()
+        .filter_map(|file| {
+          let normalized = file.strip_prefix(&workspace).unwrap_or(&file);
+          let matches = patterns_ref.iter().any(|p| p.matches_path(normalized));
+          if matches {
+            Some(workspace.join(normalized))
+          } else {
+            None
+          }
+        })
+        .collect();
+      total += start.elapsed();
+    }
+    let avg = total / iterations as u32;
+    let throughput = count as f64 / avg.as_secs_f64();
+
+    println!("{:>6} files: {:>8.2?} avg ({:.0} files/sec)", count, avg, throughput);
+  }
+
+  Ok(())
+}
