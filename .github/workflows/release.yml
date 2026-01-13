@@ -201,7 +201,7 @@ jobs:
           echo "build_revision=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Build Docker image for testing
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
@@ -227,7 +227,7 @@ jobs:
           echo "Smoke test passed!"
 
       - name: Push Docker image with version tags
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
