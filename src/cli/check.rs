@@ -173,10 +173,9 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     }
   }
 
-  let year = match args.year {
-    Some(ref y) => y.clone(),
-    None => chrono::Local::now().year().to_string(),
-  };
+  let year = args
+    .year
+    .unwrap_or_else(|| chrono::Local::now().year().to_string());
 
   let license_data = LicenseData { year };
 
@@ -249,15 +248,15 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     );
   }
 
-  // Get file reports from processor for report generation
-  let file_reports = processor.file_reports.lock().await.clone();
+  // Get file reports from processor for report generation (take ownership to avoid clone)
+  let file_reports = std::mem::take(&mut *processor.file_reports.lock().await);
 
   // Create report summary
   let summary = ProcessingSummary::from_reports(&file_reports, elapsed);
 
   // Generate HTML report if requested
-  if let Some(output_path) = args.report_html {
-    let report_generator = ReportGenerator::new(ReportFormat::Html, output_path.clone());
+  if let Some(ref output_path) = args.report_html {
+    let report_generator = ReportGenerator::new(ReportFormat::Html, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
       eprintln!("Error generating HTML report: {}", e);
     } else {
@@ -266,8 +265,8 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   }
 
   // Generate JSON report if requested
-  if let Some(output_path) = args.report_json {
-    let report_generator = ReportGenerator::new(ReportFormat::Json, output_path.clone());
+  if let Some(ref output_path) = args.report_json {
+    let report_generator = ReportGenerator::new(ReportFormat::Json, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
       eprintln!("Error generating JSON report: {}", e);
     } else {
@@ -276,8 +275,8 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   }
 
   // Generate CSV report if requested
-  if let Some(output_path) = args.report_csv {
-    let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path.clone());
+  if let Some(ref output_path) = args.report_csv {
+    let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
       eprintln!("Error generating CSV report: {}", e);
     } else {
