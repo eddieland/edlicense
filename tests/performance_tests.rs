@@ -692,3 +692,167 @@ async fn test_monorepo_git_history_benchmark() -> Result<()> {
   result?;
   Ok(())
 }
+
+/// Benchmark to find optimal rayon parallel vs sequential threshold.
+/// This test measures the crossover point where parallel processing becomes
+/// faster than sequential for file filtering with glob pattern matching.
+///
+/// Run with:
+/// ```
+/// cargo nextest run test_rayon_threshold_benchmark --run-ignored all --no-capture
+/// ```
+///
+/// Tune with env vars:
+/// - RAYON_BENCH_MAX_FILES (default 5000) - max files to test
+/// - RAYON_BENCH_STEP (default 250) - step size between test points
+/// - RAYON_BENCH_ITERATIONS (default 5) - iterations per measurement
+#[tokio::test]
+#[ignore]
+async fn test_rayon_threshold_benchmark() -> Result<()> {
+  use std::time::Instant;
+
+  use glob::Pattern;
+  use rayon::prelude::*;
+
+  let max_files = env_usize("RAYON_BENCH_MAX_FILES", 5000);
+  let step = env_usize("RAYON_BENCH_STEP", 250);
+  let iterations = env_usize("RAYON_BENCH_ITERATIONS", 5);
+
+  println!("\n=== Rayon Parallel vs Sequential Threshold Benchmark ===");
+  println!(
+    "Testing file counts from {} to {} (step {}), {} iterations each",
+    step, max_files, step, iterations
+  );
+  println!();
+
+  // Warm up rayon's thread pool to avoid measuring initialization
+  let warmup: Vec<i32> = (0..1000).into_par_iter().map(|x| x * 2).collect();
+  std::hint::black_box(warmup);
+
+  // Simulate the filtering operation from collect_files
+  let workspace_root = PathBuf::from("/fake/workspace");
+
+  // Create glob patterns similar to real usage (e.g., "**/*.rs", "src/**")
+  let patterns: Vec<Pattern> = vec![
+    Pattern::new("**/*.rs").expect("valid pattern"),
+    Pattern::new("src/**/*.ts").expect("valid pattern"),
+    Pattern::new("lib/**/*.js").expect("valid pattern"),
+  ];
+
+  // Pre-generate a large pool of paths with various extensions
+  let extensions = ["rs", "ts", "js", "py", "go", "java", "c", "cpp", "h", "md"];
+  let all_paths: Vec<PathBuf> = (0..max_files)
+    .map(|i| {
+      let dir = i / 100;
+      let ext = extensions[i % extensions.len()];
+      PathBuf::from(format!("src/module_{}/file_{}.{}", dir, i % 100, ext))
+    })
+    .collect();
+
+  // Test various file counts
+  let mut results: Vec<(usize, Duration, Duration)> = Vec::new();
+
+  let test_counts: Vec<usize> = (1..=(max_files / step)).map(|i| i * step).collect();
+
+  for &count in &test_counts {
+    let files: Vec<PathBuf> = all_paths[..count].to_vec();
+
+    // Benchmark sequential
+    let mut seq_total = Duration::ZERO;
+    for _ in 0..iterations {
+      let files_clone = files.clone();
+      let workspace = workspace_root.clone();
+      let patterns_ref = &patterns;
+
+      let start = Instant::now();
+      let _result: Vec<PathBuf> = files_clone
+        .into_iter()
+        .filter_map(|file| {
+          // Simulate normalization
+          let normalized = file.strip_prefix(&workspace).unwrap_or(&file);
+
+          // Simulate glob pattern matching (the expensive part)
+          let matches = patterns_ref.iter().any(|p| p.matches_path(normalized));
+          if matches {
+            Some(workspace.join(normalized))
+          } else {
+            None
+          }
+        })
+        .collect();
+      seq_total += start.elapsed();
+    }
+    let seq_avg = seq_total / iterations as u32;
+
+    // Benchmark parallel
+    let mut par_total = Duration::ZERO;
+    for _ in 0..iterations {
+      let files_clone = files.clone();
+      let workspace = workspace_root.clone();
+      let patterns_ref = &patterns;
+
+      let start = Instant::now();
+      let _result: Vec<PathBuf> = files_clone
+        .into_par_iter()
+        .filter_map(|file| {
+          // Same work as sequential
+          let normalized = file.strip_prefix(&workspace).unwrap_or(&file);
+
+          let matches = patterns_ref.iter().any(|p| p.matches_path(normalized));
+          if matches {
+            Some(workspace.join(normalized))
+          } else {
+            None
+          }
+        })
+        .collect();
+      par_total += start.elapsed();
+    }
+    let par_avg = par_total / iterations as u32;
+
+    let faster = if seq_avg < par_avg { "SEQ" } else { "PAR" };
+    let speedup = if seq_avg < par_avg {
+      par_avg.as_nanos() as f64 / seq_avg.as_nanos() as f64
+    } else {
+      seq_avg.as_nanos() as f64 / par_avg.as_nanos() as f64
+    };
+
+    println!(
+      "{:>5} files: seq={:>8.2?}  par={:>8.2?}  faster={} ({:.2}x)",
+      count, seq_avg, par_avg, faster, speedup
+    );
+
+    results.push((count, seq_avg, par_avg));
+  }
+
+  // Find the crossover point
+  println!("\n=== Analysis ===");
+
+  let crossover = results
+    .iter()
+    .find(|(_, seq, par)| par < seq)
+    .map(|(count, _, _)| *count);
+
+  if let Some(count) = crossover {
+    println!("Crossover point: ~{} files (parallel becomes faster)", count);
+    println!("Recommended RAYON_PARALLEL_THRESHOLD: {}", count);
+  } else {
+    println!(
+      "No crossover found - sequential was always faster up to {} files",
+      max_files
+    );
+    println!("Consider increasing RAYON_BENCH_MAX_FILES to find the crossover point");
+  }
+
+  // Also check if there's a point where parallel is consistently faster
+  let consistently_faster = results
+    .windows(3)
+    .find(|w| w.iter().all(|(_, seq, par)| par < seq))
+    .map(|w| w[0].0);
+
+  if let Some(count) = consistently_faster {
+    println!("Consistently faster from: ~{} files", count);
+  }
+
+  Ok(())
+}
