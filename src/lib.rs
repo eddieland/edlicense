@@ -20,6 +20,7 @@
 //!   git reference
 
 // Re-export modules for public API
+pub mod cli;
 pub mod diff;
 pub mod file_filter;
 pub mod git;

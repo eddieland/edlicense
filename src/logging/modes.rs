@@ -34,9 +34,10 @@ impl OutputMode {
 static COLOR_MODE: AtomicU8 = AtomicU8::new(0);
 
 /// Enum representing the color mode options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
 pub enum ColorMode {
   /// Automatically determine whether to use colors based on TTY detection
+  #[default]
   Auto = 0,
   /// Never use colors
   Never = 1,
