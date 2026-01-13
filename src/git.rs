@@ -92,6 +92,11 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
 
   tree
     .walk(git2::TreeWalkMode::PreOrder, |root, entry| {
+      // Only include blobs (files), skip trees (directories) and commits (submodules)
+      if entry.kind() != Some(git2::ObjectType::Blob) {
+        return 0;
+      }
+
       if let Some(name) = entry.name() {
         // Skip . and .. entries
         if name != "." && name != ".." {
