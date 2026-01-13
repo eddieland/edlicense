@@ -43,7 +43,7 @@ const CUSTOM_STYLES: Styles = Styles::styled()
   edlicense --ratchet=HEAD^ --license-file LICENSE.txt --modify .
 
   # Only process git-tracked files
-  edlicense --git-only=true --license-file LICENSE.txt --modify .
+  edlicense --git-only --license-file LICENSE.txt --modify .
 
   # Generate an HTML report of license status
   edlicense --report-html report.html --license-file LICENSE.txt src/

@@ -39,10 +39,7 @@ pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
     Err(e) => {
       // Check if this is an ownership error (common in Docker/containers)
       if e.code() == git2::ErrorCode::Owner {
-        info_log!(
-          "Git repository found but ownership check failed: {}",
-          e.message()
-        );
+        info_log!("Git repository found but ownership check failed: {}", e.message());
         info_log!("Hint: Use --skip-git-owner-check to bypass this (common in Docker)");
       } else {
         verbose_log!(
