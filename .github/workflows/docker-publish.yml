@@ -53,7 +53,7 @@ jobs:
 
       # Build, test, and push production image
       - name: Build production Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
@@ -87,7 +87,7 @@ jobs:
           echo "Production image smoke test passed!"
       
       - name: Push production Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
@@ -105,7 +105,7 @@ jobs:
 
       # Build, test, and push distroless image
       - name: Build distroless Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
@@ -139,7 +139,7 @@ jobs:
           echo "Distroless image smoke test passed!"
       
       - name: Push distroless Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
