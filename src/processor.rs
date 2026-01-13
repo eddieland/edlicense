@@ -495,31 +495,56 @@ impl Processor {
     let filter_start = std::time::Instant::now();
     let files: Vec<_> = files
       .into_iter()
-      .filter(|p| match filter.should_process(p) {
-        Ok(result) => {
-          if !result.should_process {
-            let reason_clone = result.reason.clone();
-            let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
-            verbose_log!("Skipping: {} ({})", p.display(), reason_display);
-
-            if self.collect_report_data {
-              let file_report = FileReport {
-                path: p.to_path_buf(),
-                has_license: false,
-                action_taken: Some(FileAction::Skipped),
-                ignored: true,
-                ignored_reason: reason_clone,
-              };
-
-              local_reports.push(file_report);
+      .filter(|p| {
+        // Skip symlinks - use symlink_metadata to check without following
+        match std::fs::symlink_metadata(p) {
+          Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+              verbose_log!("Skipping: {} (symlink)", p.display());
+              if self.collect_report_data {
+                local_reports.push(FileReport {
+                  path: p.to_path_buf(),
+                  has_license: false,
+                  action_taken: Some(FileAction::Skipped),
+                  ignored: true,
+                  ignored_reason: Some("Symlink".to_string()),
+                });
+              }
+              return false;
             }
-
-            false
-          } else {
-            true
+          }
+          Err(_) => {
+            // Can't stat the file, skip it
+            return false;
           }
         }
-        Err(_) => false,
+
+        match filter.should_process(p) {
+          Ok(result) => {
+            if !result.should_process {
+              let reason_clone = result.reason.clone();
+              let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+              verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+
+              if self.collect_report_data {
+                let file_report = FileReport {
+                  path: p.to_path_buf(),
+                  has_license: false,
+                  action_taken: Some(FileAction::Skipped),
+                  ignored: true,
+                  ignored_reason: reason_clone,
+                };
+
+                local_reports.push(file_report);
+              }
+
+              false
+            } else {
+              true
+            }
+          }
+          Err(_) => false,
+        }
       })
       .collect();
 
@@ -852,6 +877,29 @@ impl Processor {
     let mut local_reports = Vec::new();
 
     for path in files {
+      // Skip symlinks - use symlink_metadata to check without following
+      match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+          if metadata.file_type().is_symlink() {
+            verbose_log!("Skipping: {} (symlink)", path.display());
+            if self.collect_report_data {
+              local_reports.push(FileReport {
+                path: path.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: Some("Symlink".to_string()),
+              });
+            }
+            continue;
+          }
+        }
+        Err(_) => {
+          // Can't stat the file, skip it
+          continue;
+        }
+      }
+
       let mut ignored = false;
       let absolute_path = absolutize_path(&path)?;
 
