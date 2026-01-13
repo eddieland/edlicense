@@ -110,6 +110,11 @@ pub struct CheckArgs {
   /// Generate a CSV report of license status and save to the specified path
   #[arg(long, value_name = "OUTPUT")]
   pub report_csv: Option<PathBuf>,
+
+  /// Skip git repository ownership check. Useful when running in Docker or other
+  /// containerized environments where the repository may be owned by a different user.
+  #[arg(long)]
+  pub skip_git_owner_check: bool,
 }
 
 impl CheckArgs {
@@ -142,6 +147,16 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     set_quiet();
   }
   set_color_mode(args.colors);
+
+  // Disable git ownership check if requested (useful in Docker)
+  if args.skip_git_owner_check {
+    verbose_log!("Disabling git repository ownership check");
+    // SAFETY: This is safe to call as long as no git operations are in progress.
+    // We call this early, before any Repository operations.
+    unsafe {
+      let _ = git2::opts::set_verify_owner_validation(false);
+    }
+  }
 
   // Set global ignore file if provided
   if let Some(ref global_ignore_file) = args.global_ignore_file {

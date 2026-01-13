@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use git2::Repository;
 
-use crate::verbose_log;
+use crate::{info_log, verbose_log};
 
 /// Checks if the current directory is inside a git repository.
 ///
@@ -36,7 +36,24 @@ pub fn is_git_repository() -> bool {
 pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
   match Repository::discover(start_dir) {
     Ok(repo) => Ok(repo.workdir().map(|root| root.to_path_buf())),
-    Err(_) => Ok(None),
+    Err(e) => {
+      // Check if this is an ownership error (common in Docker/containers)
+      if e.code() == git2::ErrorCode::Owner {
+        info_log!(
+          "Git repository found but ownership check failed: {}",
+          e.message()
+        );
+        info_log!("Hint: Use --skip-git-owner-check to bypass this (common in Docker)");
+      } else {
+        verbose_log!(
+          "Git repository discovery failed for {}: {} (code: {:?})",
+          start_dir.display(),
+          e.message(),
+          e.code()
+        );
+      }
+      Ok(None)
+    }
   }
 }
 
