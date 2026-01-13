@@ -268,16 +268,16 @@ impl Processor {
   }
 
   fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
-    let files = if self.git_only {
-      git::get_git_tracked_files(&self.workspace_root)?
-        .into_iter()
-        .collect::<Vec<_>>()
+    use rayon::prelude::*;
+
+    let files: Vec<PathBuf> = if self.git_only {
+      git::get_git_tracked_files(&self.workspace_root)?.into_iter().collect()
     } else if let Some(reference) = &self.ratchet_reference {
       git::get_changed_files_for_workspace(&self.workspace_root, reference)?
         .into_iter()
-        .collect::<Vec<_>>()
+        .collect()
     } else {
-      Vec::new()
+      return Ok(Vec::new());
     };
 
     if files.is_empty() {
@@ -287,15 +287,33 @@ impl Processor {
     let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
     let matchers = build_pattern_matchers(patterns, &current_dir, &self.workspace_root)?;
 
-    let mut selected = Vec::new();
-    for file in files {
-      let normalized = normalize_relative_path(&file, &self.workspace_root);
-      if matches_any_pattern(&normalized, &matchers) {
-        // Convert to absolute path using workspace_root so file I/O works
-        // regardless of the current working directory
-        selected.push(self.workspace_root.join(&normalized));
-      }
-    }
+    // Use parallel processing for large file sets (>1000 files)
+    // For smaller sets, sequential is faster due to rayon overhead
+    let selected: Vec<PathBuf> = if files.len() > 1000 {
+      files
+        .into_par_iter()
+        .filter_map(|file| {
+          let normalized = normalize_relative_path(&file, &self.workspace_root);
+          if matches_any_pattern(&normalized, &matchers) {
+            Some(self.workspace_root.join(&normalized))
+          } else {
+            None
+          }
+        })
+        .collect()
+    } else {
+      files
+        .into_iter()
+        .filter_map(|file| {
+          let normalized = normalize_relative_path(&file, &self.workspace_root);
+          if matches_any_pattern(&normalized, &matchers) {
+            Some(self.workspace_root.join(&normalized))
+          } else {
+            None
+          }
+        })
+        .collect()
+    };
 
     Ok(selected)
   }

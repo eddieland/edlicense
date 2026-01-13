@@ -71,6 +71,11 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
 
   let tree = head.peel_to_tree().with_context(|| "Failed to get HEAD tree")?;
 
+  // Fast path: if workspace_root equals workdir, we can skip path normalization
+  // entirely This is the common case when running edlicense from the repository
+  // root
+  let use_fast_path = workspace_root == workdir;
+
   tree
     .walk(git2::TreeWalkMode::PreOrder, |root, entry| {
       if let Some(name) = entry.name() {
@@ -82,15 +87,20 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
             PathBuf::from(root).join(name)
           };
 
-          // Convert the repository-relative path to an absolute path
-          let abs_path = workdir.join(&repo_relative_path);
-          let rel_path = abs_path
-            .strip_prefix(workspace_root)
-            .ok()
-            .map(|path| path.to_path_buf())
-            .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
-            .unwrap_or_else(|| repo_relative_path.clone());
-          tracked_files.insert(rel_path);
+          if use_fast_path {
+            // Fast path: repo-relative path is already workspace-relative
+            tracked_files.insert(repo_relative_path);
+          } else {
+            // Slow path: need to convert through absolute path
+            let abs_path = workdir.join(&repo_relative_path);
+            let rel_path = abs_path
+              .strip_prefix(workspace_root)
+              .ok()
+              .map(|path| path.to_path_buf())
+              .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
+              .unwrap_or_else(|| repo_relative_path.clone());
+            tracked_files.insert(rel_path);
+          }
         }
       }
       0
@@ -178,6 +188,9 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
 
   let mut changed_files = HashSet::new();
 
+  // Fast path: if workspace_root equals workdir, we can skip path normalization
+  let use_fast_path = workspace_root == workdir;
+
   diff
     .foreach(
       &mut |_delta, _| true,
@@ -187,15 +200,21 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
         if let Some(new_file) = diff_delta.new_file().path() {
           verbose_log!("Found changed file in git: {:?}", new_file);
 
-          let abs_path = workdir.join(new_file);
-          let rel_path = abs_path
-            .strip_prefix(workspace_root)
-            .ok()
-            .map(|path| path.to_path_buf())
-            .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
-            .unwrap_or_else(|| new_file.to_path_buf());
-          verbose_log!("Added relative path: {}", rel_path.display());
-          changed_files.insert(rel_path);
+          if use_fast_path {
+            // Fast path: git path is already workspace-relative
+            changed_files.insert(new_file.to_path_buf());
+          } else {
+            // Slow path: need to convert through absolute path
+            let abs_path = workdir.join(new_file);
+            let rel_path = abs_path
+              .strip_prefix(workspace_root)
+              .ok()
+              .map(|path| path.to_path_buf())
+              .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
+              .unwrap_or_else(|| new_file.to_path_buf());
+            verbose_log!("Added relative path: {}", rel_path.display());
+            changed_files.insert(rel_path);
+          }
         }
         true
       }),
