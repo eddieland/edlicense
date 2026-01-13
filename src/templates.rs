@@ -179,10 +179,11 @@ impl TemplateManager {
   ///
   /// # Returns
   ///
-  /// The formatted license text with appropriate comment markers.
-  pub fn format_for_file_type(&self, license_text: &str, file_path: &Path) -> String {
-    let comment_style = get_comment_style_for_file(file_path);
-    format_with_comment_style(license_text, &comment_style)
+  /// `Some(String)` with the formatted license text if the file type is supported,
+  /// `None` if the file type is not recognized (e.g., binary files like .png).
+  pub fn format_for_file_type(&self, license_text: &str, file_path: &Path) -> Option<String> {
+    let comment_style = get_comment_style_for_file(file_path)?;
+    Some(format_with_comment_style(license_text, &comment_style))
   }
 }
 
@@ -222,7 +223,8 @@ pub struct CommentStyle {
 ///
 /// # Returns
 ///
-/// A `CommentStyle` instance appropriate for the file type.
+/// `Some(CommentStyle)` if the file type is supported, `None` if the file type
+/// is not recognized and should be skipped (e.g., binary files like .png, .jpg).
 ///
 /// # Supported File Types
 ///
@@ -234,9 +236,8 @@ pub struct CommentStyle {
 /// - HTML/XML/Vue: `<!-- comment style -->`
 /// - And many more...
 ///
-/// If the file type cannot be determined, it defaults to C-style line comments
-/// (`// `).
-fn get_comment_style_for_file(path: &Path) -> CommentStyle {
+/// Files with unknown extensions are skipped to avoid corrupting binary files.
+pub fn get_comment_style_for_file(path: &Path) -> Option<CommentStyle> {
   let file_name = path
     .file_name()
     .and_then(|name| name.to_str())
@@ -250,62 +251,62 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
     .to_lowercase();
 
   match extension.as_str() {
-    "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => CommentStyle {
+    "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => Some(CommentStyle {
       top: "/*",
       middle: " * ",
       bottom: " */",
-    },
-    "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => CommentStyle {
+    }),
+    "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => Some(CommentStyle {
       top: "/**",
       middle: " * ",
       bottom: " */",
-    },
+    }),
     "cc" | "cpp" | "cs" | "go" | "hcl" | "hh" | "hpp" | "m" | "mm" | "proto" | "rs" | "swift" | "dart" | "groovy"
-    | "v" | "sv" => CommentStyle {
+    | "v" | "sv" => Some(CommentStyle {
       top: "",
       middle: "// ",
       bottom: "",
-    },
-    "py" | "sh" | "yaml" | "yml" | "rb" | "tcl" | "tf" | "bzl" | "pl" | "pp" | "toml" => CommentStyle {
+    }),
+    "py" | "sh" | "yaml" | "yml" | "rb" | "tcl" | "tf" | "bzl" | "pl" | "pp" | "toml" => Some(CommentStyle {
       top: "",
       middle: "# ",
       bottom: "",
-    },
-    "el" | "lisp" => CommentStyle {
+    }),
+    "el" | "lisp" => Some(CommentStyle {
       top: "",
       middle: ";; ",
       bottom: "",
-    },
-    "erl" => CommentStyle {
+    }),
+    "erl" => Some(CommentStyle {
       top: "",
       middle: "% ",
       bottom: "",
-    },
-    "hs" | "sql" | "sdl" => CommentStyle {
+    }),
+    "hs" | "sql" | "sdl" => Some(CommentStyle {
       top: "",
       middle: "-- ",
       bottom: "",
-    },
-    "html" | "xml" | "vue" | "wxi" | "wxl" | "wxs" => CommentStyle {
+    }),
+    "html" | "xml" | "vue" | "wxi" | "wxl" | "wxs" => Some(CommentStyle {
       top: "<!--",
       middle: " ",
       bottom: "-->",
-    },
-    "php" => CommentStyle {
+    }),
+    "php" => Some(CommentStyle {
       top: "",
       middle: "// ",
       bottom: "",
-    },
-    "j2" => CommentStyle {
+    }),
+    "j2" => Some(CommentStyle {
       top: "{#",
       middle: "",
       bottom: "#}",
-    },
-    "ml" | "mli" | "mll" | "mly" => CommentStyle {
+    }),
+    "ml" | "mli" | "mll" | "mly" => Some(CommentStyle {
       top: "(**",
       middle: "   ",
       bottom: "*)",
-    },
+    }),
     _ => {
       // Handle special cases based on filename
       if file_name == "cmakelists.txt"
@@ -314,18 +315,14 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
         || file_name == "dockerfile"
         || file_name.ends_with(".dockerfile")
       {
-        CommentStyle {
+        Some(CommentStyle {
           top: "",
           middle: "# ",
           bottom: "",
-        }
+        })
       } else {
-        // Default to C-style comments if we can't determine the file type
-        CommentStyle {
-          top: "",
-          middle: "// ",
-          bottom: "",
-        }
+        // Unknown file type - skip to avoid corrupting binary files
+        None
       }
     }
   }

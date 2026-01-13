@@ -171,13 +171,13 @@ async fn test_template_rendering_api() -> Result<()> {
   assert_eq!(rendered, "Copyright (c) 2025 API Test Company");
 
   // Test formatting for different file types
-  let rust_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.rs"));
+  let rust_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.rs")).unwrap();
   assert!(rust_formatted.contains("// Copyright"));
 
-  let python_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.py"));
+  let python_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.py")).unwrap();
   assert!(python_formatted.contains("# Copyright"));
 
-  let java_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.java"));
+  let java_formatted = template_manager.format_for_file_type(&rendered, Path::new("test.java")).unwrap();
   assert!(java_formatted.contains("/*"));
   assert!(java_formatted.contains(" * Copyright"));
 

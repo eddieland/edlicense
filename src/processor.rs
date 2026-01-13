@@ -21,7 +21,7 @@ use crate::file_filter::{FileFilter, FilterResult, IgnoreFilter, create_default_
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
-use crate::templates::{LicenseData, TemplateManager};
+use crate::templates::{LicenseData, TemplateManager, get_comment_style_for_file};
 use crate::{git, info_log, verbose_log};
 
 /// Processor for handling license operations on files.
@@ -710,6 +710,21 @@ impl Processor {
   /// Since batches run concurrently via buffer_unordered, blocking within
   /// one batch doesn't block other batches.
   fn process_file_batch_item_sync(&self, path: &Path, batch_reports: &mut Vec<FileReport>) -> Result<()> {
+    // Early check: skip files with unknown extensions before reading content
+    if get_comment_style_for_file(path).is_none() {
+      verbose_log!("Skipping: {} (unknown file extension)", path.display());
+      if self.collect_report_data {
+        batch_reports.push(FileReport {
+          path: path.to_path_buf(),
+          has_license: false,
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("Unknown file extension".to_string()),
+        });
+      }
+      return Ok(());
+    }
+
     // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -766,7 +781,23 @@ impl Processor {
             Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
           };
 
-          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          let formatted_license = match self.template_manager.format_for_file_type(&license_text, path) {
+            Some(formatted) => formatted,
+            None => {
+              // Unknown file extension - skip this file
+              verbose_log!("Skipping: {} (unknown file extension)", path.display());
+              if self.collect_report_data {
+                batch_reports.push(FileReport {
+                  path: path.to_path_buf(),
+                  has_license: false,
+                  action_taken: Some(FileAction::Skipped),
+                  ignored: true,
+                  ignored_reason: Some("Unknown file extension".to_string()),
+                });
+              }
+              return Ok(());
+            }
+          };
           let (prefix, content_without_prefix) = self.extract_prefix(&content);
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
@@ -878,7 +909,23 @@ impl Processor {
         Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
       };
 
-      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      let formatted_license = match self.template_manager.format_for_file_type(&license_text, path) {
+        Some(formatted) => formatted,
+        None => {
+          // Unknown file extension - skip this file
+          verbose_log!("Skipping: {} (unknown file extension)", path.display());
+          if self.collect_report_data {
+            batch_reports.push(FileReport {
+              path: path.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Unknown file extension".to_string()),
+            });
+          }
+          return Ok(());
+        }
+      };
       let (prefix, content_remainder) = self.extract_prefix(&content);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 
@@ -1064,6 +1111,23 @@ impl Processor {
       return Ok(());
     }
 
+    // Early check: skip files with unknown extensions before reading content
+    if get_comment_style_for_file(path).is_none() {
+      verbose_log!("Skipping: {} (unknown file extension)", path.display());
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false,
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("Unknown file extension".to_string()),
+        };
+        let mut reports = local_reports.lock().await;
+        reports.push(file_report);
+      }
+      return Ok(());
+    }
+
     // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -1105,7 +1169,25 @@ impl Processor {
             .render(&self.license_data)
             .with_context(|| "Failed to render license template")?;
 
-          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          let formatted_license = match self.template_manager.format_for_file_type(&license_text, path) {
+            Some(formatted) => formatted,
+            None => {
+              // Unknown file extension - skip this file
+              verbose_log!("Skipping: {} (unknown file extension)", path.display());
+              if self.collect_report_data {
+                let file_report = FileReport {
+                  path: path.to_path_buf(),
+                  has_license: false,
+                  action_taken: Some(FileAction::Skipped),
+                  ignored: true,
+                  ignored_reason: Some("Unknown file extension".to_string()),
+                };
+                let mut reports = local_reports.lock().await;
+                reports.push(file_report);
+              }
+              return Ok(());
+            }
+          };
 
           // Handle shebang or other special headers
           let (prefix, content_without_prefix) = self.extract_prefix(&content);
@@ -1243,7 +1325,25 @@ impl Processor {
 
       verbose_log!("Rendered license text:\n{}", license_text);
 
-      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      let formatted_license = match self.template_manager.format_for_file_type(&license_text, path) {
+        Some(formatted) => formatted,
+        None => {
+          // Unknown file extension - skip this file
+          verbose_log!("Skipping: {} (unknown file extension)", path.display());
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Unknown file extension".to_string()),
+            };
+            let mut reports = local_reports.lock().await;
+            reports.push(file_report);
+          }
+          return Ok(());
+        }
+      };
 
       verbose_log!("Formatted license for file type:\n{}", formatted_license);
 
@@ -1359,6 +1459,22 @@ impl Processor {
     path: &Path,
     report_sender: tokio::sync::mpsc::Sender<FileReport>,
   ) -> Result<()> {
+    // Early check: skip files with unknown extensions before reading content
+    if get_comment_style_for_file(path).is_none() {
+      verbose_log!("Skipping: {} (unknown file extension)", path.display());
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false,
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("Unknown file extension".to_string()),
+        };
+        let _ = report_sender.try_send(file_report);
+      }
+      return Ok(());
+    }
+
     // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -1420,7 +1536,24 @@ impl Processor {
             Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
           };
 
-          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          let formatted_license = match self.template_manager.format_for_file_type(&license_text, path) {
+            Some(formatted) => formatted,
+            None => {
+              // Unknown file extension - skip this file
+              verbose_log!("Skipping: {} (unknown file extension)", path.display());
+              if self.collect_report_data {
+                let file_report = FileReport {
+                  path: path.to_path_buf(),
+                  has_license: false,
+                  action_taken: Some(FileAction::Skipped),
+                  ignored: true,
+                  ignored_reason: Some("Unknown file extension".to_string()),
+                };
+                let _ = report_sender.try_send(file_report);
+              }
+              return Ok(());
+            }
+          };
           let (prefix, content_without_prefix) = self.extract_prefix(&content);
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
@@ -1546,7 +1679,24 @@ impl Processor {
         Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
       };
 
-      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      let formatted_license = match self.template_manager.format_for_file_type(&license_text, path) {
+        Some(formatted) => formatted,
+        None => {
+          // Unknown file extension - skip this file
+          verbose_log!("Skipping: {} (unknown file extension)", path.display());
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("Unknown file extension".to_string()),
+            };
+            let _ = report_sender.try_send(file_report);
+          }
+          return Ok(());
+        }
+      };
       let (prefix, content_remainder) = self.extract_prefix(&content);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 

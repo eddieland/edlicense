@@ -327,3 +327,123 @@ async fn test_process_with_invalid_pattern() -> Result<()> {
 
   Ok(())
 }
+
+#[tokio::test]
+async fn test_unknown_extension_skipped() -> Result<()> {
+  // Create a temporary directory
+  let temp_dir = tempdir()?;
+
+  // Create a license template
+  let template_path = temp_dir.path().join("license_template.txt");
+  fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
+
+  // Create files with unknown extensions that should be skipped
+  let png_file_path = temp_dir.path().join("image.png");
+  let original_png_content = vec![0x89, 0x50, 0x4E, 0x47]; // PNG magic bytes
+  fs::write(&png_file_path, &original_png_content)?;
+
+  let exe_file_path = temp_dir.path().join("program.exe");
+  let original_exe_content = b"MZ"; // DOS header magic
+  fs::write(&exe_file_path, original_exe_content)?;
+
+  let zip_file_path = temp_dir.path().join("archive.zip");
+  let original_zip_content = b"PK"; // ZIP magic bytes
+  fs::write(&zip_file_path, original_zip_content)?;
+
+  // Initialize the template manager
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  // Create a processor
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    false,
+    false, // collect_report_data
+    None,
+    None, // No diff manager
+    false,
+    None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
+  )?;
+
+  // Process the files - should succeed without error
+  processor.process_file(&png_file_path).await?;
+  processor.process_file(&exe_file_path).await?;
+  processor.process_file(&zip_file_path).await?;
+
+  // Verify files were NOT modified (content should be unchanged)
+  // This is the key test: unknown extensions should be skipped, not corrupted
+  assert_eq!(
+    fs::read(&png_file_path)?,
+    original_png_content,
+    "PNG file should not be modified"
+  );
+  assert_eq!(
+    fs::read(&exe_file_path)?,
+    original_exe_content,
+    "EXE file should not be modified"
+  );
+  assert_eq!(
+    fs::read(&zip_file_path)?,
+    original_zip_content,
+    "ZIP file should not be modified"
+  );
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_known_extension_processed() -> Result<()> {
+  // Create a temporary directory
+  let temp_dir = tempdir()?;
+
+  // Create a license template
+  let template_path = temp_dir.path().join("license_template.txt");
+  fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
+
+  // Create a file with known extension
+  let rs_file_path = temp_dir.path().join("main.rs");
+  fs::write(&rs_file_path, "fn main() {}")?;
+
+  // Initialize the template manager
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  // Create a processor
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    false,
+    false, // collect_report_data
+    None,
+    None, // No diff manager
+    false,
+    None, // Use default LicenseDetector
+    temp_dir.path().to_path_buf(),
+    false,
+  )?;
+
+  // Process the file
+  processor.process_file(&rs_file_path).await?;
+
+  // Verify the license was added (known extension should be processed)
+  let content = fs::read_to_string(&rs_file_path)?;
+  assert!(
+    content.contains("// Copyright (c) 2025 Test Company"),
+    "License should be added to known extension files"
+  );
+  assert!(
+    content.contains("fn main() {}"),
+    "Original content should be preserved"
+  );
+
+  Ok(())
+}
