@@ -29,8 +29,7 @@ RUN case "${TARGETPLATFORM}" in \
       *) echo "Unsupported platform: ${TARGETPLATFORM}" && exit 1 ;; \
     esac && \
     echo "export MUSL_TARGET=${MUSL_TARGET}" > /etc/profile.d/musl_target.sh && \
-    echo "${MUSL_TARGET}" > /tmp/musl_target && \
-    rustup target add ${MUSL_TARGET}
+    echo "${MUSL_TARGET}" > /tmp/musl_target
 
 # Install build dependencies
 # Note: cmake, perl, and make are needed for vendored OpenSSL/libgit2 builds
@@ -49,6 +48,10 @@ WORKDIR /usr/src/edlicense
 
 # Copy only the files needed for dependency resolution first
 COPY Cargo.toml Cargo.lock* rust-toolchain.toml* ./
+
+# Install the musl target for the toolchain specified in rust-toolchain.toml
+RUN export MUSL_TARGET=$(cat /tmp/musl_target) && \
+    rustup target add ${MUSL_TARGET}
 
 # Create a dummy main.rs to build dependencies
 RUN export MUSL_TARGET=$(cat /tmp/musl_target) && \
