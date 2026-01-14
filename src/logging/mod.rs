@@ -29,7 +29,7 @@
 
 mod modes;
 
-pub use modes::{ColorMode, is_quiet, is_verbose, set_quiet, set_verbose};
+pub use modes::{ColorMode, init_tracing, is_quiet, is_verbose, set_quiet, set_verbose};
 use owo_colors::{OwoColorize, Stream};
 
 /// Logs a message to stderr if verbose mode is enabled.
