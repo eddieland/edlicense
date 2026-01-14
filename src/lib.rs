@@ -30,4 +30,5 @@ pub mod logging;
 pub mod processor;
 pub mod report;
 pub mod templates;
+pub mod tree;
 pub mod workspace;

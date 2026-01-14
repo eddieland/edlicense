@@ -1787,6 +1787,221 @@ impl Processor {
   fn write_file_sync(path: &Path, content: &str) -> Result<()> {
     std::fs::write(path, content).with_context(|| format!("Failed to write file: {}", path.display()))
   }
+
+  /// Collects all files that would be processed without actually processing
+  /// them.
+  ///
+  /// This method is used by the `--plan-tree` option to show what files would
+  /// be checked without actually reading their contents.
+  ///
+  /// # Parameters
+  ///
+  /// * `patterns` - A slice of strings representing file paths, directory
+  ///   paths, or glob patterns
+  ///
+  /// # Returns
+  ///
+  /// A vector of file paths that would be processed.
+  pub async fn collect_planned_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
+    let mut all_files = Vec::new();
+
+    if self.should_use_git_list() {
+      let files = self.collect_files(patterns)?;
+      let files = self.filter_files_for_plan(files).await?;
+      return Ok(files);
+    }
+
+    // Process each pattern
+    for pattern in patterns {
+      let maybe_path = PathBuf::from(pattern);
+      if maybe_path.is_file() {
+        // Check if file should be processed
+        if self.should_include_file_for_plan(&maybe_path).await? {
+          all_files.push(absolutize_path(&maybe_path)?);
+        }
+      } else if maybe_path.is_dir() {
+        // Collect files from directory
+        let dir_files = self.collect_directory_files(&maybe_path).await?;
+        all_files.extend(dir_files);
+      } else {
+        // Try to use the pattern as a glob
+        let entries = glob::glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+
+        for entry in entries {
+          match entry {
+            Ok(path) => {
+              if path.is_file() {
+                if self.should_include_file_for_plan(&path).await? {
+                  all_files.push(absolutize_path(&path)?);
+                }
+              } else if path.is_dir() {
+                let dir_files = self.collect_directory_files(&path).await?;
+                all_files.extend(dir_files);
+              }
+            }
+            Err(e) => {
+              eprintln!("Error with glob pattern: {}", e);
+            }
+          }
+        }
+      }
+    }
+
+    // Sort files for consistent output
+    all_files.sort();
+    Ok(all_files)
+  }
+
+  /// Collects all files in a directory that would be processed.
+  async fn collect_directory_files(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut all_files = Vec::with_capacity(1000);
+    let mut dirs_to_process = std::collections::VecDeque::with_capacity(100);
+    dirs_to_process.push_back(dir.to_path_buf());
+
+    while let Some(current_dir) = dirs_to_process.pop_front() {
+      let read_dir_result = tokio::fs::read_dir(&current_dir).await;
+      if let Err(e) = read_dir_result {
+        eprintln!("Error reading directory {}: {}", current_dir.display(), e);
+        continue;
+      }
+
+      let mut entries = read_dir_result.expect("Valid read_dir");
+      while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+
+        if let Ok(file_type) = entry.file_type().await {
+          if file_type.is_dir() {
+            dirs_to_process.push_back(path);
+          } else if file_type.is_file() {
+            all_files.push(path);
+          }
+        }
+      }
+    }
+
+    // Filter files
+    let filter_with_licenseignore = self.file_filter.with_licenseignore_files(dir, &self.workspace_root)?;
+    let filtered_files = self.filter_files_with_filter(all_files, &filter_with_licenseignore)?;
+
+    Ok(filtered_files)
+  }
+
+  /// Filter files using the given filter (synchronous version for plan-tree).
+  fn filter_files_with_filter(&self, files: Vec<PathBuf>, filter: &dyn FileFilter) -> Result<Vec<PathBuf>> {
+    let mut filtered = Vec::with_capacity(files.len());
+
+    for path in files {
+      // Skip symlinks
+      match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+          if metadata.file_type().is_symlink() {
+            continue;
+          }
+        }
+        Err(_) => continue,
+      }
+
+      match filter.should_process(&path) {
+        Ok(result) => {
+          if result.should_process {
+            filtered.push(path);
+          }
+        }
+        Err(_) => continue,
+      }
+    }
+
+    Ok(filtered)
+  }
+
+  /// Filter files for plan-tree mode (with ignore context).
+  async fn filter_files_for_plan(&self, files: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    let mut filtered = Vec::with_capacity(files.len());
+
+    for path in files {
+      // Skip symlinks
+      match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+          if metadata.file_type().is_symlink() {
+            continue;
+          }
+        }
+        Err(_) => continue,
+      }
+
+      let absolute_path = absolutize_path(&path)?;
+
+      if let Some(parent_dir) = absolute_path.parent()
+        && parent_dir.exists()
+      {
+        let ignore_manager = {
+          let mut cache = self.ignore_manager_cache.lock().await;
+
+          if let Some(cached_manager) = cache.get(parent_dir) {
+            cached_manager.clone()
+          } else {
+            let mut new_manager = self.ignore_manager.clone();
+            new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
+            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+            new_manager
+          }
+        };
+
+        if ignore_manager.is_ignored(&absolute_path) {
+          continue;
+        }
+      }
+
+      filtered.push(absolute_path);
+    }
+
+    Ok(filtered)
+  }
+
+  /// Check if a single file should be included in the plan.
+  async fn should_include_file_for_plan(&self, path: &Path) -> Result<bool> {
+    // Skip symlinks
+    match std::fs::symlink_metadata(path) {
+      Ok(metadata) => {
+        if metadata.file_type().is_symlink() {
+          return Ok(false);
+        }
+      }
+      Err(_) => return Ok(false),
+    }
+
+    let absolute_path = absolutize_path(path)?;
+
+    // Check if file should be processed by the filter
+    let filter_result = self.file_filter.should_process(&absolute_path)?;
+    if !filter_result.should_process {
+      return Ok(false);
+    }
+
+    // Check directory-specific ignore patterns
+    if let Some(parent_dir) = absolute_path.parent()
+      && parent_dir.exists()
+    {
+      let ignore_manager = {
+        let mut cache = self.ignore_manager_cache.lock().await;
+
+        if let Some(cached_manager) = cache.get(parent_dir) {
+          cached_manager.clone()
+        } else {
+          let mut new_manager = self.ignore_manager.clone();
+          new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
+          cache.insert(parent_dir.to_path_buf(), new_manager.clone());
+          new_manager
+        }
+      };
+
+      if ignore_manager.is_ignored(&absolute_path) {
+        return Ok(false);
+      }
+    }
+
+    Ok(true)
+  }
 }
 
 fn build_pattern_matchers(
