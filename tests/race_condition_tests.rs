@@ -44,6 +44,7 @@ async fn create_test_processor(temp_dir: &tempfile::TempDir, check_only: bool) -
     None,
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )
 }
 

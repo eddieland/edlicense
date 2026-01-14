@@ -65,6 +65,25 @@ impl CommentStyleConfig {
   }
 }
 
+/// Configuration for extension-based file filtering.
+///
+/// This allows users to include or exclude specific file extensions from
+/// processing. If `include` is specified, only files with those extensions
+/// will be processed. If only `exclude` is specified, all files except those
+/// with the excluded extensions will be processed.
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+pub struct ExtensionConfig {
+  /// If specified, only process files with these extensions.
+  /// All other extensions will be excluded.
+  #[serde(default)]
+  pub include: Option<Vec<String>>,
+
+  /// Extensions to exclude from processing.
+  /// Ignored if `include` is specified.
+  #[serde(default)]
+  pub exclude: Vec<String>,
+}
+
 /// Main configuration struct for edlicense.
 ///
 /// This struct is loaded from a `.edlicense.toml` file and contains all
@@ -81,6 +100,10 @@ pub struct Config {
   /// "*.cmake.in").
   #[serde(default)]
   pub filenames: HashMap<String, CommentStyleConfig>,
+
+  /// Extension-based file filtering configuration.
+  #[serde(default)]
+  pub extensions: ExtensionConfig,
 }
 
 /// Error type for configuration operations.
@@ -138,6 +161,7 @@ impl Config {
   /// Checks that:
   /// - All `middle` fields are non-empty
   /// - Extension names don't include the leading dot
+  /// - Extension filter entries don't include the leading dot
   fn validate(&self) -> Result<(), ConfigError> {
     for (ext, style) in &self.comment_styles {
       if style.middle.is_empty() {
@@ -164,6 +188,27 @@ impl Config {
       }
     }
 
+    // Validate extension filter entries
+    if let Some(ref include) = self.extensions.include {
+      for ext in include {
+        if ext.starts_with('.') {
+          return Err(ConfigError::InvalidCommentStyle {
+            extension: ext.clone(),
+            message: "extension in include list should not include leading dot".to_string(),
+          });
+        }
+      }
+    }
+
+    for ext in &self.extensions.exclude {
+      if ext.starts_with('.') {
+        return Err(ConfigError::InvalidCommentStyle {
+          extension: ext.clone(),
+          message: "extension in exclude list should not include leading dot".to_string(),
+        });
+      }
+    }
+
     Ok(())
   }
 
@@ -171,6 +216,12 @@ impl Config {
   #[allow(dead_code)]
   pub fn has_overrides(&self) -> bool {
     !self.comment_styles.is_empty() || !self.filenames.is_empty()
+  }
+
+  /// Check if the configuration has any extension filtering.
+  #[allow(dead_code)]
+  pub const fn has_extension_filter(&self) -> bool {
+    self.extensions.include.is_some() || !self.extensions.exclude.is_empty()
   }
 
   /// Normalize configuration keys to lowercase for case-insensitive matching.
@@ -189,6 +240,7 @@ impl Config {
     Self {
       comment_styles,
       filenames,
+      extensions: self.extensions,
     }
   }
 }
@@ -326,6 +378,7 @@ mod tests {
         map
       },
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let result = config.validate();
@@ -343,6 +396,7 @@ mod tests {
         map
       },
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let result = config.validate();
@@ -433,6 +487,7 @@ mod tests {
         map
       },
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
     assert!(config_with_styles.has_overrides());
 
@@ -443,6 +498,7 @@ mod tests {
         map.insert("Makefile".to_string(), CommentStyleConfig::line("# "));
         map
       },
+      extensions: ExtensionConfig::default(),
     };
     assert!(config_with_filenames.has_overrides());
   }
@@ -480,5 +536,96 @@ mod tests {
     assert!(config.filenames.contains_key("cmakelists.txt"));
     assert!(!config.filenames.contains_key("Justfile"));
     assert!(!config.filenames.contains_key("CMakeLists.txt"));
+  }
+
+  #[test]
+  fn test_parse_config_with_extensions() {
+    let config_content = concat!(
+      "[comment-styles]\n",
+      "rs = { middle = \"// \" }\n",
+      "\n",
+      "[extensions]\n",
+      "include = [\"rs\", \"go\"]\n",
+    );
+
+    let config: Config = toml::from_str(config_content).expect("config should parse");
+
+    assert!(config.extensions.include.is_some());
+    let include = config.extensions.include.as_ref().expect("include should exist");
+    assert_eq!(include.len(), 2);
+    assert!(include.contains(&"rs".to_string()));
+    assert!(include.contains(&"go".to_string()));
+  }
+
+  #[test]
+  fn test_parse_config_with_exclude() {
+    let config_content = concat!("[extensions]\n", "exclude = [\"min.js\", \"pb.go\"]\n",);
+
+    let config: Config = toml::from_str(config_content).expect("config should parse");
+
+    assert!(config.extensions.include.is_none());
+    assert_eq!(config.extensions.exclude.len(), 2);
+    assert!(config.extensions.exclude.contains(&"min.js".to_string()));
+    assert!(config.extensions.exclude.contains(&"pb.go".to_string()));
+  }
+
+  #[test]
+  fn test_validate_extension_include_leading_dot() {
+    let config = Config {
+      comment_styles: HashMap::new(),
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig {
+        include: Some(vec![".rs".to_string()]),
+        exclude: Vec::new(),
+      },
+    };
+
+    let result = config.validate();
+    assert!(result.is_err());
+    let err = result.expect_err("should fail");
+    assert!(matches!(err, ConfigError::InvalidCommentStyle { .. }));
+  }
+
+  #[test]
+  fn test_validate_extension_exclude_leading_dot() {
+    let config = Config {
+      comment_styles: HashMap::new(),
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig {
+        include: None,
+        exclude: vec![".js".to_string()],
+      },
+    };
+
+    let result = config.validate();
+    assert!(result.is_err());
+    let err = result.expect_err("should fail");
+    assert!(matches!(err, ConfigError::InvalidCommentStyle { .. }));
+  }
+
+  #[test]
+  fn test_has_extension_filter() {
+    let empty_config = Config::default();
+    assert!(!empty_config.has_extension_filter());
+
+    let config_with_include = Config {
+      comment_styles: HashMap::new(),
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig {
+        include: Some(vec!["rs".to_string()]),
+        exclude: Vec::new(),
+      },
+    };
+    assert!(config_with_include.has_extension_filter());
+
+    let config_with_exclude = Config {
+      comment_styles: HashMap::new(),
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig {
+        include: None,
+        exclude: vec!["js".to_string()],
+      },
+    };
+    assert!(config_with_exclude.has_extension_filter());
   }
 }

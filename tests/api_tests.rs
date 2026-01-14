@@ -46,6 +46,7 @@ async fn test_public_api() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process a single file
@@ -126,6 +127,7 @@ async fn test_api_with_check_only() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the file with license - should succeed
@@ -222,6 +224,7 @@ async fn test_show_diff_mode() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the file - should fail but show diff

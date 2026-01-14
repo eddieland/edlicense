@@ -68,6 +68,7 @@ async fn create_test_processor(
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   Ok((processor, temp_dir))

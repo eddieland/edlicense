@@ -41,6 +41,7 @@ async fn create_test_processor(
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   Ok((processor, temp_dir))
@@ -81,6 +82,7 @@ async fn create_test_processor_with_git(
     None, // Use default LicenseDetector
     workspace_root,
     true,
+    None, // No extension filter
   )?;
 
   Ok((processor, temp_dir))

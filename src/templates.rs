@@ -530,7 +530,7 @@ mod tests {
   use std::path::Path;
 
   use super::*;
-  use crate::config::{CommentStyleConfig, Config};
+  use crate::config::{CommentStyleConfig, Config, ExtensionConfig};
 
   #[test]
   fn test_builtin_resolver_rust() {
@@ -590,6 +590,7 @@ mod tests {
     let config = Config {
       comment_styles,
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -609,6 +610,7 @@ mod tests {
     let config = Config {
       comment_styles,
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -627,6 +629,7 @@ mod tests {
     let config = Config {
       comment_styles: HashMap::new(),
       filenames,
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -645,6 +648,7 @@ mod tests {
     let config = Config {
       comment_styles: HashMap::new(),
       filenames,
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -660,6 +664,7 @@ mod tests {
     let config = Config {
       comment_styles: HashMap::new(),
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -685,6 +690,7 @@ mod tests {
     let config = Config {
       comment_styles,
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = create_resolver(Some(config));
@@ -743,6 +749,7 @@ mod tests {
     let config = Config {
       comment_styles,
       filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
     };
 
     let resolver = create_resolver(Some(config));

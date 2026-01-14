@@ -13,6 +13,7 @@ use clap::Args;
 
 use crate::config::load_config;
 use crate::diff::DiffManager;
+use crate::file_filter::ExtensionFilter;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
@@ -72,6 +73,14 @@ pub struct CheckArgs {
   /// File patterns to ignore (supports glob patterns)
   #[arg(long, short = 'i')]
   pub ignore: Vec<String>,
+
+  /// Only process files with these extensions (repeatable, case-insensitive)
+  #[arg(long, value_name = "EXT")]
+  pub include_ext: Vec<String>,
+
+  /// Exclude files with these extensions (repeatable, case-insensitive)
+  #[arg(long, value_name = "EXT")]
+  pub exclude_ext: Vec<String>,
 
   /// Copyright year(s)
   #[arg(long)]
@@ -230,6 +239,24 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     verbose_log!("Using configuration file for comment style overrides");
   }
 
+  // Create the extension filter from config and CLI args
+  let extension_filter = {
+    let mut filter = config
+      .as_ref()
+      .map(|c| ExtensionFilter::new(&c.extensions))
+      .unwrap_or_else(|| ExtensionFilter::from_cli(Vec::new(), Vec::new()));
+
+    // Merge CLI args (CLI takes precedence over config)
+    filter.merge_cli(args.include_ext, args.exclude_ext);
+
+    if filter.is_active() {
+      verbose_log!("Extension filtering is active");
+      Some(filter)
+    } else {
+      None
+    }
+  };
+
   // Create the comment style resolver
   let resolver = create_resolver(config);
 
@@ -251,6 +278,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     None, // Use the default LicenseDetector implementation
     workspace_root,
     workspace.is_git(),
+    extension_filter,
   )?;
 
   // Start timing
@@ -361,6 +389,27 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
     process::exit(1);
   }
 
+  // Load configuration file if present (needed for extension filtering)
+  let config = load_config(args.config.as_deref(), &workspace_root, args.no_config)?;
+
+  // Create the extension filter from config and CLI args
+  let extension_filter = {
+    let mut filter = config
+      .as_ref()
+      .map(|c| ExtensionFilter::new(&c.extensions))
+      .unwrap_or_else(|| ExtensionFilter::from_cli(Vec::new(), Vec::new()));
+
+    // Merge CLI args (CLI takes precedence over config)
+    filter.merge_cli(args.include_ext.clone(), args.exclude_ext.clone());
+
+    if filter.is_active() {
+      verbose_log!("Extension filtering is active");
+      Some(filter)
+    } else {
+      None
+    }
+  };
+
   // Create a minimal processor for file collection
   // We need a dummy template manager since we won't actually process files
   let template_manager = TemplateManager::new();
@@ -380,6 +429,7 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
     None, // license_detector
     workspace_root.clone(),
     workspace.is_git(),
+    extension_filter,
   )?;
 
   // Collect files that would be processed

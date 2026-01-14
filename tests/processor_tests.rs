@@ -44,6 +44,7 @@ async fn create_test_processor(
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   Ok((processor, temp_dir))
@@ -591,6 +592,7 @@ async fn test_ratchet_mode_directory() -> Result<()> {
     None, // Use default LicenseDetector
     test_dir.to_path_buf(),
     true,
+    None, // No extension filter
   )?;
 
   // Get direct insight into git's changed files list
