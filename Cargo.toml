@@ -30,6 +30,8 @@ similar = "2.4"
 owo-colors = { version = "4", features = ["supports-colors"] }
 thiserror = "2.0.11"
 walkdir = "2.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"

@@ -12,7 +12,7 @@ use chrono::Datelike;
 use clap::Args;
 
 use crate::diff::DiffManager;
-use crate::logging::{ColorMode, set_quiet, set_verbose};
+use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
@@ -62,12 +62,12 @@ pub struct CheckArgs {
   #[arg(long)]
   pub year: Option<String>,
 
-  /// Verbose mode: print names of modified files
-  #[arg(long, short = 'v')]
-  pub verbose: bool,
+  /// Increase verbosity (-v info, -vv debug, -vvv trace)
+  #[arg(short, long, action = clap::ArgAction::Count)]
+  pub verbose: u8,
 
-  /// Quiet mode: suppress all output except errors
-  #[arg(long, short = 'q')]
+  /// Suppress all output except errors
+  #[arg(short, long, conflicts_with = "verbose")]
   pub quiet: bool,
 
   /// Preserve existing years in license headers
@@ -139,10 +139,11 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     process::exit(1);
   }
 
-  if args.quiet && args.verbose {
-    eprintln!("ERROR: Cannot use --quiet and --verbose together");
-    process::exit(1);
-  } else if args.verbose {
+  // Initialize tracing subscriber for structured logging
+  init_tracing(args.quiet, args.verbose);
+
+  // Set legacy logging mode for existing verbose_log!/info_log! macros
+  if args.verbose > 0 {
     set_verbose();
   } else if args.quiet {
     set_quiet();
