@@ -43,7 +43,7 @@ impl TreeNode {
   }
 
   /// Render the tree to a string.
-  fn render(&self, prefix: &str, _is_last: bool, is_root: bool) -> Vec<String> {
+  fn render(&self, prefix: &str) -> Vec<String> {
     let mut lines = Vec::new();
 
     let children: Vec<_> = self.children.iter().collect();
@@ -53,22 +53,14 @@ impl TreeNode {
       let is_last_child = i == count - 1;
 
       // Determine the branch character
-      let branch = if is_root {
-        ""
-      } else if is_last_child {
-        "└── "
-      } else {
-        "├── "
-      };
+      let branch = if is_last_child { "└── " } else { "├── " };
 
       // Build the line
       let line = format!("{}{}{}", prefix, branch, name);
       lines.push(line);
 
       // Determine the prefix for children
-      let child_prefix = if is_root {
-        String::new()
-      } else if is_last_child {
+      let child_prefix = if is_last_child {
         format!("{}    ", prefix)
       } else {
         format!("{}│   ", prefix)
@@ -76,7 +68,7 @@ impl TreeNode {
 
       // Recursively render children
       if !child.children.is_empty() {
-        let child_lines = child.render(&child_prefix, is_last_child, false);
+        let child_lines = child.render(&child_prefix);
         lines.extend(child_lines);
       }
     }
@@ -123,7 +115,7 @@ pub fn print_tree(files: &[PathBuf], base_path: Option<&Path>) -> String {
     lines.push(".".to_string());
   }
 
-  let tree_lines = root.render("", true, true);
+  let tree_lines = root.render("");
   lines.extend(tree_lines);
 
   // Add summary
