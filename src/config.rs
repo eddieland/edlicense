@@ -122,6 +122,93 @@ pub enum ConfigError {
   InvalidCommentStyle { extension: String, message: String },
 }
 
+/// CLI overrides for comment styles.
+///
+/// This struct collects comment style overrides specified via CLI flags.
+#[derive(Debug, Default)]
+pub struct CliOverrides {
+  /// Comment style overrides from --comment-style flags.
+  /// Keys are extensions (without leading dot), values are line-comment
+  /// prefixes.
+  pub comment_styles: HashMap<String, CommentStyleConfig>,
+}
+
+impl CliOverrides {
+  /// Create a new empty CLI overrides struct.
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Parse a single `EXT:STYLE` string and add it to the overrides.
+  ///
+  /// # Arguments
+  ///
+  /// * `value` - A string in the format "EXT:STYLE" (e.g., "java:// ")
+  ///
+  /// # Returns
+  ///
+  /// `Ok(())` if parsing succeeds, or an error message if the format is
+  /// invalid.
+  pub fn parse_comment_style(&mut self, value: &str) -> Result<(), String> {
+    // Find the first colon - everything before is the extension, everything after
+    // is the style
+    let colon_pos = value.find(':').ok_or_else(|| {
+      format!(
+        "Invalid comment-style format '{}': expected EXT:STYLE (e.g., 'java:// ')",
+        value
+      )
+    })?;
+
+    let ext = &value[..colon_pos];
+    let style = &value[colon_pos + 1..];
+
+    if ext.is_empty() {
+      return Err(format!(
+        "Invalid comment-style format '{}': extension cannot be empty",
+        value
+      ));
+    }
+
+    if style.is_empty() {
+      return Err(format!(
+        "Invalid comment-style format '{}': style cannot be empty",
+        value
+      ));
+    }
+
+    // Validate extension doesn't have a leading dot
+    let ext = if let Some(stripped) = ext.strip_prefix('.') {
+      stripped
+    } else {
+      ext
+    };
+
+    self
+      .comment_styles
+      .insert(ext.to_lowercase(), CommentStyleConfig::line(style));
+
+    Ok(())
+  }
+
+  /// Parse multiple `EXT:STYLE` strings from CLI arguments.
+  ///
+  /// # Arguments
+  ///
+  /// * `values` - A slice of strings in the format "EXT:STYLE"
+  ///
+  /// # Returns
+  ///
+  /// `Ok(CliOverrides)` containing all parsed overrides, or an error if any
+  /// format is invalid.
+  pub fn from_cli_args(values: &[String]) -> Result<Self, String> {
+    let mut overrides = Self::new();
+    for value in values {
+      overrides.parse_comment_style(value)?;
+    }
+    Ok(overrides)
+  }
+}
+
 impl Config {
   /// Load configuration from a file.
   ///
@@ -241,6 +328,22 @@ impl Config {
       comment_styles,
       filenames,
       extensions: self.extensions,
+    }
+  }
+
+  /// Merge CLI overrides into this config.
+  ///
+  /// CLI overrides take precedence over config file settings. This method
+  /// updates the config in-place with any overrides specified via CLI flags.
+  ///
+  /// # Arguments
+  ///
+  /// * `overrides` - CLI overrides to merge into this config
+  pub fn merge_cli_overrides(&mut self, overrides: CliOverrides) {
+    // CLI comment style overrides take precedence over config file
+    for (ext, style) in overrides.comment_styles {
+      verbose_log!("CLI override for extension '{}': {:?}", ext, style.middle);
+      self.comment_styles.insert(ext, style);
     }
   }
 }
@@ -627,5 +730,171 @@ mod tests {
       },
     };
     assert!(config_with_exclude.has_extension_filter());
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_valid() {
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style("java:// ").expect("should parse");
+
+    assert!(overrides.comment_styles.contains_key("java"));
+    let style = overrides.comment_styles.get("java").expect("java should exist");
+    assert_eq!(style.middle, "// ");
+    assert_eq!(style.top, "");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_with_leading_dot() {
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style(".java:// ").expect("should parse");
+
+    // Leading dot should be stripped
+    assert!(overrides.comment_styles.contains_key("java"));
+    assert!(!overrides.comment_styles.contains_key(".java"));
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_hash_style() {
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style("xyz:# ").expect("should parse");
+
+    let style = overrides.comment_styles.get("xyz").expect("xyz should exist");
+    assert_eq!(style.middle, "# ");
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_style_with_colons() {
+    // Style that itself contains a colon should work
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style("foo::: ").expect("should parse");
+
+    let style = overrides.comment_styles.get("foo").expect("foo should exist");
+    assert_eq!(style.middle, ":: ");
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_missing_colon() {
+    let mut overrides = CliOverrides::new();
+    let result = overrides.parse_comment_style("java");
+
+    assert!(result.is_err());
+    assert!(result.expect_err("should fail").contains("expected EXT:STYLE"));
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_empty_extension() {
+    let mut overrides = CliOverrides::new();
+    let result = overrides.parse_comment_style(":// ");
+
+    assert!(result.is_err());
+    assert!(result.expect_err("should fail").contains("extension cannot be empty"));
+  }
+
+  #[test]
+  fn test_cli_overrides_parse_empty_style() {
+    let mut overrides = CliOverrides::new();
+    let result = overrides.parse_comment_style("java:");
+
+    assert!(result.is_err());
+    assert!(result.expect_err("should fail").contains("style cannot be empty"));
+  }
+
+  #[test]
+  fn test_cli_overrides_from_cli_args() {
+    let args = vec!["java:// ".to_string(), "xyz:# ".to_string()];
+    let overrides = CliOverrides::from_cli_args(&args).expect("should parse");
+
+    assert_eq!(overrides.comment_styles.len(), 2);
+    assert!(overrides.comment_styles.contains_key("java"));
+    assert!(overrides.comment_styles.contains_key("xyz"));
+  }
+
+  #[test]
+  fn test_cli_overrides_from_cli_args_case_insensitive() {
+    let args = vec!["JAVA:// ".to_string(), "Xyz:# ".to_string()];
+    let overrides = CliOverrides::from_cli_args(&args).expect("should parse");
+
+    // Keys should be lowercased
+    assert!(overrides.comment_styles.contains_key("java"));
+    assert!(overrides.comment_styles.contains_key("xyz"));
+    assert!(!overrides.comment_styles.contains_key("JAVA"));
+    assert!(!overrides.comment_styles.contains_key("Xyz"));
+  }
+
+  #[test]
+  fn test_cli_overrides_from_cli_args_empty() {
+    let args: Vec<String> = vec![];
+    let overrides = CliOverrides::from_cli_args(&args).expect("should parse");
+
+    assert!(overrides.comment_styles.is_empty());
+  }
+
+  #[test]
+  fn test_merge_cli_overrides_into_empty_config() {
+    let mut config = Config::default();
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style("java:// ").expect("should parse");
+
+    config.merge_cli_overrides(overrides);
+
+    assert!(config.comment_styles.contains_key("java"));
+    let style = config.comment_styles.get("java").expect("java should exist");
+    assert_eq!(style.middle, "// ");
+  }
+
+  #[test]
+  fn test_merge_cli_overrides_takes_precedence() {
+    // Create a config with java using block comments
+    let mut config = Config {
+      comment_styles: {
+        let mut map = HashMap::new();
+        map.insert("java".to_string(), CommentStyleConfig::block("/*", " * ", " */"));
+        map
+      },
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
+    };
+
+    // CLI override changes java to line comments
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style("java:// ").expect("should parse");
+
+    config.merge_cli_overrides(overrides);
+
+    // CLI should take precedence
+    let style = config.comment_styles.get("java").expect("java should exist");
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "// ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_merge_cli_overrides_preserves_other_config() {
+    // Create a config with java and python
+    let mut config = Config {
+      comment_styles: {
+        let mut map = HashMap::new();
+        map.insert("java".to_string(), CommentStyleConfig::block("/*", " * ", " */"));
+        map.insert("py".to_string(), CommentStyleConfig::line("# "));
+        map
+      },
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
+    };
+
+    // CLI override only changes java
+    let mut overrides = CliOverrides::new();
+    overrides.parse_comment_style("java:// ").expect("should parse");
+
+    config.merge_cli_overrides(overrides);
+
+    // Python should be unchanged
+    let py_style = config.comment_styles.get("py").expect("py should exist");
+    assert_eq!(py_style.middle, "# ");
+
+    // Java should be changed
+    let java_style = config.comment_styles.get("java").expect("java should exist");
+    assert_eq!(java_style.middle, "// ");
   }
 }
