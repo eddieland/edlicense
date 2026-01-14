@@ -553,8 +553,7 @@ impl Processor {
         match filter.should_process(p) {
           Ok(result) => {
             if !result.should_process {
-              let reason_clone = result.reason.clone();
-              let reason_display = reason_clone.clone().unwrap_or_else(|| "Unknown reason".to_string());
+              let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
               verbose_log!("Skipping: {} ({})", p.display(), reason_display);
 
               if self.collect_report_data {
@@ -563,7 +562,7 @@ impl Processor {
                   has_license: false,
                   action_taken: Some(FileAction::Skipped),
                   ignored: true,
-                  ignored_reason: reason_clone,
+                  ignored_reason: result.reason,
                 };
 
                 local_reports.push(file_report);
@@ -1041,11 +1040,8 @@ impl Processor {
     // Use our composite file filter to determine if we should process this file
     let filter_result = self.file_filter.should_process(path)?;
     if !filter_result.should_process {
-      let reason = filter_result
-        .reason
-        .clone()
-        .unwrap_or_else(|| "Unknown reason".to_string());
-      verbose_log!("Skipping: {} ({})", path.display(), reason);
+      let reason_display = filter_result.reason.as_deref().unwrap_or("Unknown reason");
+      verbose_log!("Skipping: {} ({})", path.display(), reason_display);
 
       // Add to local reports if collecting report data
       if self.collect_report_data {
@@ -1054,7 +1050,7 @@ impl Processor {
           has_license: false, // We don't know, but we're skipping it
           action_taken: Some(FileAction::Skipped),
           ignored: true,
-          ignored_reason: filter_result.reason.clone(),
+          ignored_reason: filter_result.reason,
         };
 
         let mut reports = local_reports.lock().await;
@@ -1311,10 +1307,7 @@ impl Processor {
       verbose_log!(
         "Skipping: {} ({})",
         path.display(),
-        filter_result
-          .reason
-          .clone()
-          .unwrap_or_else(|| "Unknown reason".to_string())
+        filter_result.reason.as_deref().unwrap_or("Unknown reason")
       );
 
       // Send report through channel if collecting report data
@@ -1693,17 +1686,11 @@ impl Processor {
     }
 
     // Update single year to current year
+    // Note: We only get here if we know at least one match needs updating
+    // (checked above), so we use replace_all which handles the allocation
     let content = YEAR_REGEX.replace_all(content, |caps: &regex::Captures| {
-      let prefix = &caps[1];
-      let year = &caps[2];
-      let suffix = &caps[3];
-
-      if year != current_year {
-        format!("{}{}{}", prefix, current_year, suffix)
-      } else {
-        // Keep as is if already current
-        caps[0].to_string()
-      }
+      // All matches need the same format, so just rebuild with current year
+      format!("{}{}{}", &caps[1], current_year, &caps[3])
     });
 
     Ok(content)
@@ -1816,9 +1803,9 @@ fn build_pattern_matchers(
     let raw_path = PathBuf::from(pattern);
     if raw_path.exists() {
       let abs_path = if raw_path.is_absolute() {
-        raw_path.clone()
+        Cow::Borrowed(raw_path.as_path())
       } else {
-        current_dir.join(&raw_path)
+        Cow::Owned(current_dir.join(&raw_path))
       };
       let normalized = normalize_relative_path(&abs_path, workspace_root);
       // Collapse any remaining .. segments so paths like src/nested/../other become

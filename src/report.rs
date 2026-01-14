@@ -108,21 +108,21 @@ impl std::str::FromStr for ReportFormat {
 }
 
 /// Report Generator for creating license reports
-pub struct ReportGenerator {
+pub struct ReportGenerator<'a> {
   /// Format of the report to generate
   format: ReportFormat,
   /// Path where the report will be saved
-  output_path: PathBuf,
+  output_path: &'a std::path::Path,
 }
 
-impl ReportGenerator {
+impl<'a> ReportGenerator<'a> {
   /// Create a new report generator
   ///
   /// # Parameters
   ///
   /// * `format` - The format to use for the report
   /// * `output_path` - The path where the report will be saved
-  pub const fn new(format: ReportFormat, output_path: PathBuf) -> Self {
+  pub const fn new(format: ReportFormat, output_path: &'a std::path::Path) -> Self {
     Self { format, output_path }
   }
 
@@ -144,7 +144,7 @@ impl ReportGenerator {
       ReportFormat::Csv => self.generate_csv(files, summary)?,
     };
 
-    fs::write(&self.output_path, content)
+    fs::write(self.output_path, content)
       .with_context(|| format!("Failed to write report to {}", self.output_path.display()))
   }
 
@@ -326,11 +326,10 @@ impl ReportGenerator {
       file_map.insert("action".to_string(), Value::String(action_str));
 
       // Add ignore reason if applicable
-      if file.ignored && file.ignored_reason.is_some() {
-        file_map.insert(
-          "ignored_reason".to_string(),
-          Value::String(file.ignored_reason.clone().unwrap_or_default()),
-        );
+      if let Some(ref reason) = file.ignored_reason
+        && file.ignored
+      {
+        file_map.insert("ignored_reason".to_string(), Value::String(reason.clone()));
       }
 
       files_array.push(Value::Object(file_map));

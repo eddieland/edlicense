@@ -48,7 +48,7 @@ fn test_html_report_generation() {
   let summary = ProcessingSummary::from_reports(&file_reports, Duration::from_secs(1));
 
   // Generate report
-  let report_generator = ReportGenerator::new(ReportFormat::Html, output_path.clone());
+  let report_generator = ReportGenerator::new(ReportFormat::Html, &output_path);
   let result = report_generator.generate(&file_reports, &summary);
 
   // Verify report was generated
@@ -100,7 +100,7 @@ fn test_json_report_generation() {
   let summary = ProcessingSummary::from_reports(&file_reports, Duration::from_secs(1));
 
   // Generate report
-  let report_generator = ReportGenerator::new(ReportFormat::Json, output_path.clone());
+  let report_generator = ReportGenerator::new(ReportFormat::Json, &output_path);
   let result = report_generator.generate(&file_reports, &summary);
 
   // Verify report was generated
@@ -175,7 +175,7 @@ fn test_csv_report_generation() {
   let summary = ProcessingSummary::from_reports(&file_reports, Duration::from_secs(1));
 
   // Generate report
-  let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path.clone());
+  let report_generator = ReportGenerator::new(ReportFormat::Csv, &output_path);
   let result = report_generator.generate(&file_reports, &summary);
 
   // Verify report was generated
