@@ -12,6 +12,7 @@ mod logging;
 mod processor;
 mod report;
 mod templates;
+mod tree;
 mod workspace;
 
 use anyhow::Result;

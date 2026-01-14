@@ -16,6 +16,7 @@ use crate::logging::{ColorMode, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager};
+use crate::tree::print_tree;
 use crate::workspace::resolve_workspace;
 use crate::{info_log, verbose_log};
 
@@ -26,6 +27,11 @@ pub struct CheckArgs {
   /// recursively.
   #[arg(required = false)]
   pub patterns: Vec<String>,
+
+  /// Plan tree mode: show a tree of files that would be checked without
+  /// inspecting file contents
+  #[arg(long, short = 't')]
+  pub plan_tree: bool,
 
   /// Dry run mode: only check for license headers without modifying files
   /// (default)
@@ -124,7 +130,8 @@ impl CheckArgs {
     if self.patterns.is_empty() {
       return Err("Missing required argument: <PATTERNS>...".to_string());
     }
-    if self.license_file.is_none() {
+    // --license-file is not required in plan-tree mode
+    if self.license_file.is_none() && !self.plan_tree {
       return Err("Missing required argument: --license-file <FILE>".to_string());
     }
     Ok(())
@@ -148,6 +155,11 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     set_quiet();
   }
   args.colors.apply();
+
+  // Handle plan-tree mode early - doesn't need license file
+  if args.plan_tree {
+    return run_plan_tree(&args).await;
+  }
 
   // Disable git ownership check if requested (useful in Docker)
   if args.skip_git_owner_check {
@@ -290,6 +302,73 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     eprintln!("Error: Some files are missing license headers");
     process::exit(1);
   }
+
+  Ok(())
+}
+
+/// Run in plan-tree mode: show a tree of files that would be checked.
+async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
+  // Disable git ownership check if requested (useful in Docker)
+  if args.skip_git_owner_check {
+    verbose_log!("Disabling git repository ownership check");
+    // SAFETY: This is safe to call as long as no git operations are in progress.
+    // We call this early, before any Repository operations.
+    unsafe {
+      let _ = git2::opts::set_verify_owner_validation(false);
+    }
+  }
+
+  // Set global ignore file if provided
+  if let Some(ref global_ignore_file) = args.global_ignore_file {
+    if let Some(path_str) = global_ignore_file.to_str() {
+      // SAFETY:
+      // This is safe because we control the lifetime of the program
+      unsafe {
+        std::env::set_var("GLOBAL_LICENSE_IGNORE", path_str);
+      }
+      verbose_log!("Setting GLOBAL_LICENSE_IGNORE to {}", global_ignore_file.display());
+    } else {
+      eprintln!("Warning: Could not convert global ignore file path to string");
+    }
+  }
+
+  let workspace = resolve_workspace(&args.patterns)?;
+  let workspace_root = workspace.root().to_path_buf();
+
+  let git_only = args.git_only.unwrap_or(false);
+  if git_only && !workspace.is_git() {
+    eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
+    eprintln!("When --git-only is enabled, you must run edlicense from inside a git repository");
+    process::exit(1);
+  }
+
+  // Create a minimal processor for file collection
+  // We need a dummy template manager since we won't actually process files
+  let template_manager = TemplateManager::new();
+  let license_data = LicenseData {
+    year: String::new(), // Not used in plan-tree mode
+  };
+
+  let processor = Processor::new(
+    template_manager,
+    license_data,
+    args.ignore.clone(),
+    true,  // check_only
+    false, // preserve_years
+    args.ratchet.clone(),
+    None, // diff_manager
+    git_only,
+    None, // license_detector
+    workspace_root.clone(),
+    workspace.is_git(),
+  )?;
+
+  // Collect files that would be processed
+  let files = processor.collect_planned_files(&args.patterns).await?;
+
+  // Print the tree
+  let tree_output = print_tree(&files, Some(&workspace_root));
+  println!("{}", tree_output);
 
   Ok(())
 }
