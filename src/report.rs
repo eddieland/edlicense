@@ -326,10 +326,10 @@ impl<'a> ReportGenerator<'a> {
       file_map.insert("action".to_string(), Value::String(action_str));
 
       // Add ignore reason if applicable
-      if let Some(ref reason) = file.ignored_reason {
-        if file.ignored {
-          file_map.insert("ignored_reason".to_string(), Value::String(reason.clone()));
-        }
+      if let Some(ref reason) = file.ignored_reason
+        && file.ignored
+      {
+        file_map.insert("ignored_reason".to_string(), Value::String(reason.clone()));
       }
 
       files_array.push(Value::Object(file_map));

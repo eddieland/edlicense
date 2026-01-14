@@ -173,9 +173,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     }
   }
 
-  let year = args
-    .year
-    .unwrap_or_else(|| chrono::Local::now().year().to_string());
+  let year = args.year.unwrap_or_else(|| chrono::Local::now().year().to_string());
 
   let license_data = LicenseData { year };
 
@@ -248,7 +246,8 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     );
   }
 
-  // Get file reports from processor for report generation (take ownership to avoid clone)
+  // Get file reports from processor for report generation (take ownership to
+  // avoid clone)
   let file_reports = std::mem::take(&mut *processor.file_reports.lock().await);
 
   // Create report summary
