@@ -3,6 +3,7 @@
 //! A tool that ensures source code files have copyright license headers.
 
 mod cli;
+mod config;
 mod diff;
 mod file_filter;
 mod git;

@@ -11,11 +11,12 @@ use anyhow::{Context, Result};
 use chrono::Datelike;
 use clap::Args;
 
+use crate::config::load_config;
 use crate::diff::DiffManager;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
-use crate::templates::{LicenseData, TemplateManager};
+use crate::templates::{LicenseData, TemplateManager, create_resolver};
 use crate::tree::print_tree;
 use crate::workspace::resolve_workspace;
 use crate::{info_log, verbose_log};
@@ -32,6 +33,14 @@ pub struct CheckArgs {
   /// inspecting file contents
   #[arg(long, short = 't')]
   pub plan_tree: bool,
+
+  /// Path to config file (default: .edlicense.toml in workspace root)
+  #[arg(long, value_name = "FILE")]
+  pub config: Option<PathBuf>,
+
+  /// Ignore config file even if present
+  #[arg(long)]
+  pub no_config: bool,
 
   /// Dry run mode: only check for license headers without modifying files
   /// (default)
@@ -193,11 +202,6 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   // Safe to unwrap because we validated above
   let license_file = args.license_file.as_ref().expect("a license file");
 
-  let mut template_manager = TemplateManager::new();
-  template_manager
-    .load_template(license_file)
-    .with_context(|| format!("Failed to load license template from {}", license_file.display()))?;
-
   // Determine mode (dry run is default if neither is specified or if dry_run is
   // explicitly set)
   let check_only = args.dry_run || !args.modify;
@@ -218,6 +222,22 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
       process::exit(1);
     }
   }
+
+  // Load configuration file if present
+  let config = load_config(args.config.as_deref(), &workspace_root, args.no_config)?;
+
+  if config.is_some() {
+    verbose_log!("Using configuration file for comment style overrides");
+  }
+
+  // Create the comment style resolver
+  let resolver = create_resolver(config);
+
+  // Create template manager with the resolver
+  let mut template_manager = TemplateManager::with_resolver(resolver);
+  template_manager
+    .load_template(license_file)
+    .with_context(|| format!("Failed to load license template from {}", license_file.display()))?;
 
   let processor = Processor::new(
     template_manager,

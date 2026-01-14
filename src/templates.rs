@@ -39,9 +39,11 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 
+use crate::config::{CommentStyleConfig, Config};
 use crate::verbose_log;
 
 /// Data used to fill out a license template.
@@ -86,6 +88,8 @@ pub struct LicenseData {
 pub struct TemplateManager {
   /// The loaded license template content
   template: String,
+  /// The comment style resolver to use
+  resolver: Box<dyn CommentStyleResolver>,
 }
 
 impl Default for TemplateManager {
@@ -95,7 +99,7 @@ impl Default for TemplateManager {
 }
 
 impl TemplateManager {
-  /// Creates a new empty template manager.
+  /// Creates a new empty template manager with the default builtin resolver.
   ///
   /// The manager is initialized with an empty template string.
   /// You must call [`load_template`](Self::load_template) before using it.
@@ -103,9 +107,27 @@ impl TemplateManager {
   /// # Returns
   ///
   /// A new `TemplateManager` instance with an empty template.
-  pub const fn new() -> Self {
+  pub fn new() -> Self {
     Self {
       template: String::new(),
+      resolver: Box::new(BuiltinResolver),
+    }
+  }
+
+  /// Creates a new template manager with a custom comment style resolver.
+  ///
+  /// # Arguments
+  ///
+  /// * `resolver` - The comment style resolver to use for formatting licenses
+  ///
+  /// # Returns
+  ///
+  /// A new `TemplateManager` instance with an empty template and the specified
+  /// resolver.
+  pub fn with_resolver(resolver: Box<dyn CommentStyleResolver>) -> Self {
+    Self {
+      template: String::new(),
+      resolver,
     }
   }
 
@@ -169,7 +191,8 @@ impl TemplateManager {
   /// file type.
   ///
   /// This method determines the appropriate comment style based on the file
-  /// extension and formats the license text accordingly.
+  /// extension and formats the license text accordingly. If a custom resolver
+  /// was provided, it will be used to determine the comment style.
   ///
   /// # Parameters
   ///
@@ -181,7 +204,7 @@ impl TemplateManager {
   ///
   /// The formatted license text with appropriate comment markers.
   pub fn format_for_file_type(&self, license_text: &str, file_path: &Path) -> String {
-    let comment_style = get_comment_style_for_file(file_path);
+    let comment_style = self.resolver.resolve(file_path);
     format_with_comment_style(license_text, &comment_style)
   }
 }
@@ -199,16 +222,189 @@ impl TemplateManager {
 ///   block (e.g., " * ")
 /// * `bottom` - The string to use at the bottom of a comment block (e.g., "
 ///   */")
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommentStyle {
   /// The string to use at the top of a comment block
-  pub top: &'static str,
+  pub top: String,
 
   /// The string to use at the beginning of each line in the comment block
-  pub middle: &'static str,
+  pub middle: String,
 
   /// The string to use at the bottom of a comment block
-  pub bottom: &'static str,
+  pub bottom: String,
+}
+
+impl CommentStyle {
+  /// Create a line-comment style (no top/bottom markers).
+  ///
+  /// # Arguments
+  ///
+  /// * `prefix` - The prefix to use for each line (e.g., "// " or "# ")
+  pub fn line(prefix: &str) -> Self {
+    Self {
+      top: String::new(),
+      middle: prefix.to_string(),
+      bottom: String::new(),
+    }
+  }
+
+  /// Create a block-comment style.
+  ///
+  /// # Arguments
+  ///
+  /// * `top` - The string to start the comment block (e.g., "/*")
+  /// * `middle` - The prefix for each line (e.g., " * ")
+  /// * `bottom` - The string to end the comment block (e.g., " */")
+  pub fn block(top: &str, middle: &str, bottom: &str) -> Self {
+    Self {
+      top: top.to_string(),
+      middle: middle.to_string(),
+      bottom: bottom.to_string(),
+    }
+  }
+}
+
+impl From<CommentStyleConfig> for CommentStyle {
+  fn from(config: CommentStyleConfig) -> Self {
+    Self {
+      top: config.top,
+      middle: config.middle,
+      bottom: config.bottom,
+    }
+  }
+}
+
+impl From<&CommentStyleConfig> for CommentStyle {
+  fn from(config: &CommentStyleConfig) -> Self {
+    Self {
+      top: config.top.clone(),
+      middle: config.middle.clone(),
+      bottom: config.bottom.clone(),
+    }
+  }
+}
+
+/// Trait for resolving comment styles for file paths.
+///
+/// This trait allows different strategies for determining the appropriate
+/// comment style for a given file path. Implementations can use built-in
+/// mappings, user configuration, or both.
+pub trait CommentStyleResolver: Send + Sync {
+  /// Resolve the comment style for the given file path.
+  ///
+  /// # Arguments
+  ///
+  /// * `path` - The path to the file
+  ///
+  /// # Returns
+  ///
+  /// The appropriate `CommentStyle` for the file.
+  fn resolve(&self, path: &Path) -> CommentStyle;
+}
+
+/// Default resolver using built-in mappings.
+///
+/// This resolver uses the hardcoded mappings from file extensions to comment
+/// styles. It's used when no configuration file is present.
+#[derive(Debug, Default)]
+pub struct BuiltinResolver;
+
+impl CommentStyleResolver for BuiltinResolver {
+  fn resolve(&self, path: &Path) -> CommentStyle {
+    get_comment_style_for_file(path)
+  }
+}
+
+/// Configurable resolver that checks user config first, then falls back to
+/// builtin.
+///
+/// This resolver first checks for user-defined comment styles in the config
+/// file, then falls back to the built-in mappings if no override is found.
+pub struct ConfigurableResolver {
+  config: Arc<Config>,
+}
+
+impl std::fmt::Debug for ConfigurableResolver {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("ConfigurableResolver")
+      .field("config", &"<config>")
+      .finish()
+  }
+}
+
+impl ConfigurableResolver {
+  /// Create a new configurable resolver with the given config.
+  ///
+  /// # Arguments
+  ///
+  /// * `config` - The loaded configuration
+  pub fn new(config: Config) -> Self {
+    Self {
+      config: Arc::new(config),
+    }
+  }
+
+  /// Create a new configurable resolver from an Arc'd config.
+  ///
+  /// This is useful when you want to share the config across multiple
+  /// resolvers.
+  #[allow(dead_code)]
+  pub const fn from_arc(config: Arc<Config>) -> Self {
+    Self { config }
+  }
+}
+
+impl CommentStyleResolver for ConfigurableResolver {
+  fn resolve(&self, path: &Path) -> CommentStyle {
+    let file_name = path
+      .file_name()
+      .and_then(|name| name.to_str())
+      .unwrap_or("")
+      .to_lowercase();
+
+    // 1. Check filename patterns in config (exact match first)
+    if let Some(style) = self.config.filenames.get(&file_name) {
+      verbose_log!("Using config filename override for: {}", file_name);
+      return CommentStyle::from(style);
+    }
+
+    // 2. Check filename patterns with glob matching
+    for (pattern, style) in &self.config.filenames {
+      if pattern.contains('*')
+        && let Ok(glob_pattern) = glob::Pattern::new(&pattern.to_lowercase())
+        && glob_pattern.matches(&file_name)
+      {
+        verbose_log!("Using config filename glob override '{}' for: {}", pattern, file_name);
+        return CommentStyle::from(style);
+      }
+    }
+
+    // 3. Check extension overrides in config
+    let extension = path
+      .extension()
+      .and_then(|ext| ext.to_str())
+      .unwrap_or("")
+      .to_lowercase();
+
+    if let Some(style) = self.config.comment_styles.get(&extension) {
+      verbose_log!("Using config extension override for: .{}", extension);
+      return CommentStyle::from(style);
+    }
+
+    // 4. Fall back to builtin resolver
+    get_comment_style_for_file(path)
+  }
+}
+
+/// Create a comment style resolver based on the provided configuration.
+///
+/// If a configuration is provided, returns a `ConfigurableResolver` that
+/// checks user overrides first. Otherwise, returns a `BuiltinResolver`.
+pub fn create_resolver(config: Option<Config>) -> Box<dyn CommentStyleResolver> {
+  match config {
+    Some(cfg) => Box::new(ConfigurableResolver::new(cfg)),
+    None => Box::new(BuiltinResolver),
+  }
 }
 
 /// Determines the appropriate comment style for a file based on its extension.
@@ -250,62 +446,18 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
     .to_lowercase();
 
   match extension.as_str() {
-    "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => CommentStyle {
-      top: "/*",
-      middle: " * ",
-      bottom: " */",
-    },
-    "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => CommentStyle {
-      top: "/**",
-      middle: " * ",
-      bottom: " */",
-    },
+    "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => CommentStyle::block("/*", " * ", " */"),
+    "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => CommentStyle::block("/**", " * ", " */"),
     "cc" | "cpp" | "cs" | "go" | "hcl" | "hh" | "hpp" | "m" | "mm" | "proto" | "rs" | "swift" | "dart" | "groovy"
-    | "v" | "sv" => CommentStyle {
-      top: "",
-      middle: "// ",
-      bottom: "",
-    },
-    "py" | "sh" | "yaml" | "yml" | "rb" | "tcl" | "tf" | "bzl" | "pl" | "pp" | "toml" => CommentStyle {
-      top: "",
-      middle: "# ",
-      bottom: "",
-    },
-    "el" | "lisp" => CommentStyle {
-      top: "",
-      middle: ";; ",
-      bottom: "",
-    },
-    "erl" => CommentStyle {
-      top: "",
-      middle: "% ",
-      bottom: "",
-    },
-    "hs" | "sql" | "sdl" => CommentStyle {
-      top: "",
-      middle: "-- ",
-      bottom: "",
-    },
-    "html" | "xml" | "vue" | "wxi" | "wxl" | "wxs" => CommentStyle {
-      top: "<!--",
-      middle: " ",
-      bottom: "-->",
-    },
-    "php" => CommentStyle {
-      top: "",
-      middle: "// ",
-      bottom: "",
-    },
-    "j2" => CommentStyle {
-      top: "{#",
-      middle: "",
-      bottom: "#}",
-    },
-    "ml" | "mli" | "mll" | "mly" => CommentStyle {
-      top: "(**",
-      middle: "   ",
-      bottom: "*)",
-    },
+    | "v" | "sv" => CommentStyle::line("// "),
+    "py" | "sh" | "yaml" | "yml" | "rb" | "tcl" | "tf" | "bzl" | "pl" | "pp" | "toml" => CommentStyle::line("# "),
+    "el" | "lisp" => CommentStyle::line(";; "),
+    "erl" => CommentStyle::line("% "),
+    "hs" | "sql" | "sdl" => CommentStyle::line("-- "),
+    "html" | "xml" | "vue" | "wxi" | "wxl" | "wxs" => CommentStyle::block("<!--", " ", "-->"),
+    "php" => CommentStyle::line("// "),
+    "j2" => CommentStyle::block("{#", "", "#}"),
+    "ml" | "mli" | "mll" | "mly" => CommentStyle::block("(**", "   ", "*)"),
     _ => {
       // Handle special cases based on filename
       if file_name == "cmakelists.txt"
@@ -314,18 +466,10 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
         || file_name == "dockerfile"
         || file_name.ends_with(".dockerfile")
       {
-        CommentStyle {
-          top: "",
-          middle: "# ",
-          bottom: "",
-        }
+        CommentStyle::line("# ")
       } else {
         // Default to C-style comments if we can't determine the file type
-        CommentStyle {
-          top: "",
-          middle: "// ",
-          bottom: "",
-        }
+        CommentStyle::line("// ")
       }
     }
   }
@@ -353,7 +497,7 @@ pub fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> St
 
   // Add top comment marker if present
   if !style.top.is_empty() {
-    result.push_str(style.top);
+    result.push_str(&style.top);
     result.push('\n');
   }
 
@@ -362,7 +506,7 @@ pub fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> St
     if line.is_empty() {
       result.push_str(style.middle.trim_end());
     } else {
-      result.push_str(style.middle);
+      result.push_str(&style.middle);
       result.push_str(line);
     }
     result.push('\n');
@@ -370,7 +514,7 @@ pub fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> St
 
   // Add bottom comment marker if present
   if !style.bottom.is_empty() {
-    result.push_str(style.bottom);
+    result.push_str(&style.bottom);
     result.push('\n');
   }
 
@@ -378,4 +522,233 @@ pub fn format_with_comment_style(license_text: &str, style: &CommentStyle) -> St
   result.push('\n');
 
   result
+}
+
+#[cfg(test)]
+mod tests {
+  use std::collections::HashMap;
+  use std::path::Path;
+
+  use super::*;
+  use crate::config::{CommentStyleConfig, Config};
+
+  #[test]
+  fn test_builtin_resolver_rust() {
+    let resolver = BuiltinResolver;
+    let style = resolver.resolve(Path::new("main.rs"));
+
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "// ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_builtin_resolver_python() {
+    let resolver = BuiltinResolver;
+    let style = resolver.resolve(Path::new("script.py"));
+
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "# ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_builtin_resolver_java() {
+    let resolver = BuiltinResolver;
+    let style = resolver.resolve(Path::new("Main.java"));
+
+    assert_eq!(style.top, "/*");
+    assert_eq!(style.middle, " * ");
+    assert_eq!(style.bottom, " */");
+  }
+
+  #[test]
+  fn test_builtin_resolver_javascript() {
+    let resolver = BuiltinResolver;
+    let style = resolver.resolve(Path::new("app.js"));
+
+    assert_eq!(style.top, "/**");
+    assert_eq!(style.middle, " * ");
+    assert_eq!(style.bottom, " */");
+  }
+
+  #[test]
+  fn test_builtin_resolver_unknown_defaults_to_line_comment() {
+    let resolver = BuiltinResolver;
+    let style = resolver.resolve(Path::new("unknown.xyz"));
+
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "// ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_configurable_resolver_extension_override() {
+    let mut comment_styles = HashMap::new();
+    comment_styles.insert("java".to_string(), CommentStyleConfig::line("// "));
+
+    let config = Config {
+      comment_styles,
+      filenames: HashMap::new(),
+    };
+
+    let resolver = ConfigurableResolver::new(config);
+    let style = resolver.resolve(Path::new("Main.java"));
+
+    // Should use the config override (line style) instead of builtin (block style)
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "// ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_configurable_resolver_custom_extension() {
+    let mut comment_styles = HashMap::new();
+    comment_styles.insert("xyz".to_string(), CommentStyleConfig::line("## "));
+
+    let config = Config {
+      comment_styles,
+      filenames: HashMap::new(),
+    };
+
+    let resolver = ConfigurableResolver::new(config);
+    let style = resolver.resolve(Path::new("custom.xyz"));
+
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "## ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_configurable_resolver_filename_override() {
+    let mut filenames = HashMap::new();
+    filenames.insert("justfile".to_string(), CommentStyleConfig::line("# "));
+
+    let config = Config {
+      comment_styles: HashMap::new(),
+      filenames,
+    };
+
+    let resolver = ConfigurableResolver::new(config);
+    let style = resolver.resolve(Path::new("Justfile"));
+
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "# ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_configurable_resolver_filename_glob() {
+    let mut filenames = HashMap::new();
+    filenames.insert("*.cmake.in".to_string(), CommentStyleConfig::line("# "));
+
+    let config = Config {
+      comment_styles: HashMap::new(),
+      filenames,
+    };
+
+    let resolver = ConfigurableResolver::new(config);
+    let style = resolver.resolve(Path::new("config.cmake.in"));
+
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "# ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_configurable_resolver_falls_back_to_builtin() {
+    let config = Config {
+      comment_styles: HashMap::new(),
+      filenames: HashMap::new(),
+    };
+
+    let resolver = ConfigurableResolver::new(config);
+
+    // Should fall back to builtin for Rust files
+    let style = resolver.resolve(Path::new("main.rs"));
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "// ");
+    assert_eq!(style.bottom, "");
+
+    // Should fall back to builtin for Python files
+    let style = resolver.resolve(Path::new("script.py"));
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "# ");
+    assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_create_resolver_with_config() {
+    let mut comment_styles = HashMap::new();
+    comment_styles.insert("rs".to_string(), CommentStyleConfig::line("## "));
+
+    let config = Config {
+      comment_styles,
+      filenames: HashMap::new(),
+    };
+
+    let resolver = create_resolver(Some(config));
+    let style = resolver.resolve(Path::new("main.rs"));
+
+    // Should use the config override
+    assert_eq!(style.middle, "## ");
+  }
+
+  #[test]
+  fn test_create_resolver_without_config() {
+    let resolver = create_resolver(None);
+    let style = resolver.resolve(Path::new("main.rs"));
+
+    // Should use the builtin style
+    assert_eq!(style.middle, "// ");
+  }
+
+  #[test]
+  fn test_comment_style_helpers() {
+    let line_style = CommentStyle::line("// ");
+    assert_eq!(line_style.top, "");
+    assert_eq!(line_style.middle, "// ");
+    assert_eq!(line_style.bottom, "");
+
+    let block_style = CommentStyle::block("/*", " * ", " */");
+    assert_eq!(block_style.top, "/*");
+    assert_eq!(block_style.middle, " * ");
+    assert_eq!(block_style.bottom, " */");
+  }
+
+  #[test]
+  fn test_format_with_line_comment_style() {
+    let style = CommentStyle::line("// ");
+    let formatted = format_with_comment_style("Copyright 2025\nAll rights reserved.", &style);
+
+    assert!(formatted.starts_with("// Copyright 2025\n"));
+    assert!(formatted.contains("// All rights reserved."));
+  }
+
+  #[test]
+  fn test_format_with_block_comment_style() {
+    let style = CommentStyle::block("/*", " * ", " */");
+    let formatted = format_with_comment_style("Copyright 2025", &style);
+
+    assert!(formatted.starts_with("/*\n"));
+    assert!(formatted.contains(" * Copyright 2025"));
+    assert!(formatted.contains(" */\n"));
+  }
+
+  #[test]
+  fn test_template_manager_with_resolver() {
+    let mut comment_styles = HashMap::new();
+    comment_styles.insert("rs".to_string(), CommentStyleConfig::line("## "));
+
+    let config = Config {
+      comment_styles,
+      filenames: HashMap::new(),
+    };
+
+    let resolver = create_resolver(Some(config));
+    let manager = TemplateManager::with_resolver(resolver);
+
+    let formatted = manager.format_for_file_type("Copyright 2025", Path::new("main.rs"));
+    assert!(formatted.starts_with("## Copyright 2025"));
+  }
 }
