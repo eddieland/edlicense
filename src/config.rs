@@ -125,6 +125,9 @@ impl Config {
 
     config.validate()?;
 
+    // Normalize keys to lowercase for case-insensitive matching
+    let config = config.normalize();
+
     verbose_log!("Loaded {} comment style overrides", config.comment_styles.len());
 
     Ok(config)
@@ -168,6 +171,25 @@ impl Config {
   #[allow(dead_code)]
   pub fn has_overrides(&self) -> bool {
     !self.comment_styles.is_empty() || !self.filenames.is_empty()
+  }
+
+  /// Normalize configuration keys to lowercase for case-insensitive matching.
+  ///
+  /// This ensures that config keys like "Justfile" or "CMakeLists.txt" will
+  /// match the lowercased filenames used during lookup.
+  fn normalize(self) -> Self {
+    let comment_styles = self
+      .comment_styles
+      .into_iter()
+      .map(|(k, v)| (k.to_lowercase(), v))
+      .collect();
+
+    let filenames = self.filenames.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect();
+
+    Self {
+      comment_styles,
+      filenames,
+    }
   }
 }
 
@@ -423,5 +445,40 @@ mod tests {
       },
     };
     assert!(config_with_filenames.has_overrides());
+  }
+
+  #[test]
+  fn test_load_normalizes_keys_to_lowercase() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    // Config with mixed-case keys
+    std::fs::write(
+      &config_path,
+      concat!(
+        "[comment-styles]\n",
+        "RS = { middle = \"// \" }\n",
+        "Java = { middle = \"// \" }\n",
+        "\n",
+        "[filenames]\n",
+        "\"Justfile\" = { middle = \"# \" }\n",
+        "\"CMakeLists.txt\" = { middle = \"# \" }\n",
+      ),
+    )
+    .expect("write config");
+
+    let config = Config::load(&config_path).expect("load should succeed");
+
+    // Extension keys should be lowercased
+    assert!(config.comment_styles.contains_key("rs"));
+    assert!(config.comment_styles.contains_key("java"));
+    assert!(!config.comment_styles.contains_key("RS"));
+    assert!(!config.comment_styles.contains_key("Java"));
+
+    // Filename keys should be lowercased
+    assert!(config.filenames.contains_key("justfile"));
+    assert!(config.filenames.contains_key("cmakelists.txt"));
+    assert!(!config.filenames.contains_key("Justfile"));
+    assert!(!config.filenames.contains_key("CMakeLists.txt"));
   }
 }
