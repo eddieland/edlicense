@@ -20,7 +20,6 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::verbose_log;
 
-
 /// Manager for handling ignore patterns from various sources.
 ///
 /// This struct combines ignore patterns from:

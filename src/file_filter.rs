@@ -10,7 +10,6 @@ use anyhow::Result;
 
 use crate::config::ExtensionConfig;
 use crate::ignore::IgnoreManager;
-use crate::verbose_log;
 
 /// Result of a file filtering operation.
 pub struct FilterResult {
@@ -215,7 +214,6 @@ impl FileFilter for ExtensionFilter {
         self.exclude.contains(ext) || simple_ext.as_ref().map(|e| self.exclude.contains(e)).unwrap_or(false);
 
       if is_excluded {
-        verbose_log!("Skipping: {} (extension in exclude list)", path.display());
         return Ok(FilterResult::skip("Extension in exclude list"));
       }
     }
@@ -227,17 +225,13 @@ impl FileFilter for ExtensionFilter {
         let is_included = include.contains(ext) || simple_ext.as_ref().map(|e| include.contains(e)).unwrap_or(false);
 
         if !is_included {
-          verbose_log!("Skipping: {} (extension not in include list)", path.display());
           Ok(FilterResult::skip("Extension not in include list"))
         } else {
           Ok(FilterResult::process())
         }
       }
       // If include list exists but file has no extension, skip it
-      (Some(_), None) => {
-        verbose_log!("Skipping: {} (no extension, include list specified)", path.display());
-        Ok(FilterResult::skip("No extension, include list specified"))
-      }
+      (Some(_), None) => Ok(FilterResult::skip("No extension, include list specified")),
       // No include list - process the file (exclude already checked above)
       (None, _) => Ok(FilterResult::process()),
     }
