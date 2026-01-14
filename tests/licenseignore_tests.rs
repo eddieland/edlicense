@@ -534,6 +534,7 @@ fn test_processor_with_licenseignore() -> Result<()> {
     None, // Use default LicenseDetector
     temp_path.to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Read the file content and directly test the has_license method
@@ -724,6 +725,7 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
     None,  // license_detector
     root.to_path_buf(),
     false, // git_only
+    None,  // No extension filter
   )?;
 
   // Process specific files - one PNG at root, one in subdir, one deeply nested,
@@ -765,6 +767,7 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
     None,
     root.to_path_buf(), // workspace_root is still the root
     false,
+    None, // No extension filter
   )?;
 
   // Process files from subdir2's perspective
@@ -832,6 +835,7 @@ async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Resu
     None,  // license_detector
     root.to_path_buf(),
     false, // git_only
+    None,  // No extension filter
   )?;
 
   // Process the entire directory tree
@@ -903,6 +907,7 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     None, // Use default LicenseDetector
     temp_path.to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Store the initial files_processed count
@@ -965,6 +970,7 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     None, // Use default LicenseDetector
     rust_path.to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Store the initial files_processed count for the rust processor

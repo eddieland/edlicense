@@ -17,7 +17,7 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 use crate::diff::DiffManager;
-use crate::file_filter::{FileFilter, FilterResult, IgnoreFilter, create_default_filter};
+use crate::file_filter::{ExtensionFilter, FileFilter, FilterResult, IgnoreFilter, create_default_filter};
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
@@ -81,6 +81,9 @@ pub struct Processor {
 
   /// Git reference for ratchet mode
   ratchet_reference: Option<String>,
+
+  /// Optional extension filter for include/exclude based filtering
+  extension_filter: Option<ExtensionFilter>,
 }
 
 const LICENSE_READ_LIMIT: usize = 8 * 1024;
@@ -140,6 +143,7 @@ impl Processor {
     license_detector: Option<Box<dyn LicenseDetector + Send + Sync>>,
     workspace_root: PathBuf,
     workspace_is_git: bool,
+    extension_filter: Option<ExtensionFilter>,
   ) -> Result<Self> {
     if (git_only || ratchet_reference.is_some()) && !workspace_is_git {
       return Err(anyhow::anyhow!(
@@ -173,10 +177,31 @@ impl Processor {
       ignore_manager_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
       git_only,
       ratchet_reference,
+      extension_filter,
     })
   }
 
   // No clone_for_task method needed
+
+  /// Checks if a file should be processed based on both the ignore filter
+  /// and the optional extension filter.
+  fn should_process_file(&self, path: &Path) -> Result<FilterResult> {
+    // First check the ignore filter
+    let filter_result = self.file_filter.should_process(path)?;
+    if !filter_result.should_process {
+      return Ok(filter_result);
+    }
+
+    // Then check the extension filter if present
+    if let Some(ref ext_filter) = self.extension_filter {
+      let ext_result = ext_filter.should_process(path)?;
+      if !ext_result.should_process {
+        return Ok(ext_result);
+      }
+    }
+
+    Ok(FilterResult::process())
+  }
 
   /// Processes a list of file or directory patterns.
   ///
@@ -550,6 +575,7 @@ impl Processor {
           }
         }
 
+        // Check the passed-in filter first
         match filter.should_process(p) {
           Ok(result) => {
             if !result.should_process {
@@ -568,13 +594,40 @@ impl Processor {
                 local_reports.push(file_report);
               }
 
-              false
-            } else {
-              true
+              return false;
             }
           }
-          Err(_) => false,
+          Err(_) => return false,
         }
+
+        // Then check the extension filter if present
+        if let Some(ref ext_filter) = self.extension_filter {
+          match ext_filter.should_process(p) {
+            Ok(result) => {
+              if !result.should_process {
+                let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
+                verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+
+                if self.collect_report_data {
+                  let file_report = FileReport {
+                    path: p.to_path_buf(),
+                    has_license: false,
+                    action_taken: Some(FileAction::Skipped),
+                    ignored: true,
+                    ignored_reason: result.reason,
+                  };
+
+                  local_reports.push(file_report);
+                }
+
+                return false;
+              }
+            }
+            Err(_) => return false,
+          }
+        }
+
+        true
       })
       .collect();
 
@@ -1038,7 +1091,7 @@ impl Processor {
     verbose_log!("Processing file: {}", path.display());
 
     // Use our composite file filter to determine if we should process this file
-    let filter_result = self.file_filter.should_process(path)?;
+    let filter_result = self.should_process_file(path)?;
     if !filter_result.should_process {
       let reason_display = filter_result.reason.as_deref().unwrap_or("Unknown reason");
       verbose_log!("Skipping: {} ({})", path.display(), reason_display);
@@ -1301,7 +1354,7 @@ impl Processor {
     report_sender: tokio::sync::mpsc::Sender<FileReport>,
   ) -> Result<()> {
     // Use our composite file filter to determine if we should process this file
-    let filter_result = self.file_filter.should_process(path)?;
+    let filter_result = self.should_process_file(path)?;
     if !filter_result.should_process {
       // Only log in verbose mode to reduce I/O overhead
       verbose_log!(
@@ -1901,14 +1954,29 @@ impl Processor {
         Err(_) => continue,
       }
 
+      // Check the passed-in filter
       match filter.should_process(&path) {
         Ok(result) => {
-          if result.should_process {
-            filtered.push(path);
+          if !result.should_process {
+            continue;
           }
         }
         Err(_) => continue,
       }
+
+      // Check the extension filter if present
+      if let Some(ref ext_filter) = self.extension_filter {
+        match ext_filter.should_process(&path) {
+          Ok(result) => {
+            if !result.should_process {
+              continue;
+            }
+          }
+          Err(_) => continue,
+        }
+      }
+
+      filtered.push(path);
     }
 
     Ok(filtered)
@@ -1973,7 +2041,7 @@ impl Processor {
     let absolute_path = absolutize_path(path)?;
 
     // Check if file should be processed by the filter
-    let filter_result = self.file_filter.should_process(&absolute_path)?;
+    let filter_result = self.should_process_file(&absolute_path)?;
     if !filter_result.should_process {
       return Ok(false);
     }

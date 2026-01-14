@@ -37,6 +37,7 @@ async fn test_empty_file() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the empty file
@@ -81,6 +82,7 @@ async fn test_binary_file() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the binary file - should fail gracefully
@@ -136,6 +138,7 @@ async fn test_invalid_glob_pattern() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   );
 
   assert!(result.is_err());
@@ -176,6 +179,7 @@ async fn test_file_with_unusual_encoding() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the UTF-16 file
@@ -221,6 +225,7 @@ async fn test_file_with_multiple_shebangs() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the file
@@ -268,6 +273,7 @@ async fn test_file_with_unusual_year_format() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Process the file
@@ -316,6 +322,7 @@ async fn test_process_with_invalid_pattern() -> Result<()> {
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
     false,
+    None, // No extension filter
   )?;
 
   // Try to process with an invalid glob pattern
