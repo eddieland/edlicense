@@ -20,6 +20,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use crate::verbose_log;
 
+
 /// Manager for handling ignore patterns from various sources.
 ///
 /// This struct combines ignore patterns from:
@@ -123,7 +124,6 @@ impl IgnoreManager {
     if let Ok(global_ignore_path) = env::var("GLOBAL_LICENSE_IGNORE") {
       let global_path = PathBuf::from(global_ignore_path);
       if global_path.exists() {
-        verbose_log!("Loading global ignore file: {}", global_path.display());
         let content = fs::read_to_string(&global_path)
           .with_context(|| format!("Failed to read global ignore file: {}", global_path.display()))?;
 
@@ -134,8 +134,6 @@ impl IgnoreManager {
               .with_context(|| format!("Failed to add line from global ignore file: {}", global_path.display()))?;
           }
         }
-      } else {
-        verbose_log!("Global ignore file not found: {}", global_path.display());
       }
     }
 
@@ -225,7 +223,6 @@ impl IgnoreManager {
       if let Ok(rel_path) = path.strip_prefix(root_dir) {
         let match_result = gitignore.matched_path_or_any_parents(rel_path, false);
         if match_result.is_ignore() {
-          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
           return true;
         }
       }
@@ -279,11 +276,6 @@ impl IgnoreManager {
             if partial_path.starts_with(dir_pattern)
               && (partial_path.len() == dir_pattern.len() || partial_path[dir_pattern.len()..].starts_with('/'))
             {
-              verbose_log!(
-                "Skipping: {} (matches CLI directory pattern: {})",
-                path.display(),
-                pattern
-              );
               return true;
             }
           }
@@ -291,28 +283,17 @@ impl IgnoreManager {
 
         // Try matching the pattern against the path
         if pattern.matches(&path_str) {
-          verbose_log!("Skipping: {} (matches CLI ignore pattern: {})", path.display(), pattern);
           return true;
         }
 
         // Try matching against file name
         if pattern.matches(file_name) {
-          verbose_log!(
-            "Skipping: {} (matches CLI ignore pattern for file name: {})",
-            path.display(),
-            pattern
-          );
           return true;
         }
 
         // Try matching against partial paths
         for partial_path in &partial_paths {
           if pattern.matches(partial_path) {
-            verbose_log!(
-              "Skipping: {} (matches CLI ignore pattern for partial path: {})",
-              path.display(),
-              pattern
-            );
             return true;
           }
         }
@@ -325,11 +306,6 @@ impl IgnoreManager {
             if partial_path.starts_with(pattern_str)
               && (partial_path.len() == pattern_str.len() || partial_path[pattern_str.len()..].starts_with('/'))
             {
-              verbose_log!(
-                "Skipping: {} (matches CLI directory name pattern: {})",
-                path.display(),
-                pattern
-              );
               return true;
             }
           }

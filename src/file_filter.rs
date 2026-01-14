@@ -89,7 +89,6 @@ impl IgnoreFilter {
 impl FileFilter for IgnoreFilter {
   fn should_process(&self, path: &Path) -> Result<FilterResult> {
     if self.ignore_manager.is_ignored(path) {
-      verbose_log!("Skipping: {} (matches ignore pattern)", path.display());
       Ok(FilterResult::skip("Matches ignore pattern"))
     } else {
       Ok(FilterResult::process())
@@ -208,13 +207,23 @@ impl ExtensionFilter {
 impl FileFilter for ExtensionFilter {
   fn should_process(&self, path: &Path) -> Result<FilterResult> {
     let ext = Self::get_extension(path);
+    let simple_ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase());
 
+    // Check exclude list first (applies regardless of include list)
+    if let Some(ext) = &ext {
+      let is_excluded =
+        self.exclude.contains(ext) || simple_ext.as_ref().map(|e| self.exclude.contains(e)).unwrap_or(false);
+
+      if is_excluded {
+        verbose_log!("Skipping: {} (extension in exclude list)", path.display());
+        return Ok(FilterResult::skip("Extension in exclude list"));
+      }
+    }
+
+    // Then check include list if present
     match (&self.include, &ext) {
       // If include list exists, file extension must be in it
       (Some(include), Some(ext)) => {
-        // Check both the compound extension and simple extension
-        let simple_ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase());
-
         let is_included = include.contains(ext) || simple_ext.as_ref().map(|e| include.contains(e)).unwrap_or(false);
 
         if !is_included {
@@ -229,23 +238,8 @@ impl FileFilter for ExtensionFilter {
         verbose_log!("Skipping: {} (no extension, include list specified)", path.display());
         Ok(FilterResult::skip("No extension, include list specified"))
       }
-      // No include list - check exclude list
-      (None, Some(ext)) => {
-        // Check both the compound extension and simple extension
-        let simple_ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase());
-
-        let is_excluded =
-          self.exclude.contains(ext) || simple_ext.as_ref().map(|e| self.exclude.contains(e)).unwrap_or(false);
-
-        if is_excluded {
-          verbose_log!("Skipping: {} (extension in exclude list)", path.display());
-          Ok(FilterResult::skip("Extension in exclude list"))
-        } else {
-          Ok(FilterResult::process())
-        }
-      }
-      // No include list and no extension - process the file
-      (None, None) => Ok(FilterResult::process()),
+      // No include list - process the file (exclude already checked above)
+      (None, _) => Ok(FilterResult::process()),
     }
   }
 }
@@ -425,5 +419,32 @@ mod tests {
     // Should process regular .rs files
     let result = filter.should_process(Path::new("src/main.rs")).unwrap();
     assert!(result.should_process);
+  }
+
+  #[test]
+  fn test_extension_filter_include_with_compound_exclude() {
+    // Regression test: include simple extension but exclude compound extension
+    // e.g., process all .ts files except .generated.ts files
+    let config = ExtensionConfig {
+      include: Some(vec!["ts".to_string()]),
+      exclude: vec!["generated.ts".to_string()],
+    };
+    let filter = ExtensionFilter::new(&config);
+
+    // Should process regular .ts files
+    let result = filter.should_process(Path::new("src/app.ts")).unwrap();
+    assert!(result.should_process);
+
+    // Should NOT process .generated.ts files (excluded by compound extension)
+    let result = filter.should_process(Path::new("src/api.generated.ts")).unwrap();
+    assert!(!result.should_process);
+
+    // Should NOT process other extensions (not in include list)
+    let result = filter.should_process(Path::new("src/app.js")).unwrap();
+    assert!(!result.should_process);
+
+    // Should NOT process .tsx files (not in include list)
+    let result = filter.should_process(Path::new("src/component.tsx")).unwrap();
+    assert!(!result.should_process);
   }
 }
