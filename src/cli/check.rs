@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use chrono::Datelike;
 use clap::Args;
 
-use crate::config::load_config;
+use crate::config::{CliOverrides, Config, load_config};
 use crate::diff::DiffManager;
 use crate::file_filter::ExtensionFilter;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
@@ -81,6 +81,11 @@ pub struct CheckArgs {
   /// Exclude files with these extensions (repeatable, case-insensitive)
   #[arg(long, value_name = "EXT")]
   pub exclude_ext: Vec<String>,
+
+  /// Override comment style for an extension (repeatable, format: EXT:STYLE)
+  /// Example: --comment-style "java:// " --comment-style "xyz:# "
+  #[arg(long, value_name = "EXT:STYLE")]
+  pub comment_style: Vec<String>,
 
   /// Copyright year(s)
   #[arg(long)]
@@ -233,10 +238,29 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   }
 
   // Load configuration file if present
-  let config = load_config(args.config.as_deref(), &workspace_root, args.no_config)?;
+  let mut config = load_config(args.config.as_deref(), &workspace_root, args.no_config)?;
 
   if config.is_some() {
     verbose_log!("Using configuration file for comment style overrides");
+  }
+
+  // Parse and apply CLI comment style overrides
+  let cli_overrides = if !args.comment_style.is_empty() {
+    match CliOverrides::from_cli_args(&args.comment_style) {
+      Ok(overrides) => Some(overrides),
+      Err(e) => {
+        eprintln!("ERROR: {}", e);
+        process::exit(1);
+      }
+    }
+  } else {
+    None
+  };
+
+  // Merge CLI overrides into config (creating default config if none exists)
+  if let Some(overrides) = cli_overrides {
+    let cfg = config.get_or_insert_with(Config::default);
+    cfg.merge_cli_overrides(overrides);
   }
 
   // Create the extension filter from config and CLI args
