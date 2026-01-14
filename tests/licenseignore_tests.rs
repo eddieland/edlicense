@@ -1004,3 +1004,544 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   Ok(())
 }
+
+/// Test that compound extension patterns like `*.generated.ts` match files
+/// at any depth in the directory tree.
+///
+/// This is a common pattern for ignoring generated TypeScript files that
+/// might appear in deeply nested directories.
+#[test]
+fn test_compound_extension_pattern_deeply_nested() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore with a compound extension pattern
+  fs::write(root.join(".licenseignore"), "*.generated.ts\n*.proto.ts\n")?;
+
+  // Create deeply nested directory structure
+  // root/
+  //   ├── app.generated.ts (level 0)
+  //   ├── src/
+  //   │   ├── types.generated.ts (level 1)
+  //   │   ├── components/
+  //   │   │   ├── Button.generated.ts (level 2)
+  //   │   │   └── forms/
+  //   │   │       ├── Input.generated.ts (level 3)
+  //   │   │       └── validators/
+  //   │   │           └── schema.generated.ts (level 4)
+  //   │   └── api/
+  //   │       └── client.proto.ts (level 2)
+  //   └── lib/
+  //       └── utils/
+  //           └── helpers/
+  //               └── deep/
+  //                   └── nested/
+  //                       └── file.generated.ts (level 5)
+
+  // Level 0
+  fs::write(root.join("app.generated.ts"), "// Generated")?;
+  fs::write(root.join("app.ts"), "// Regular TypeScript")?;
+
+  // Level 1
+  let src = root.join("src");
+  fs::create_dir(&src)?;
+  fs::write(src.join("types.generated.ts"), "// Generated types")?;
+  fs::write(src.join("types.ts"), "// Regular types")?;
+
+  // Level 2
+  let components = src.join("components");
+  fs::create_dir(&components)?;
+  fs::write(components.join("Button.generated.ts"), "// Generated")?;
+  fs::write(components.join("Button.ts"), "// Regular")?;
+
+  // Level 2 - different branch
+  let api = src.join("api");
+  fs::create_dir(&api)?;
+  fs::write(api.join("client.proto.ts"), "// Proto generated")?;
+  fs::write(api.join("client.ts"), "// Regular client")?;
+
+  // Level 3
+  let forms = components.join("forms");
+  fs::create_dir(&forms)?;
+  fs::write(forms.join("Input.generated.ts"), "// Generated")?;
+
+  // Level 4
+  let validators = forms.join("validators");
+  fs::create_dir(&validators)?;
+  fs::write(validators.join("schema.generated.ts"), "// Generated schema")?;
+
+  // Level 5 - very deeply nested
+  let deep_path = root.join("lib/utils/helpers/deep/nested");
+  fs::create_dir_all(&deep_path)?;
+  fs::write(deep_path.join("file.generated.ts"), "// Deeply nested generated")?;
+  fs::write(deep_path.join("file.ts"), "// Deeply nested regular")?;
+
+  // Create IgnoreManager and load patterns
+  let mut ignore_manager = IgnoreManager::new(vec![])?;
+  ignore_manager.load_licenseignore_files(root, root)?;
+
+  // Test all generated files are ignored at every level
+  assert!(
+    ignore_manager.is_ignored(&root.join("app.generated.ts")),
+    "Generated file at root should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&src.join("types.generated.ts")),
+    "Generated file at level 1 should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&components.join("Button.generated.ts")),
+    "Generated file at level 2 should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&api.join("client.proto.ts")),
+    "Proto generated file at level 2 should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&forms.join("Input.generated.ts")),
+    "Generated file at level 3 should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&validators.join("schema.generated.ts")),
+    "Generated file at level 4 should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&deep_path.join("file.generated.ts")),
+    "Generated file at level 5 (deeply nested) should be ignored"
+  );
+
+  // Test that non-generated files are NOT ignored
+  assert!(
+    !ignore_manager.is_ignored(&root.join("app.ts")),
+    "Regular .ts file at root should NOT be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&src.join("types.ts")),
+    "Regular .ts file at level 1 should NOT be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&components.join("Button.ts")),
+    "Regular .ts file at level 2 should NOT be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&api.join("client.ts")),
+    "Regular .ts file in api should NOT be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&deep_path.join("file.ts")),
+    "Regular .ts file deeply nested should NOT be ignored"
+  );
+
+  // Test loading from a deeply nested directory still finds root .licenseignore
+  let mut deep_manager = IgnoreManager::new(vec![])?;
+  deep_manager.load_licenseignore_files(&deep_path, root)?;
+
+  assert!(
+    deep_manager.is_ignored(&deep_path.join("file.generated.ts")),
+    "Generated file should be ignored when loading from deep directory"
+  );
+  assert!(
+    deep_manager.is_ignored(&root.join("app.generated.ts")),
+    "Root generated file should be ignored when loading from deep directory"
+  );
+
+  Ok(())
+}
+
+/// Test compound directory patterns like `/tests/resources` and
+/// `tests/resources`
+///
+/// These patterns are used to ignore entire directory trees that contain
+/// test fixtures or other resources that shouldn't have license headers.
+///
+/// Per gitignore semantics: "If there is a separator at the beginning or middle
+/// (or both) of the pattern, then the pattern is relative to the directory
+/// level of the particular .gitignore file itself."
+///
+/// This means:
+/// - `tests/fixtures/` is ANCHORED (has slash in middle) - only matches at root
+/// - `/tests/resources/` is ANCHORED (has leading slash) - only matches at root
+/// - `**/test_data/` matches ANYWHERE (explicit double-star)
+/// - `fixtures/` would match ANYWHERE (no slash except trailing)
+#[test]
+fn test_compound_directory_patterns() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Test various compound directory pattern formats:
+  // Per gitignore: patterns with slash in beginning or middle are anchored
+  let ignore_content = r#"
+# Anchored - leading slash (only matches at root)
+/tests/resources/
+
+# Anchored - has slash in middle (only matches at root level)
+tests/fixtures/
+
+# Matches anywhere - explicit double-star
+**/test_data/
+
+# Matches anywhere - no slash except trailing
+fixtures_anywhere/
+
+# Anchored - specific path
+src/generated/
+"#;
+  fs::write(root.join(".licenseignore"), ignore_content)?;
+
+  // Create directory structure:
+  // root/
+  //   ├── tests/
+  //   │   ├── resources/           <- ignored (/tests/resources/)
+  //   │   │   ├── sample.txt
+  //   │   │   └── nested/
+  //   │   │       └── deep.json
+  //   │   ├── fixtures/            <- ignored (tests/fixtures/)
+  //   │   │   └── data.json
+  //   │   └── unit/
+  //   │       └── test.rs          <- NOT ignored
+  //   ├── src/
+  //   │   ├── generated/           <- ignored (src/generated/)
+  //   │   │   └── types.ts
+  //   │   ├── tests/
+  //   │   │   ├── resources/       <- NOT ignored (pattern is anchored)
+  //   │   │   │   └── mock.json
+  //   │   │   └── fixtures/        <- NOT ignored (pattern is anchored)
+  //   │   │       └── stub.json
+  //   │   ├── fixtures_anywhere/   <- ignored (no middle slash)
+  //   │   │   └── data.json
+  //   │   └── main.rs              <- NOT ignored
+  //   ├── fixtures_anywhere/       <- ignored (no middle slash)
+  //   │   └── root_data.json
+  //   └── packages/
+  //       └── core/
+  //           └── test_data/       <- ignored (**/test_data/)
+  //               └── sample.json
+
+  // Create tests/resources at root (should be ignored)
+  let tests_resources = root.join("tests/resources");
+  fs::create_dir_all(&tests_resources)?;
+  fs::write(tests_resources.join("sample.txt"), "sample")?;
+  fs::create_dir(tests_resources.join("nested"))?;
+  fs::write(tests_resources.join("nested/deep.json"), "{}")?;
+
+  // Create tests/fixtures at root (should be ignored)
+  let tests_fixtures = root.join("tests/fixtures");
+  fs::create_dir_all(&tests_fixtures)?;
+  fs::write(tests_fixtures.join("data.json"), "{}")?;
+
+  // Create tests/unit (should NOT be ignored)
+  let tests_unit = root.join("tests/unit");
+  fs::create_dir_all(&tests_unit)?;
+  fs::write(tests_unit.join("test.rs"), "// test")?;
+
+  // Create src/generated (should be ignored)
+  let src_generated = root.join("src/generated");
+  fs::create_dir_all(&src_generated)?;
+  fs::write(src_generated.join("types.ts"), "// generated")?;
+
+  // Create src/tests/resources (should NOT be ignored - pattern is anchored)
+  let src_tests_resources = root.join("src/tests/resources");
+  fs::create_dir_all(&src_tests_resources)?;
+  fs::write(src_tests_resources.join("mock.json"), "{}")?;
+
+  // Create src/tests/fixtures (should NOT be ignored - pattern is anchored)
+  let src_tests_fixtures = root.join("src/tests/fixtures");
+  fs::create_dir_all(&src_tests_fixtures)?;
+  fs::write(src_tests_fixtures.join("stub.json"), "{}")?;
+
+  // Create fixtures_anywhere at root (should be ignored - no middle slash)
+  let fixtures_anywhere_root = root.join("fixtures_anywhere");
+  fs::create_dir_all(&fixtures_anywhere_root)?;
+  fs::write(fixtures_anywhere_root.join("root_data.json"), "{}")?;
+
+  // Create src/fixtures_anywhere (should be ignored - no middle slash matches
+  // anywhere)
+  let src_fixtures_anywhere = root.join("src/fixtures_anywhere");
+  fs::create_dir_all(&src_fixtures_anywhere)?;
+  fs::write(src_fixtures_anywhere.join("data.json"), "{}")?;
+
+  // Create src/main.rs (should NOT be ignored)
+  fs::create_dir_all(root.join("src"))?;
+  fs::write(root.join("src/main.rs"), "fn main() {}")?;
+
+  // Create packages/core/test_data (should be ignored - matches **/test_data/)
+  let test_data = root.join("packages/core/test_data");
+  fs::create_dir_all(&test_data)?;
+  fs::write(test_data.join("sample.json"), "{}")?;
+
+  // Create IgnoreManager and load patterns
+  let mut ignore_manager = IgnoreManager::new(vec![])?;
+  ignore_manager.load_licenseignore_files(root, root)?;
+
+  // Test /tests/resources/ (anchored with leading slash)
+  assert!(
+    ignore_manager.is_ignored(&tests_resources.join("sample.txt")),
+    "File in root /tests/resources/ should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&tests_resources.join("nested/deep.json")),
+    "Nested file in root /tests/resources/ should be ignored"
+  );
+
+  // Test tests/fixtures/ (anchored - has slash in middle)
+  assert!(
+    ignore_manager.is_ignored(&tests_fixtures.join("data.json")),
+    "File in root tests/fixtures/ should be ignored"
+  );
+
+  // Test src/tests/resources/ - should NOT be ignored (pattern is anchored)
+  assert!(
+    !ignore_manager.is_ignored(&src_tests_resources.join("mock.json")),
+    "File in src/tests/resources/ should NOT be ignored (pattern /tests/resources/ is anchored)"
+  );
+
+  // Test src/tests/fixtures/ - should NOT be ignored (pattern is anchored due to
+  // middle slash)
+  assert!(
+    !ignore_manager.is_ignored(&src_tests_fixtures.join("stub.json")),
+    "File in src/tests/fixtures/ should NOT be ignored (pattern tests/fixtures/ is anchored)"
+  );
+
+  // Test fixtures_anywhere/ (no middle slash - matches anywhere)
+  assert!(
+    ignore_manager.is_ignored(&fixtures_anywhere_root.join("root_data.json")),
+    "File in root fixtures_anywhere/ should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&src_fixtures_anywhere.join("data.json")),
+    "File in src/fixtures_anywhere/ should be ignored (pattern has no middle slash)"
+  );
+
+  // Test **/test_data/ (explicit double-star - matches anywhere)
+  assert!(
+    ignore_manager.is_ignored(&test_data.join("sample.json")),
+    "File in packages/core/test_data/ should be ignored"
+  );
+
+  // Test src/generated/ (anchored - specific path)
+  assert!(
+    ignore_manager.is_ignored(&src_generated.join("types.ts")),
+    "File in src/generated/ should be ignored"
+  );
+
+  // Test files that should NOT be ignored
+  assert!(
+    !ignore_manager.is_ignored(&tests_unit.join("test.rs")),
+    "File in tests/unit/ should NOT be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&root.join("src/main.rs")),
+    "src/main.rs should NOT be ignored"
+  );
+
+  Ok(())
+}
+
+/// Test compound directory patterns with variations (trailing slash, no slash,
+/// wildcards)
+#[test]
+fn test_compound_directory_pattern_variations() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create directory structure first
+  let tests_resources = root.join("tests/resources");
+  fs::create_dir_all(&tests_resources)?;
+  fs::write(tests_resources.join("file.txt"), "content")?;
+
+  // Test 1: Pattern with trailing slash
+  fs::write(root.join(".licenseignore"), "tests/resources/\n")?;
+
+  let mut manager1 = IgnoreManager::new(vec![])?;
+  manager1.load_licenseignore_files(root, root)?;
+
+  assert!(
+    manager1.is_ignored(&tests_resources.join("file.txt")),
+    "tests/resources/ with trailing slash should match"
+  );
+
+  // Test 2: Pattern without trailing slash
+  fs::write(root.join(".licenseignore"), "tests/resources\n")?;
+
+  let mut manager2 = IgnoreManager::new(vec![])?;
+  manager2.load_licenseignore_files(root, root)?;
+
+  assert!(
+    manager2.is_ignored(&tests_resources.join("file.txt")),
+    "tests/resources without trailing slash should match"
+  );
+
+  // Test 3: Pattern with wildcard
+  fs::write(root.join(".licenseignore"), "tests/resources/*\n")?;
+
+  let mut manager3 = IgnoreManager::new(vec![])?;
+  manager3.load_licenseignore_files(root, root)?;
+
+  assert!(
+    manager3.is_ignored(&tests_resources.join("file.txt")),
+    "tests/resources/* should match files inside"
+  );
+
+  // Test 4: Pattern with double-star
+  fs::write(root.join(".licenseignore"), "tests/resources/**\n")?;
+
+  let mut manager4 = IgnoreManager::new(vec![])?;
+  manager4.load_licenseignore_files(root, root)?;
+
+  assert!(
+    manager4.is_ignored(&tests_resources.join("file.txt")),
+    "tests/resources/** should match files inside"
+  );
+
+  // Create deeper nesting for ** test
+  let deep_nested = tests_resources.join("deep/nested");
+  fs::create_dir_all(&deep_nested)?;
+  fs::write(deep_nested.join("deep.txt"), "deep content")?;
+
+  assert!(
+    manager4.is_ignored(&deep_nested.join("deep.txt")),
+    "tests/resources/** should match deeply nested files"
+  );
+
+  Ok(())
+}
+
+/// Integration test: Processor respects compound extension patterns deeply
+/// nested
+#[tokio::test]
+async fn test_processor_compound_extension_deeply_nested() -> Result<()> {
+  let original_dir = env::current_dir()?;
+
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore with compound extension pattern
+  fs::write(root.join(".licenseignore"), "*.generated.ts\n")?;
+
+  // Create license template
+  let license_path = root.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) 2025 Test")?;
+
+  // Create deeply nested structure with both generated and regular files
+  let deep_path = root.join("src/components/forms/validators");
+  fs::create_dir_all(&deep_path)?;
+
+  fs::write(deep_path.join("schema.generated.ts"), "// Generated")?;
+  fs::write(deep_path.join("schema.ts"), "// Regular code")?;
+  fs::write(root.join("app.generated.ts"), "// Root generated")?;
+  fs::write(root.join("app.ts"), "// Root regular")?;
+
+  env::set_current_dir(root)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    true,  // check_only
+    false, // preserve_years
+    None,
+    None,
+    false,
+    None,
+    root.to_path_buf(),
+    false,
+    None,
+  )?;
+
+  // Process specific files
+  let files_to_process = vec![
+    "app.generated.ts".to_string(),
+    "app.ts".to_string(),
+    "src/components/forms/validators/schema.generated.ts".to_string(),
+    "src/components/forms/validators/schema.ts".to_string(),
+  ];
+
+  processor.process(&files_to_process).await?;
+
+  let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  // Only the 2 non-generated .ts files should be processed
+  assert_eq!(
+    files_processed, 2,
+    "Expected 2 files (app.ts and schema.ts) to be processed, but {} were. Generated files should be ignored.",
+    files_processed
+  );
+
+  env::set_current_dir(&original_dir)?;
+  Ok(())
+}
+
+/// Integration test: Processor respects compound directory patterns
+#[tokio::test]
+async fn test_processor_compound_directory_patterns() -> Result<()> {
+  let original_dir = env::current_dir()?;
+
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore with compound directory pattern
+  fs::write(root.join(".licenseignore"), "tests/resources/\n")?;
+
+  // Create license template
+  let license_path = root.join("LICENSE.txt");
+  fs::write(&license_path, "Copyright (c) 2025 Test")?;
+
+  // Create directory structure
+  let tests_resources = root.join("tests/resources");
+  fs::create_dir_all(&tests_resources)?;
+  fs::write(tests_resources.join("fixture.rs"), "// fixture")?;
+
+  let tests_unit = root.join("tests/unit");
+  fs::create_dir_all(&tests_unit)?;
+  fs::write(tests_unit.join("test.rs"), "// test")?;
+
+  fs::create_dir_all(root.join("src"))?;
+  fs::write(root.join("src/main.rs"), "fn main() {}")?;
+
+  env::set_current_dir(root)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&license_path)?;
+
+  let processor = Processor::new(
+    template_manager,
+    LicenseData {
+      year: "2025".to_string(),
+    },
+    vec![],
+    true,
+    false,
+    None,
+    None,
+    false,
+    None,
+    root.to_path_buf(),
+    false,
+    None,
+  )?;
+
+  let files_to_process = vec![
+    "tests/resources/fixture.rs".to_string(),
+    "tests/unit/test.rs".to_string(),
+    "src/main.rs".to_string(),
+  ];
+
+  processor.process(&files_to_process).await?;
+
+  let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
+
+  // tests/resources/fixture.rs should be ignored, leaving 2 files
+  assert_eq!(
+    files_processed, 2,
+    "Expected 2 files (test.rs and main.rs) to be processed, but {} were. tests/resources/ should be ignored.",
+    files_processed
+  );
+
+  env::set_current_dir(&original_dir)?;
+  Ok(())
+}
