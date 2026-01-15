@@ -28,6 +28,7 @@ pub mod git;
 pub mod ignore;
 pub mod license_detection;
 pub mod logging;
+pub mod output;
 pub mod processor;
 pub mod report;
 pub mod templates;

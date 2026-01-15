@@ -125,11 +125,16 @@ fn test_dry_run_mode() -> Result<()> {
   // Run edlicense in dry run mode
   let args = &["--dry-run", "--license-file", "license_template.txt", "src"];
 
-  let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
+  let (status, stdout, _stderr) = run_edlicense(args, temp_dir.path())?;
 
   // Check that the command failed (because some files don't have licenses)
   assert_ne!(status, 0, "Command should have failed but succeeded");
-  assert!(stderr.contains("Error: Some files are missing license headers"));
+  // Check that the output shows files missing license headers
+  assert!(
+    stdout.contains("missing license headers"),
+    "Expected missing license message in stdout: {}",
+    stdout
+  );
 
   // Check that the files were not modified
   let main_content = fs::read_to_string(temp_dir.path().join("src/main.rs"))?;
