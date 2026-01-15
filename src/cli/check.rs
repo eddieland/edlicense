@@ -118,8 +118,8 @@ pub struct CheckArgs {
   #[arg(long, value_name = "FILE")]
   pub global_ignore_file: Option<PathBuf>,
 
-  /// Only consider files in the current git repository
-  #[arg(long, default_value = "false", default_missing_value = "true", num_args = 0..=1)]
+  /// Only consider files in the current git repository (default when in a git repository)
+  #[arg(long, default_missing_value = "true", num_args = 0..=1)]
   pub git_only: Option<bool>,
 
   /// Control when to use colored output (auto, never, always)
@@ -231,7 +231,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   let workspace = resolve_workspace(&args.patterns)?;
   let workspace_root = workspace.root().to_path_buf();
 
-  let git_only = args.git_only.unwrap_or(false);
+  let git_only = args.git_only.unwrap_or_else(|| workspace.is_git());
   if git_only {
     if workspace.is_git() {
       info_log!("Git repository detected, only processing tracked files");
@@ -443,11 +443,13 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
   let workspace = resolve_workspace(&args.patterns)?;
   let workspace_root = workspace.root().to_path_buf();
 
-  let git_only = args.git_only.unwrap_or(false);
-  if git_only && !workspace.is_git() {
-    eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
-    eprintln!("When --git-only is enabled, you must run edlicense from inside a git repository");
-    process::exit(1);
+  let git_only = args.git_only.unwrap_or_else(|| workspace.is_git());
+  if git_only {
+    if !workspace.is_git() {
+      eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
+      eprintln!("When --git-only is enabled, you must run edlicense from inside a git repository");
+      process::exit(1);
+    }
   }
 
   // Load configuration file if present (needed for extension filtering)
