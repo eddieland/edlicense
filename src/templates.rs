@@ -202,10 +202,12 @@ impl TemplateManager {
   ///
   /// # Returns
   ///
-  /// The formatted license text with appropriate comment markers.
-  pub fn format_for_file_type(&self, license_text: &str, file_path: &Path) -> String {
-    let comment_style = self.resolver.resolve(file_path);
-    format_with_comment_style(license_text, &comment_style)
+  /// `Some(String)` with the formatted license text if a comment style is
+  /// known, `None` if no comment style is defined for the file type and it
+  /// should be skipped.
+  pub fn format_for_file_type(&self, license_text: &str, file_path: &Path) -> Option<String> {
+    let comment_style = self.resolver.resolve(file_path)?;
+    Some(format_with_comment_style(license_text, &comment_style))
   }
 }
 
@@ -298,19 +300,21 @@ pub trait CommentStyleResolver: Send + Sync {
   ///
   /// # Returns
   ///
-  /// The appropriate `CommentStyle` for the file.
-  fn resolve(&self, path: &Path) -> CommentStyle;
+  /// `Some(CommentStyle)` if a comment style is known for the file type,
+  /// `None` if no comment style is defined and the file should be skipped.
+  fn resolve(&self, path: &Path) -> Option<CommentStyle>;
 }
 
 /// Default resolver using built-in mappings.
 ///
 /// This resolver uses the hardcoded mappings from file extensions to comment
-/// styles. It's used when no configuration file is present.
+/// styles. It's used when no configuration file is present. Returns `None`
+/// for unknown file types, causing those files to be skipped.
 #[derive(Debug, Default)]
 pub struct BuiltinResolver;
 
 impl CommentStyleResolver for BuiltinResolver {
-  fn resolve(&self, path: &Path) -> CommentStyle {
+  fn resolve(&self, path: &Path) -> Option<CommentStyle> {
     get_comment_style_for_file(path)
   }
 }
@@ -355,7 +359,7 @@ impl ConfigurableResolver {
 }
 
 impl CommentStyleResolver for ConfigurableResolver {
-  fn resolve(&self, path: &Path) -> CommentStyle {
+  fn resolve(&self, path: &Path) -> Option<CommentStyle> {
     let file_name = path
       .file_name()
       .and_then(|name| name.to_str())
@@ -365,7 +369,7 @@ impl CommentStyleResolver for ConfigurableResolver {
     // 1. Check filename patterns in config (exact match first)
     if let Some(style) = self.config.filenames.get(&file_name) {
       verbose_log!("Using config filename override for: {}", file_name);
-      return CommentStyle::from(style);
+      return Some(CommentStyle::from(style));
     }
 
     // 2. Check filename patterns with glob matching
@@ -375,7 +379,7 @@ impl CommentStyleResolver for ConfigurableResolver {
         && glob_pattern.matches(&file_name)
       {
         verbose_log!("Using config filename glob override '{}' for: {}", pattern, file_name);
-        return CommentStyle::from(style);
+        return Some(CommentStyle::from(style));
       }
     }
 
@@ -388,10 +392,10 @@ impl CommentStyleResolver for ConfigurableResolver {
 
     if let Some(style) = self.config.comment_styles.get(&extension) {
       verbose_log!("Using config extension override for: .{}", extension);
-      return CommentStyle::from(style);
+      return Some(CommentStyle::from(style));
     }
 
-    // 4. Fall back to builtin resolver
+    // 4. Fall back to builtin resolver (returns None for unknown file types)
     get_comment_style_for_file(path)
   }
 }
@@ -418,7 +422,8 @@ pub fn create_resolver(config: Option<Config>) -> Box<dyn CommentStyleResolver> 
 ///
 /// # Returns
 ///
-/// A `CommentStyle` instance appropriate for the file type.
+/// `Some(CommentStyle)` if a comment style is known for the file type,
+/// `None` if the file type is not recognized.
 ///
 /// # Supported File Types
 ///
@@ -430,9 +435,9 @@ pub fn create_resolver(config: Option<Config>) -> Box<dyn CommentStyleResolver> 
 /// - HTML/XML/Vue: `<!-- comment style -->`
 /// - And many more...
 ///
-/// If the file type cannot be determined, it defaults to C-style line comments
-/// (`// `).
-fn get_comment_style_for_file(path: &Path) -> CommentStyle {
+/// For unknown file types, returns `None`. Users can specify comment styles
+/// for additional file types via configuration or CLI options.
+fn get_comment_style_for_file(path: &Path) -> Option<CommentStyle> {
   let file_name = path
     .file_name()
     .and_then(|name| name.to_str())
@@ -446,18 +451,20 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
     .to_lowercase();
 
   match extension.as_str() {
-    "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => CommentStyle::block("/*", " * ", " */"),
-    "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => CommentStyle::block("/**", " * ", " */"),
+    "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => Some(CommentStyle::block("/*", " * ", " */")),
+    "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => {
+      Some(CommentStyle::block("/**", " * ", " */"))
+    }
     "cc" | "cpp" | "cs" | "go" | "hcl" | "hh" | "hpp" | "m" | "mm" | "proto" | "rs" | "swift" | "dart" | "groovy"
-    | "v" | "sv" => CommentStyle::line("// "),
-    "py" | "sh" | "yaml" | "yml" | "rb" | "tcl" | "tf" | "bzl" | "pl" | "pp" | "toml" => CommentStyle::line("# "),
-    "el" | "lisp" => CommentStyle::line(";; "),
-    "erl" => CommentStyle::line("% "),
-    "hs" | "sql" | "sdl" => CommentStyle::line("-- "),
-    "html" | "xml" | "vue" | "wxi" | "wxl" | "wxs" => CommentStyle::block("<!--", " ", "-->"),
-    "php" => CommentStyle::line("// "),
-    "j2" => CommentStyle::block("{#", "", "#}"),
-    "ml" | "mli" | "mll" | "mly" => CommentStyle::block("(**", "   ", "*)"),
+    | "v" | "sv" => Some(CommentStyle::line("// ")),
+    "py" | "sh" | "yaml" | "yml" | "rb" | "tcl" | "tf" | "bzl" | "pl" | "pp" | "toml" => Some(CommentStyle::line("# ")),
+    "el" | "lisp" => Some(CommentStyle::line(";; ")),
+    "erl" => Some(CommentStyle::line("% ")),
+    "hs" | "sql" | "sdl" => Some(CommentStyle::line("-- ")),
+    "html" | "xml" | "vue" | "wxi" | "wxl" | "wxs" => Some(CommentStyle::block("<!--", " ", "-->")),
+    "php" => Some(CommentStyle::line("// ")),
+    "j2" => Some(CommentStyle::block("{#", "", "#}")),
+    "ml" | "mli" | "mll" | "mly" => Some(CommentStyle::block("(**", "   ", "*)")),
     _ => {
       // Handle special cases based on filename
       if file_name == "cmakelists.txt"
@@ -466,10 +473,10 @@ fn get_comment_style_for_file(path: &Path) -> CommentStyle {
         || file_name == "dockerfile"
         || file_name.ends_with(".dockerfile")
       {
-        CommentStyle::line("# ")
+        Some(CommentStyle::line("# "))
       } else {
-        // Default to C-style comments if we can't determine the file type
-        CommentStyle::line("// ")
+        // No known comment style for this file type
+        None
       }
     }
   }
@@ -535,7 +542,9 @@ mod tests {
   #[test]
   fn test_builtin_resolver_rust() {
     let resolver = BuiltinResolver;
-    let style = resolver.resolve(Path::new("main.rs"));
+    let style = resolver
+      .resolve(Path::new("main.rs"))
+      .expect("Rust files should have a style");
 
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "// ");
@@ -545,7 +554,9 @@ mod tests {
   #[test]
   fn test_builtin_resolver_python() {
     let resolver = BuiltinResolver;
-    let style = resolver.resolve(Path::new("script.py"));
+    let style = resolver
+      .resolve(Path::new("script.py"))
+      .expect("Python files should have a style");
 
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "# ");
@@ -555,7 +566,9 @@ mod tests {
   #[test]
   fn test_builtin_resolver_java() {
     let resolver = BuiltinResolver;
-    let style = resolver.resolve(Path::new("Main.java"));
+    let style = resolver
+      .resolve(Path::new("Main.java"))
+      .expect("Java files should have a style");
 
     assert_eq!(style.top, "/*");
     assert_eq!(style.middle, " * ");
@@ -565,7 +578,9 @@ mod tests {
   #[test]
   fn test_builtin_resolver_javascript() {
     let resolver = BuiltinResolver;
-    let style = resolver.resolve(Path::new("app.js"));
+    let style = resolver
+      .resolve(Path::new("app.js"))
+      .expect("JS files should have a style");
 
     assert_eq!(style.top, "/**");
     assert_eq!(style.middle, " * ");
@@ -573,13 +588,11 @@ mod tests {
   }
 
   #[test]
-  fn test_builtin_resolver_unknown_defaults_to_line_comment() {
+  fn test_builtin_resolver_unknown_returns_none() {
     let resolver = BuiltinResolver;
     let style = resolver.resolve(Path::new("unknown.xyz"));
 
-    assert_eq!(style.top, "");
-    assert_eq!(style.middle, "// ");
-    assert_eq!(style.bottom, "");
+    assert!(style.is_none(), "Unknown extensions should return None");
   }
 
   #[test]
@@ -594,7 +607,9 @@ mod tests {
     };
 
     let resolver = ConfigurableResolver::new(config);
-    let style = resolver.resolve(Path::new("Main.java"));
+    let style = resolver
+      .resolve(Path::new("Main.java"))
+      .expect("Java config override should exist");
 
     // Should use the config override (line style) instead of builtin (block style)
     assert_eq!(style.top, "");
@@ -614,7 +629,9 @@ mod tests {
     };
 
     let resolver = ConfigurableResolver::new(config);
-    let style = resolver.resolve(Path::new("custom.xyz"));
+    let style = resolver
+      .resolve(Path::new("custom.xyz"))
+      .expect("Custom extension should be defined in config");
 
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "## ");
@@ -633,7 +650,9 @@ mod tests {
     };
 
     let resolver = ConfigurableResolver::new(config);
-    let style = resolver.resolve(Path::new("Justfile"));
+    let style = resolver
+      .resolve(Path::new("Justfile"))
+      .expect("Justfile config override should exist");
 
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "# ");
@@ -652,7 +671,9 @@ mod tests {
     };
 
     let resolver = ConfigurableResolver::new(config);
-    let style = resolver.resolve(Path::new("config.cmake.in"));
+    let style = resolver
+      .resolve(Path::new("config.cmake.in"))
+      .expect("cmake.in glob should match");
 
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "# ");
@@ -670,16 +691,35 @@ mod tests {
     let resolver = ConfigurableResolver::new(config);
 
     // Should fall back to builtin for Rust files
-    let style = resolver.resolve(Path::new("main.rs"));
+    let style = resolver
+      .resolve(Path::new("main.rs"))
+      .expect("Rust files should have builtin style");
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "// ");
     assert_eq!(style.bottom, "");
 
     // Should fall back to builtin for Python files
-    let style = resolver.resolve(Path::new("script.py"));
+    let style = resolver
+      .resolve(Path::new("script.py"))
+      .expect("Python files should have builtin style");
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "# ");
     assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_configurable_resolver_unknown_extension_returns_none() {
+    let config = Config {
+      comment_styles: HashMap::new(),
+      filenames: HashMap::new(),
+      extensions: ExtensionConfig::default(),
+    };
+
+    let resolver = ConfigurableResolver::new(config);
+
+    // Unknown extension with no config should return None
+    let style = resolver.resolve(Path::new("unknown.xyz"));
+    assert!(style.is_none(), "Unknown extensions without config should return None");
   }
 
   #[test]
@@ -694,7 +734,9 @@ mod tests {
     };
 
     let resolver = create_resolver(Some(config));
-    let style = resolver.resolve(Path::new("main.rs"));
+    let style = resolver
+      .resolve(Path::new("main.rs"))
+      .expect("Config override should exist");
 
     // Should use the config override
     assert_eq!(style.middle, "## ");
@@ -703,7 +745,9 @@ mod tests {
   #[test]
   fn test_create_resolver_without_config() {
     let resolver = create_resolver(None);
-    let style = resolver.resolve(Path::new("main.rs"));
+    let style = resolver
+      .resolve(Path::new("main.rs"))
+      .expect("Rust files should have builtin style");
 
     // Should use the builtin style
     assert_eq!(style.middle, "// ");
@@ -755,7 +799,16 @@ mod tests {
     let resolver = create_resolver(Some(config));
     let manager = TemplateManager::with_resolver(resolver);
 
-    let formatted = manager.format_for_file_type("Copyright 2025", Path::new("main.rs"));
+    let formatted = manager
+      .format_for_file_type("Copyright 2025", Path::new("main.rs"))
+      .expect("Rust files with config should have a style");
     assert!(formatted.starts_with("## Copyright 2025"));
+  }
+
+  #[test]
+  fn test_template_manager_unknown_extension_returns_none() {
+    let manager = TemplateManager::new();
+    let formatted = manager.format_for_file_type("Copyright 2025", Path::new("unknown.xyz"));
+    assert!(formatted.is_none(), "Unknown extensions should return None");
   }
 }
