@@ -445,12 +445,11 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
   let workspace_root = workspace.root().to_path_buf();
 
   let git_only = args.git_only.unwrap_or_else(|| workspace.is_git());
-  if git_only
-    && !workspace.is_git() {
-      eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
-      eprintln!("When --git-only is enabled, you must run edlicense from inside a git repository");
-      process::exit(1);
-    }
+  if git_only && !workspace.is_git() {
+    eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
+    eprintln!("When --git-only is enabled, you must run edlicense from inside a git repository");
+    process::exit(1);
+  }
 
   // Load configuration file if present (needed for extension filtering)
   let config = load_config(args.config.as_deref(), &workspace_root, args.no_config)?;
