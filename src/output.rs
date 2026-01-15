@@ -57,10 +57,10 @@ pub fn print_blank_line() {
 
 /// Print the list of files missing license headers.
 ///
-/// Shows up to `DEFAULT_FILE_LIST_LIMIT` files by default.
+/// Shows up to `limit` files (or `DEFAULT_FILE_LIST_LIMIT` if None).
 /// In verbose mode, shows all files.
 /// Files are sorted alphabetically by path.
-pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>) {
+pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>, limit: Option<usize>) {
   if files.is_empty() {
     return;
   }
@@ -88,15 +88,73 @@ pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>)
   println!("{}", header);
 
   let show_all = is_verbose();
-  let limit = if show_all { count } else { DEFAULT_FILE_LIST_LIMIT };
+  let effective_limit = if show_all {
+    count
+  } else {
+    limit.unwrap_or(DEFAULT_FILE_LIST_LIMIT)
+  };
 
-  for file in sorted_files.iter().take(limit) {
+  for file in sorted_files.iter().take(effective_limit) {
     let display_path = make_relative_path(&file.path, workspace_root);
     println!("  {}", display_path);
   }
 
-  if !show_all && count > limit {
-    let remaining = count - limit;
+  if !show_all && count > effective_limit {
+    let remaining = count - effective_limit;
+    println!(
+      "  {} ... and {} more (use -v to see all)",
+      "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
+      remaining
+    );
+  }
+}
+
+/// Print the list of files with outdated license years.
+///
+/// Shows up to `limit` files (or `DEFAULT_FILE_LIST_LIMIT` if None).
+/// In verbose mode, shows all files.
+/// Files are sorted alphabetically by path.
+pub fn print_outdated_files(files: &[&FileReport], workspace_root: Option<&Path>, limit: Option<usize>) {
+  if files.is_empty() {
+    return;
+  }
+
+  // Sort files alphabetically by path
+  let mut sorted_files: Vec<_> = files.to_vec();
+  sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
+
+  if is_quiet() {
+    // In quiet mode, just print the file paths (for scripting)
+    for file in &sorted_files {
+      let display_path = make_relative_path(&file.path, workspace_root);
+      println!("{}", display_path);
+    }
+    return;
+  }
+
+  let count = sorted_files.len();
+  let header = format!(
+    "{} {} {} with outdated year:",
+    symbols::UPDATED.if_supports_color(Stream::Stdout, |s| s.yellow()),
+    count,
+    if count == 1 { "file" } else { "files" }
+  );
+  println!("{}", header);
+
+  let show_all = is_verbose();
+  let effective_limit = if show_all {
+    count
+  } else {
+    limit.unwrap_or(DEFAULT_FILE_LIST_LIMIT)
+  };
+
+  for file in sorted_files.iter().take(effective_limit) {
+    let display_path = make_relative_path(&file.path, workspace_root);
+    println!("  {}", display_path);
+  }
+
+  if !show_all && count > effective_limit {
+    let remaining = count - effective_limit;
     println!(
       "  {} ... and {} more (use -v to see all)",
       "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
