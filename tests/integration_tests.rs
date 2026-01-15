@@ -78,12 +78,13 @@ fn test_add_license() -> Result<()> {
   let temp_dir = setup_test_environment()?;
 
   // Run edlicense to add licenses
+  // Use -vvv for trace-level output which includes per-file processing messages
   let args = &[
     "--modify",
     "--year=2025",
     "--license-file",
     "license_template.txt",
-    "--verbose",
+    "-vvv",
     "src",
     "script.py",
   ];
@@ -93,8 +94,8 @@ fn test_add_license() -> Result<()> {
   // Check that the command succeeded
   assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
 
-  // Check that the files were processed
-  assert!(stderr.contains("Processing file: "));
+  // Check that the files were processed (trace-level output)
+  assert!(stderr.contains("Processing file:"));
 
   // Check that the licenses were added
   let main_content = fs::read_to_string(temp_dir.path().join("src/main.rs"))?;

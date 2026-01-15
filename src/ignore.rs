@@ -17,8 +17,7 @@ use std::{env, fs};
 use anyhow::{Context, Result};
 use glob::Pattern;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-
-use crate::verbose_log;
+use tracing::debug;
 
 /// Manager for handling ignore patterns from various sources.
 ///
@@ -167,7 +166,7 @@ impl IgnoreManager {
 
     // Now load each .licenseignore file in order from root to target dir
     for (dir_path, ignore_path) in licenseignore_files {
-      verbose_log!("Loading .licenseignore file: {}", ignore_path.display());
+      debug!("Loading .licenseignore file: {}", ignore_path.display());
       let content = fs::read_to_string(&ignore_path)
         .with_context(|| format!("Failed to read .licenseignore file: {}", ignore_path.display()))?;
 

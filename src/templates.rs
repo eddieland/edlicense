@@ -42,9 +42,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use tracing::{debug, trace};
 
 use crate::config::{CommentStyleConfig, Config};
-use crate::verbose_log;
 
 /// Data used to fill out a license template.
 ///
@@ -152,12 +152,12 @@ impl TemplateManager {
   /// - The file cannot be read
   /// - The file content is not valid UTF-8
   pub fn load_template(&mut self, path: &Path) -> Result<()> {
-    verbose_log!("Loading template from: {}", path.display());
+    debug!("Loading template from: {}", path.display());
 
     let template_content =
       fs::read_to_string(path).with_context(|| format!("Failed to read license template file: {}", path.display()))?;
 
-    verbose_log!("Template content:\n{}", template_content);
+    trace!("Template content:\n{}", template_content);
 
     self.template = template_content;
 
@@ -179,7 +179,7 @@ impl TemplateManager {
   /// The rendered license text with variables replaced, or an error if
   /// rendering fails.
   pub fn render(&self, data: &LicenseData) -> Result<String> {
-    verbose_log!("Rendering template with year: {}", data.year);
+    trace!("Rendering template with year: {}", data.year);
 
     // Simple string replacement
     let rendered = self.template.replace("{{year}}", &data.year);
@@ -368,7 +368,7 @@ impl CommentStyleResolver for ConfigurableResolver {
 
     // 1. Check filename patterns in config (exact match first)
     if let Some(style) = self.config.filenames.get(&file_name) {
-      verbose_log!("Using config filename override for: {}", file_name);
+      trace!("Using config filename override for: {}", file_name);
       return Some(CommentStyle::from(style));
     }
 
@@ -378,7 +378,7 @@ impl CommentStyleResolver for ConfigurableResolver {
         && let Ok(glob_pattern) = glob::Pattern::new(&pattern.to_lowercase())
         && glob_pattern.matches(&file_name)
       {
-        verbose_log!("Using config filename glob override '{}' for: {}", pattern, file_name);
+        trace!("Using config filename glob override '{}' for: {}", pattern, file_name);
         return Some(CommentStyle::from(style));
       }
     }
@@ -391,7 +391,7 @@ impl CommentStyleResolver for ConfigurableResolver {
       .to_lowercase();
 
     if let Some(style) = self.config.comment_styles.get(&extension) {
-      verbose_log!("Using config extension override for: .{}", extension);
+      trace!("Using config extension override for: .{}", extension);
       return Some(CommentStyle::from(style));
     }
 
