@@ -135,10 +135,20 @@ impl ContentBasedLicenseDetector {
         }
       }
 
-      // Skip comment characters
-      if matches!(b, b'/' | b'*' | b'#' | b'<' | b'!' | b'-' | b'>' | b';') {
+      // Skip comment characters, but preserve dash when it's between digits
+      // (e.g., year ranges like "2020-2025")
+      if matches!(b, b'/' | b'*' | b'#' | b'<' | b'!' | b'>' | b';') {
         i += 1;
         continue;
+      }
+      if b == b'-' {
+        // Only skip dash if it's NOT between digits (to preserve year ranges)
+        let prev_is_digit = i > 0 && bytes[i - 1].is_ascii_digit();
+        let next_is_digit = i + 1 < len && bytes[i + 1].is_ascii_digit();
+        if !(prev_is_digit && next_is_digit) {
+          i += 1;
+          continue;
+        }
       }
 
       // Handle whitespace - collapse to single space
@@ -162,7 +172,9 @@ impl ContentBasedLicenseDetector {
       result.pop();
     }
 
-    result
+    // Collapse year ranges (YEAR-YEAR) to just YEAR so that "2020-2025" matches
+    // "2024"
+    result.replace("YEAR-YEAR", "YEAR")
   }
 }
 
@@ -257,9 +269,18 @@ mod tests {
     let result = ContentBasedLicenseDetector::normalize_and_replace_years("Copyright 2025 Test");
     assert_eq!(result, "copyright YEAR test");
 
-    // Test multiple years (dash is removed as comment char)
+    // Test year range - collapses to single YEAR so ranges match single years
     let result = ContentBasedLicenseDetector::normalize_and_replace_years("2020-2025 Test");
-    assert_eq!(result, "YEARYEAR test");
+    assert_eq!(result, "YEAR test");
+
+    // Test that year ranges match single years in license detection
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("Copyright 2020-2024 Company");
+    let single_year = ContentBasedLicenseDetector::normalize_and_replace_years("Copyright 2024 Company");
+    assert_eq!(result, single_year);
+
+    // Test dash removal in other contexts (not between digits)
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("-- SQL comment");
+    assert_eq!(result, "sql comment");
 
     // Test comment removal
     let result = ContentBasedLicenseDetector::normalize_and_replace_years("// Copyright 2025");
