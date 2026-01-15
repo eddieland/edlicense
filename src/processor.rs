@@ -2064,6 +2064,11 @@ impl Processor {
         }
       }
 
+      // Skip files with no defined comment style (unknown extensions)
+      if !self.template_manager.can_handle_file_type(&path) {
+        continue;
+      }
+
       filtered.push(path);
     }
 
@@ -2083,6 +2088,17 @@ impl Processor {
           }
         }
         Err(_) => continue,
+      }
+
+      // Check if file should be processed by the filter (includes extension filter)
+      let filter_result = self.should_process_file(&path)?;
+      if !filter_result.should_process {
+        continue;
+      }
+
+      // Skip files with no defined comment style (unknown extensions)
+      if !self.template_manager.can_handle_file_type(&path) {
+        continue;
       }
 
       let absolute_path = absolutize_path(&path)?;
@@ -2131,6 +2147,11 @@ impl Processor {
     // Check if file should be processed by the filter
     let filter_result = self.should_process_file(&absolute_path)?;
     if !filter_result.should_process {
+      return Ok(false);
+    }
+
+    // Skip files with no defined comment style (unknown extensions)
+    if !self.template_manager.can_handle_file_type(&absolute_path) {
       return Ok(false);
     }
 
