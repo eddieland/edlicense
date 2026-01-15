@@ -63,21 +63,26 @@ pub fn print_blank_line() {
 ///
 /// Shows up to `DEFAULT_FILE_LIST_LIMIT` files by default.
 /// In verbose mode, shows all files.
+/// Files are sorted alphabetically by path.
 pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>) {
+  if files.is_empty() {
+    return;
+  }
+
+  // Sort files alphabetically by path
+  let mut sorted_files: Vec<_> = files.to_vec();
+  sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
+
   if is_quiet() {
     // In quiet mode, just print the file paths (for scripting)
-    for file in files {
+    for file in &sorted_files {
       let display_path = make_relative_path(&file.path, workspace_root);
       println!("{}", display_path);
     }
     return;
   }
 
-  if files.is_empty() {
-    return;
-  }
-
-  let count = files.len();
+  let count = sorted_files.len();
   let header = format!(
     "{} {} {} missing license headers:",
     symbols::FAILURE.if_supports_color(Stream::Stdout, |s| s.red()),
@@ -89,7 +94,7 @@ pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>)
   let show_all = is_verbose();
   let limit = if show_all { count } else { DEFAULT_FILE_LIST_LIMIT };
 
-  for file in files.iter().take(limit) {
+  for file in sorted_files.iter().take(limit) {
     let display_path = make_relative_path(&file.path, workspace_root);
     println!("  {}", display_path);
   }
