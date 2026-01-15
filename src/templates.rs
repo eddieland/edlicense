@@ -209,6 +209,14 @@ impl TemplateManager {
     let comment_style = self.resolver.resolve(file_path)?;
     Some(format_with_comment_style(license_text, &comment_style))
   }
+
+  /// Checks if the template manager can handle the given file type.
+  ///
+  /// Returns true if a comment style is defined for this file type,
+  /// false otherwise.
+  pub fn can_handle_file_type(&self, file_path: &Path) -> bool {
+    self.resolver.resolve(file_path).is_some()
+  }
 }
 
 /// Defines the comment style for different file types.
