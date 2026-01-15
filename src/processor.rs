@@ -855,28 +855,41 @@ impl Processor {
 
         // Signal that a license is missing by returning an error
         return Err(anyhow::anyhow!("Missing license header"));
-      } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
+      } else if !self.preserve_years {
         // Check if we would update the year in the license
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
-          // Generate and display/save the diff
-          if let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref()) {
+          // Generate and display/save the diff if requested
+          if (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())
+            && let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref())
+          {
             eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
           }
-        }
 
-        // Collect report locally
-        if self.collect_report_data {
-          batch_reports.push(FileReport {
-            path: path.to_path_buf(),
-            has_license,
-            action_taken: None, // No action taken in check mode, but would update year
-            ignored: false,
-            ignored_reason: None,
-          });
+          // Collect report locally - year needs updating
+          if self.collect_report_data {
+            batch_reports.push(FileReport {
+              path: path.to_path_buf(),
+              has_license,
+              action_taken: Some(FileAction::YearUpdated), // Would update year in modify mode
+              ignored: false,
+              ignored_reason: None,
+            });
+          }
+        } else {
+          // Year is current - no action needed
+          if self.collect_report_data {
+            batch_reports.push(FileReport {
+              path: path.to_path_buf(),
+              has_license,
+              action_taken: Some(FileAction::NoActionNeeded),
+              ignored: false,
+              ignored_reason: None,
+            });
+          }
         }
       } else {
-        // File has license and we wouldn't update it
+        // preserve_years mode - no action needed
         if self.collect_report_data {
           batch_reports.push(FileReport {
             path: path.to_path_buf(),
@@ -1227,31 +1240,47 @@ impl Processor {
         // This will be caught by the process_directory method and set
         // has_missing_license to true
         return Err(anyhow::anyhow!("Missing license header"));
-      } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
+      } else if !self.preserve_years {
         // Check if we would update the year in the license
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
-          // Generate and display/save the diff
-          self
-            .diff_manager
-            .display_diff(path, &content, updated_content.as_ref())?;
-        }
+          // Generate and display/save the diff if requested
+          if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
+            self
+              .diff_manager
+              .display_diff(path, &content, updated_content.as_ref())?;
+          }
 
-        // Add to local reports if collecting report data
-        if self.collect_report_data {
-          let file_report = FileReport {
-            path: path.to_path_buf(),
-            has_license,
-            action_taken: None, // No action taken in check mode, but would update year
-            ignored: false,
-            ignored_reason: None,
-          };
+          // Add to local reports if collecting report data - year needs updating
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license,
+              action_taken: Some(FileAction::YearUpdated), // Would update year in modify mode
+              ignored: false,
+              ignored_reason: None,
+            };
 
-          let mut reports = local_reports.lock().await;
-          reports.push(file_report);
+            let mut reports = local_reports.lock().await;
+            reports.push(file_report);
+          }
+        } else {
+          // Year is current - no action needed
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license,
+              action_taken: Some(FileAction::NoActionNeeded),
+              ignored: false,
+              ignored_reason: None,
+            };
+
+            let mut reports = local_reports.lock().await;
+            reports.push(file_report);
+          }
         }
       } else {
-        // File has license and we wouldn't update it
+        // preserve_years mode - no action needed
         if self.collect_report_data {
           let file_report = FileReport {
             path: path.to_path_buf(),
@@ -1563,30 +1592,45 @@ impl Processor {
 
         // Signal that a license is missing by returning an error
         return Err(anyhow::anyhow!("Missing license header"));
-      } else if !self.preserve_years && (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some()) {
+      } else if !self.preserve_years {
         // Check if we would update the year in the license
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
-          // Generate and display/save the diff
-          if let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref()) {
+          // Generate and display/save the diff if requested
+          if (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())
+            && let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref())
+          {
             eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
           }
-        }
 
-        // Send report through channel if collecting report data
-        if self.collect_report_data {
-          let file_report = FileReport {
-            path: path.to_path_buf(),
-            has_license,
-            action_taken: None, // No action taken in check mode, but would update year
-            ignored: false,
-            ignored_reason: None,
-          };
+          // Send report through channel if collecting report data - year needs updating
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license,
+              action_taken: Some(FileAction::YearUpdated), // Would update year in modify mode
+              ignored: false,
+              ignored_reason: None,
+            };
 
-          let _ = report_sender.try_send(file_report);
+            let _ = report_sender.try_send(file_report);
+          }
+        } else {
+          // Year is current - no action needed
+          if self.collect_report_data {
+            let file_report = FileReport {
+              path: path.to_path_buf(),
+              has_license,
+              action_taken: Some(FileAction::NoActionNeeded),
+              ignored: false,
+              ignored_reason: None,
+            };
+
+            let _ = report_sender.try_send(file_report);
+          }
         }
       } else {
-        // File has license and we wouldn't update it
+        // preserve_years mode - no action needed
         if self.collect_report_data {
           let file_report = FileReport {
             path: path.to_path_buf(),
