@@ -19,7 +19,7 @@ use crate::info_log;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::output::{
   CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
-  print_summary, print_updated_files,
+  print_start_message, print_summary, print_updated_files,
 };
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
@@ -311,8 +311,12 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     extension_filter,
   )?;
 
-  // Print start message
-  // Note: We don't know exact count yet, but processor will collect reports
+  // Collect files to get count for start message
+  let file_count = processor.collect_planned_files(&args.patterns).await?.len();
+
+  // Print start message with file count
+  print_start_message(file_count, !check_only);
+
   // Start timing
   let start_time = Instant::now();
 
