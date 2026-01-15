@@ -133,6 +133,63 @@ async fn test_prefix_extraction() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_prefix_extraction_no_trailing_newline() -> Result<()> {
+  // This test verifies the fix for a bug where extract_prefix would panic
+  // with an out-of-bounds error when processing files that end with a
+  // recognized prefix but have no trailing newline character.
+
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // Test shebang without trailing newline - this was causing a panic
+  let shebang_only = "#!/bin/bash";
+  let (prefix, content) = processor.extract_prefix(shebang_only);
+  assert_eq!(prefix, "#!/bin/bash\n\n");
+  assert_eq!(content, "");
+
+  // Test XML declaration without trailing newline
+  let xml_only = "<?xml version=\"1.0\"?>";
+  let (prefix, content) = processor.extract_prefix(xml_only);
+  assert_eq!(prefix, "<?xml version=\"1.0\"?>\n\n");
+  assert_eq!(content, "");
+
+  // Test PHP tag without trailing newline
+  let php_only = "<?php";
+  let (prefix, content) = processor.extract_prefix(php_only);
+  assert_eq!(prefix, "<?php\n\n");
+  assert_eq!(content, "");
+
+  // Test HTML doctype without trailing newline
+  let doctype_only = "<!DOCTYPE html>";
+  let (prefix, content) = processor.extract_prefix(doctype_only);
+  assert_eq!(prefix, "<!DOCTYPE html>\n\n");
+  assert_eq!(content, "");
+
+  // Test Ruby encoding without trailing newline
+  let ruby_encoding_only = "# encoding: utf-8";
+  let (prefix, content) = processor.extract_prefix(ruby_encoding_only);
+  assert_eq!(prefix, "# encoding: utf-8\n\n");
+  assert_eq!(content, "");
+
+  // Test Dockerfile directive without trailing newline
+  let dockerfile_escape = "# escape=\\";
+  let (prefix, content) = processor.extract_prefix(dockerfile_escape);
+  assert_eq!(prefix, "# escape=\\\n\n");
+  assert_eq!(content, "");
+
+  Ok(())
+}
+
+#[tokio::test]
 async fn test_year_updating() -> Result<()> {
   // Create a processor
   let (processor, _temp_dir) = create_test_processor(
