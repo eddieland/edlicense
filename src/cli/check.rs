@@ -15,6 +15,10 @@ use crate::config::{CliOverrides, Config, load_config};
 use crate::diff::DiffManager;
 use crate::file_filter::ExtensionFilter;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
+use crate::output::{
+  CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
+  print_summary, print_updated_files,
+};
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager, create_resolver};
@@ -301,11 +305,13 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     Some(diff_manager),
     git_only,
     None, // Use the default LicenseDetector implementation
-    workspace_root,
+    workspace_root.clone(),
     workspace.is_git(),
     extension_filter,
   )?;
 
+  // Print start message
+  // Note: We don't know exact count yet, but processor will collect reports
   // Start timing
   let start_time = Instant::now();
 
@@ -314,30 +320,56 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   // Calculate elapsed time
   let elapsed = start_time.elapsed();
 
-  // Get the total number of files processed
-  let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
-
-  // Log the results
-  if files_processed == 1 {
-    info_log!(
-      "Processed {} file in {:.2} seconds",
-      files_processed,
-      elapsed.as_secs_f64()
-    );
-  } else {
-    info_log!(
-      "Processed {} files in {:.2} seconds",
-      files_processed,
-      elapsed.as_secs_f64()
-    );
-  }
-
   // Get file reports from processor for report generation (take ownership to
   // avoid clone)
   let file_reports = std::mem::take(&mut *processor.file_reports.lock().await);
 
   // Create report summary
   let summary = ProcessingSummary::from_reports(&file_reports, elapsed);
+
+  // Categorize reports for output
+  let categorized = CategorizedReports::from_reports(&file_reports);
+
+  // Print the output based on mode
+  // Note: has_missing_license is the authoritative flag - it's set when files
+  // fail to process (unreadable, etc.) even if they don't appear in file_reports
+  print_blank_line();
+
+  if check_only {
+    // Check mode: show missing files
+    if !has_missing_license {
+      print_all_files_ok();
+    } else if !categorized.missing.is_empty() {
+      print_missing_files(&categorized.missing, Some(&workspace_root));
+    }
+    // If has_missing_license but categorized.missing is empty, files failed to
+    // process - errors were already logged, so we skip the success message
+  } else {
+    // Modify mode: show what was changed
+    if !categorized.added.is_empty() {
+      print_added_files(&categorized.added, Some(&workspace_root));
+    }
+    if !categorized.updated.is_empty() {
+      if !categorized.added.is_empty() {
+        print_blank_line();
+      }
+      print_updated_files(&categorized.updated, Some(&workspace_root));
+    }
+    // Only show success if nothing was changed AND no failures occurred
+    if categorized.added.is_empty() && categorized.updated.is_empty() && !has_missing_license {
+      print_all_files_ok();
+    }
+  }
+
+  // Print summary
+  print_blank_line();
+  print_summary(&summary);
+
+  // Print hint if there are missing licenses in check mode
+  if check_only && has_missing_license {
+    print_blank_line();
+    print_hint("Run with --modify to add missing headers.");
+  }
 
   // Generate HTML report if requested
   if let Some(ref output_path) = args.report_html {
@@ -371,7 +403,6 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 
   // Exit with non-zero code if in dry run mode and there are missing licenses
   if check_only && has_missing_license {
-    eprintln!("Error: Some files are missing license headers");
     process::exit(1);
   }
 

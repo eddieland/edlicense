@@ -10,6 +10,7 @@ mod git;
 mod ignore;
 mod license_detection;
 mod logging;
+mod output;
 mod processor;
 mod report;
 mod templates;
