@@ -140,9 +140,9 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
 ///
 /// # Returns
 ///
-/// A `HashSet` of file paths that have changed since the commit or an error if
-/// the git operations fail. The paths are relative to the current working
-/// directory.
+/// A `HashSet` of file paths that have changed since the merge base of the
+/// commit and `HEAD` or an error if the git operations fail. The paths are
+/// relative to the current working directory.
 ///
 /// # Errors
 ///
@@ -162,7 +162,8 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
 
 /// Gets the list of files that have changed since a specific commit.
 ///
-/// The returned paths are relative to the provided workspace root.
+/// The returned paths are relative to the provided workspace root and are
+/// computed from the merge base of the reference and `HEAD`.
 pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> Result<HashSet<PathBuf>> {
   debug!("Getting changed files since commit: {}", commit);
 
@@ -184,16 +185,24 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
   let head = repo.head().with_context(|| "Failed to get HEAD reference")?;
   let head_commit = head.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
 
+  let merge_base = repo
+    .merge_base(ref_commit.id(), head_commit.id())
+    .with_context(|| "Failed to resolve merge base for ratchet mode")?;
+  let base_commit = repo
+    .find_commit(merge_base)
+    .with_context(|| "Failed to load merge base commit for ratchet mode")?;
+
   debug!(
-    "Comparing {} with HEAD {}",
-    ref_commit.id().to_string(),
-    head_commit.id().to_string()
+    "Comparing merge base {} with HEAD {} (reference: {})",
+    base_commit.id().to_string(),
+    head_commit.id().to_string(),
+    ref_commit.id().to_string()
   );
 
   // Get trees for both commits
-  let ref_tree = ref_commit
+  let ref_tree = base_commit
     .tree()
-    .with_context(|| "Failed to get reference commit tree")?;
+    .with_context(|| "Failed to get merge base tree")?;
   let head_tree = head_commit.tree().with_context(|| "Failed to get HEAD tree")?;
 
   // Set up diff options
