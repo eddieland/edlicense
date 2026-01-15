@@ -37,10 +37,6 @@ const DEFAULT_FILE_LIST_LIMIT: usize = 20;
 ///
 /// - In modify mode: "Processing N files..."
 /// - In check mode: "Checking N files..."
-///
-/// Note: This function is planned for future use when file count is known
-/// upfront.
-#[allow(dead_code)]
 pub fn print_start_message(file_count: usize, modify_mode: bool) {
   if is_quiet() {
     return;
