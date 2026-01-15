@@ -36,7 +36,7 @@ pub struct FileReport {
 pub enum FileAction {
   /// License header was added to the file
   Added,
-  /// License year was updated
+  /// License year was updated (or needs updating in check mode)
   #[serde(rename = "updated")]
   YearUpdated,
   /// No action was needed (file already had correct license)

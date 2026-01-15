@@ -185,15 +185,17 @@ pub fn print_all_files_ok() {
 
 /// Print the processing summary.
 ///
-/// Format: "Summary: X OK, Y missing, Z ignored"
+/// Format: "Summary: X OK, Y missing, Z outdated, W ignored"
 /// In verbose mode, also shows timing.
 pub fn print_summary(summary: &ProcessingSummary) {
   if is_quiet() {
     return;
   }
 
-  let ok_count = summary.files_with_license;
+  // OK count excludes files needing year updates
+  let ok_count = summary.files_with_license.saturating_sub(summary.licenses_updated);
   let missing_count = summary.files_without_license;
+  let outdated_count = summary.licenses_updated;
   let ignored_count = summary.files_ignored;
 
   let ok_str = ok_count.if_supports_color(Stream::Stdout, |s| s.cyan());
@@ -204,11 +206,20 @@ pub fn print_summary(summary: &ProcessingSummary) {
       .if_supports_color(Stream::Stdout, |s| s.cyan())
       .to_string()
   };
+  let outdated_str = if outdated_count > 0 {
+    outdated_count
+      .if_supports_color(Stream::Stdout, |s| s.yellow())
+      .to_string()
+  } else {
+    outdated_count
+      .if_supports_color(Stream::Stdout, |s| s.cyan())
+      .to_string()
+  };
   let ignored_str = ignored_count.if_supports_color(Stream::Stdout, |s| s.dimmed());
 
   let mut summary_line = format!(
-    "Summary: {} OK, {} missing, {} ignored",
-    ok_str, missing_str, ignored_str
+    "Summary: {} OK, {} missing, {} outdated, {} ignored",
+    ok_str, missing_str, outdated_str, ignored_str
   );
 
   // Show timing in verbose mode
