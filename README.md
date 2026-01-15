@@ -19,14 +19,14 @@ If you need byte-perfect license validation or work in a tightly controlled buil
 
 `edlicense` is inspired by Google's [addlicense](https://github.com/google/addlicense) tool but addresses several limitations:
 
-| Feature | edlicense | addlicense |
-|---------|-----------|------------|
-| Implementation | Rust | Go |
-| CLI interface | Modern long options (--option-name) | Short flags (-flag) |
-| Default behavior | Dry run mode (non-destructive) | Modify mode |
-| Automatic year updates | ✅ Updates copyright years automatically | ❌ No support for updating files w/ old years |
-| Ratchet mode | ✅ Process only files changed since a git reference | ❌ Not available |
-| Git integration | ✅ Option to only process git-tracked files | ❌ Not available |
+| Feature                | edlicense                                           | addlicense                                    |
+| ---------------------- | --------------------------------------------------- | --------------------------------------------- |
+| Implementation         | Rust                                                | Go                                            |
+| CLI interface          | Modern long options (--option-name)                 | Short flags (-flag)                           |
+| Default behavior       | Dry run mode (non-destructive)                      | Modify mode                                   |
+| Automatic year updates | ✅ Updates copyright years automatically            | ❌ No support for updating files w/ old years |
+| Ratchet mode           | ✅ Process only files changed since a git reference | ❌ Not available                              |
+| Git integration        | ✅ Option to only process git-tracked files         | ❌ Not available                              |
 
 Key advantages of `edlicense`:
 
@@ -42,11 +42,11 @@ Performance is an explicit goal for edlicense. We benchmark regularly against ad
 
 In our synthetic benchmarks processing thousands of files:
 
-| Scenario | edlicense vs addlicense |
-|----------|------------------------|
-| Small files (1KB) | Comparable performance |
-| Medium files (10KB) | ~1.5x faster |
-| Large files (100KB) | ~2-4x faster |
+| Scenario            | edlicense vs addlicense |
+| ------------------- | ----------------------- |
+| Small files (1KB)   | Comparable performance  |
+| Medium files (10KB) | ~1.5x faster            |
+| Large files (100KB) | ~2-4x faster            |
 
 Both tools are fast enough for typical CI usage. Where edlicense tends to pull ahead is with larger codebases and larger source files, where I/O efficiency becomes more important.
 
@@ -106,6 +106,7 @@ docker run --rm -v "$(pwd):/workspace" -w /workspace ghcr.io/eddieland/edlicense
 ```
 
 Available image tags:
+
 - `ghcr.io/eddieland/edlicense:latest` - Standard production image (latest version)
 - `ghcr.io/eddieland/edlicense:distroless-latest` - Distroless image (latest version)
 - `ghcr.io/eddieland/edlicense:<commit-hash>` - Production image at a specific commit
@@ -271,6 +272,23 @@ And the current year is 2025, running `edlicense` will update it to:
 Copyright (c) 2025 Example Corp
 ```
 
+### Supported Copyright Formats
+
+To avoid accidentally replacing arbitrary 4-digit numbers, year updates only apply to recognized copyright patterns:
+
+| Format               | Year Updated? | Example                        |
+| -------------------- | ------------- | ------------------------------ |
+| `Copyright (c) YEAR` | ✅ Yes        | `Copyright (c) 2024 Acme`      |
+| `Copyright © YEAR`   | ✅ Yes        | `Copyright © 2024 Acme`        |
+| `Copyright YEAR`     | ❌ No         | `Copyright 2024 Acme`          |
+| Year ranges          | ❌ No         | `Copyright (c) 2020-2024 Acme` |
+
+The pattern matching is case-insensitive, so `COPYRIGHT (C) 2024` works the same as `Copyright (c) 2024`.
+
+**Why these restrictions?** The regex requires the `(c)` or `©` symbol to ensure we're matching an actual copyright statement, not some other 4-digit number in your code. Year ranges are intentionally preserved since updating `2020-2024` to `2025` would lose historical information.
+
+If you use `--preserve-years`, no year updates will be performed regardless of format.
+
 ## Ratchet Mode
 
 The ratchet mode allows you to only check and format files that have changed relative to a git reference (e.g., `origin/main`). This is particularly useful in CI/CD pipelines where you want to ensure that only new or modified files have proper license headers.
@@ -351,18 +369,18 @@ For information on using edlicense in pre-commit hooks, see [Pre-commit Hooks](e
 
 ### File Extensions by Comment Type
 
-| Comment Style | File Extensions and Types |
-|---------------|---------------------------|
-| Block comments<br>`/* ... */` | `.c`, `.h`, `.gv`, `.java`, `.scala`, `.kt`, `.kts` |
-| JSDoc comments<br>`/** ... */` | `.js`, `.mjs`, `.cjs`, `.jsx`, `.tsx`, `.css`, `.scss`, `.sass`, `.ts` |
-| Line comments<br>`// ...` | `.cc`, `.cpp`, `.cs`, `.go`, `.hcl`, `.hh`, `.hpp`, `.m`, `.mm`, `.proto`, `.rs`, `.swift`, `.dart`, `.groovy`, `.v`, `.sv` |
-| Hash comments<br>`# ...` | `.py`, `.sh`, `.yaml`, `.yml`, `.rb`, `.tcl`, `.tf`, `.bzl`, `.pl`, `.pp`, `.toml` |
-| Lisp comments<br>`;; ...` | `.el`, `.lisp` |
-| Erlang comments<br>`% ...` | `.erl` |
-| SQL/Haskell comments<br>`-- ...` | `.hs`, `.sql`, `.sdl` |
-| HTML comments<br>`<!-- ... -->` | `.html`, `.xml`, `.vue`, `.wxi`, `.wxl`, `.wxs` |
-| Jinja2 comments<br>`{# ... #}` | `.j2` |
-| OCaml comments<br>`(** ... *)` | `.ml`, `.mli`, `.mll`, `.mly` |
+| Comment Style                    | File Extensions and Types                                                                                                   |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Block comments<br>`/* ... */`    | `.c`, `.h`, `.gv`, `.java`, `.scala`, `.kt`, `.kts`                                                                         |
+| JSDoc comments<br>`/** ... */`   | `.js`, `.mjs`, `.cjs`, `.jsx`, `.tsx`, `.css`, `.scss`, `.sass`, `.ts`                                                      |
+| Line comments<br>`// ...`        | `.cc`, `.cpp`, `.cs`, `.go`, `.hcl`, `.hh`, `.hpp`, `.m`, `.mm`, `.proto`, `.rs`, `.swift`, `.dart`, `.groovy`, `.v`, `.sv` |
+| Hash comments<br>`# ...`         | `.py`, `.sh`, `.yaml`, `.yml`, `.rb`, `.tcl`, `.tf`, `.bzl`, `.pl`, `.pp`, `.toml`                                          |
+| Lisp comments<br>`;; ...`        | `.el`, `.lisp`                                                                                                              |
+| Erlang comments<br>`% ...`       | `.erl`                                                                                                                      |
+| SQL/Haskell comments<br>`-- ...` | `.hs`, `.sql`, `.sdl`                                                                                                       |
+| HTML comments<br>`<!-- ... -->`  | `.html`, `.xml`, `.vue`, `.wxi`, `.wxl`, `.wxs`                                                                             |
+| Jinja2 comments<br>`{# ... #}`   | `.j2`                                                                                                                       |
+| OCaml comments<br>`(** ... *)`   | `.ml`, `.mli`, `.mll`, `.mly`                                                                                               |
 
 ### Special File Handling
 
