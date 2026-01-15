@@ -166,6 +166,15 @@ async fn test_year_updating() -> Result<()> {
   // Now we expect this to be updated since we've fixed the regex
   assert!(updated_content.contains("// Copyright © 2025"));
 
+  // Test content with "Copyright YEAR" format (no symbol) - this was a bug where
+  // the regex required two spaces when the (c)/© symbol was absent
+  let content_without_symbol = "// Copyright 2024 Test Company\n\nfn main() {}";
+  let updated_content = processor.update_year_in_license(content_without_symbol)?;
+  assert!(
+    updated_content.contains("// Copyright 2025"),
+    "Expected year to be updated in 'Copyright YEAR' format without symbol"
+  );
+
   Ok(())
 }
 
