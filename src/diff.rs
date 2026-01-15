@@ -43,15 +43,30 @@ impl DiffManager {
     }
   }
 
+  /// Initializes the diff file by truncating it if a save path is configured.
+  ///
+  /// This should be called once at the start of processing to ensure the diff
+  /// file starts fresh. Subsequent calls to `display_diff` will append to this
+  /// file.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the file cannot be created or truncated.
+  pub fn init(&self) -> Result<()> {
+    if let Some(ref diff_path) = self.save_diff_path {
+      std::fs::File::create(diff_path)?;
+    }
+    Ok(())
+  }
+
   /// Displays and/or saves a diff between the original and new content.
   ///
   /// This method uses the `similar` crate to generate a diff showing what would
   /// be changed in the file.
   ///
   /// If show_diff is enabled, the diff will be displayed to stderr with
-  /// colorization. If save_diff_path is provided, the diff will be saved to
-  /// that file. Multiple diffs from different files will be appended to the
-  /// same file, creating a single consolidated diff file.
+  /// colorization. If save_diff_path is provided, the diff will be appended to
+  /// that file. Call `init()` first to truncate the file at the start of a run.
   ///
   /// # Parameters
   ///
