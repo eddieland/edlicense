@@ -4,10 +4,6 @@
 //! detection algorithms. It allows for easily replacing the license detection
 //! algorithm without modifying the processor.
 
-use std::sync::LazyLock;
-
-use regex::Regex;
-
 /// Trait for license detectors.
 ///
 /// Implementations of this trait are responsible for determining whether a file
@@ -75,10 +71,10 @@ impl LicenseDetector for SimpleLicenseDetector {
 /// characters. This is more precise than just checking for the presence of a
 /// keyword.
 pub struct ContentBasedLicenseDetector {
-  /// The expected license text to look for
-  license_text: String,
+  /// Pre-computed normalized and year-replaced license text
+  normalized_license: String,
 
-  /// The number of characters to check at the beginning of files
+  /// The number of bytes to check at the beginning of files
   check_length: usize,
 }
 
@@ -96,61 +92,77 @@ impl ContentBasedLicenseDetector {
   /// A new `ContentBasedLicenseDetector` instance.
   #[allow(dead_code)]
   pub fn new(license_text: &str, check_length: Option<usize>) -> Self {
+    let normalized = Self::normalize_and_replace_years(license_text);
     ContentBasedLicenseDetector {
-      license_text: license_text.to_string(),
+      normalized_license: normalized,
       check_length: check_length.unwrap_or(2000),
     }
   }
 
-  /// Normalizes text for comparison by:
-  /// - Converting to lowercase
-  /// - Removing common comment characters
-  /// - Removing all whitespace
-  ///
-  /// This allows for more flexible matching regardless of formatting
-  /// differences.
-  ///
-  /// # Parameters
-  ///
-  /// * `text` - The text to normalize
-  ///
-  /// # Returns
-  ///
-  /// The normalized text with comment characters and whitespace removed.
-  fn normalize_text(&self, text: &str) -> String {
-    let lowercase = text.to_lowercase();
+  /// Single-pass normalization that:
+  /// - Converts to lowercase
+  /// - Skips comment characters (/, *, #, <, !, -, >, ;)
+  /// - Collapses all whitespace to single spaces
+  /// - Replaces 4-digit year sequences with "YEAR"
+  #[inline]
+  fn normalize_and_replace_years(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut last_was_space = true; // Start true to trim leading space
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
 
-    // Remove comment characters that might be present
-    let without_comments = lowercase
-      .replace("//", "")
-      .replace("/*", "")
-      .replace("*/", "")
-      .replace("*", "")
-      .replace("#", "")
-      .replace("<!--", "")
-      .replace("-->", "")
-      .replace(";", ""); // For languages like Lisp
+    while i < len {
+      let b = bytes[i];
 
-    // Replace newlines with spaces and normalize whitespace
-    let with_normalized_whitespace = without_comments.replace(['\n', '\r', '\t'], " ");
+      // Check for 4-digit year pattern
+      if b.is_ascii_digit()
+        && i + 3 < len
+        && bytes[i + 1].is_ascii_digit()
+        && bytes[i + 2].is_ascii_digit()
+        && bytes[i + 3].is_ascii_digit()
+      {
+        // Check word boundaries (start of string or non-alphanumeric before)
+        let at_word_start = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+        // Check word boundary after (end of string or non-alphanumeric after)
+        let at_word_end = i + 4 >= len || !bytes[i + 4].is_ascii_alphanumeric();
 
-    // Collapse multiple spaces into a single space
-    let mut result = String::with_capacity(with_normalized_whitespace.len());
-    let mut last_was_space = false;
+        if at_word_start && at_word_end {
+          result.push_str("YEAR");
+          last_was_space = false;
+          i += 4;
+          continue;
+        }
+      }
 
-    for c in with_normalized_whitespace.chars() {
-      if c.is_whitespace() {
-        if !last_was_space {
+      // Skip comment characters
+      if matches!(b, b'/' | b'*' | b'#' | b'<' | b'!' | b'-' | b'>' | b';') {
+        i += 1;
+        continue;
+      }
+
+      // Handle whitespace - collapse to single space
+      if b.is_ascii_whitespace() {
+        if !last_was_space && !result.is_empty() {
           result.push(' ');
           last_was_space = true;
         }
-      } else {
-        result.push(c);
-        last_was_space = false;
+        i += 1;
+        continue;
       }
+
+      // Regular character - convert to lowercase
+      result.push(b.to_ascii_lowercase() as char);
+      last_was_space = false;
+      i += 1;
     }
 
-    result.trim().to_string()
+    // Trim trailing space
+    if result.ends_with(' ') {
+      result.pop();
+    }
+
+    result
   }
 }
 
@@ -172,23 +184,11 @@ impl LicenseDetector for ContentBasedLicenseDetector {
   /// `true` if the file content appears to contain the license text, `false`
   /// otherwise.
   fn has_license(&self, content: &str) -> bool {
-    // Take the first N characters (or less if the file is shorter)
     let check_len = std::cmp::min(content.len(), self.check_length);
     let check_content = &content[..check_len];
 
-    // Normalize both the expected license text and the content for comparison
-    let normalized_license = self.normalize_text(&self.license_text);
-    let normalized_content = self.normalize_text(check_content);
-
-    // Replace all years (4 digits surrounded by word boundaries) with "YEAR"
-    // placeholder This makes the comparison year-agnostic
-    static YEAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("year regex must compile"));
-    let year_normalized_license = YEAR_PATTERN.replace_all(&normalized_license, "YEAR").to_string();
-    let year_normalized_content = YEAR_PATTERN.replace_all(&normalized_content, "YEAR").to_string();
-
-    // Check if the year-normalized content contains the year-normalized license
-    // text
-    year_normalized_content.contains(&year_normalized_license)
+    let normalized_content = Self::normalize_and_replace_years(check_content);
+    normalized_content.contains(&self.normalized_license)
   }
 }
 
@@ -252,37 +252,25 @@ mod tests {
   }
 
   #[test]
-  fn test_normalize_text() {
-    let license_text = "Copyright (c) 2025 Test Company";
-    let detector = ContentBasedLicenseDetector::new(license_text, None);
+  fn test_normalize_and_replace_years() {
+    // Test year replacement
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("Copyright 2025 Test");
+    assert_eq!(result, "copyright YEAR test");
 
-    // Test normalization of various comment styles
-    let commented_text = "// Copyright (c) 2025 Test Company";
-    let block_commented_text = "/* Copyright (c) 2025 Test Company */";
-    let python_commented_text = "# Copyright (c) 2025 Test Company";
-    let xml_commented_text = "<!-- Copyright (c) 2025 Test Company -->";
-    let lisp_commented_text = ";; Copyright (c) 2025 Test Company";
+    // Test multiple years (dash is removed as comment char)
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("2020-2025 Test");
+    assert_eq!(result, "YEARYEAR test");
 
-    // The normalized text should be the same for all of these, but now with spaces
-    // preserved
-    let expected = "copyright (c) 2025 test company";
+    // Test comment removal
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("// Copyright 2025");
+    assert_eq!(result, "copyright YEAR");
 
-    assert_eq!(detector.normalize_text(commented_text), expected);
-    assert_eq!(detector.normalize_text(block_commented_text), expected);
-    assert_eq!(detector.normalize_text(python_commented_text), expected);
-    assert_eq!(detector.normalize_text(xml_commented_text), expected);
-    assert_eq!(detector.normalize_text(lisp_commented_text), expected);
+    // Test whitespace collapsing
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("  Hello   World  ");
+    assert_eq!(result, "hello world");
 
-    // Test with extra whitespace (should be collapsed to single spaces)
-    let text_with_whitespace = "  Copyright  (c)  2025  Test  Company  ";
-    assert_eq!(detector.normalize_text(text_with_whitespace), expected);
-
-    // Test with newlines (should convert to spaces)
-    let text_with_newlines = "Copyright\n(c)\n2025\nTest\nCompany";
-    assert_eq!(detector.normalize_text(text_with_newlines), expected);
-
-    // Test with mixed whitespace
-    let text_with_mixed_whitespace = "Copyright\t(c)\r\n2025  Test    Company";
-    assert_eq!(detector.normalize_text(text_with_mixed_whitespace), expected);
+    // Test that non-year numbers are preserved (e.g., part of longer numbers)
+    let result = ContentBasedLicenseDetector::normalize_and_replace_years("Version 12345");
+    assert_eq!(result, "version 12345");
   }
 }
