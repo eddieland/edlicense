@@ -221,6 +221,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   let check_only = args.dry_run || !args.modify;
 
   let diff_manager = DiffManager::new(args.show_diff, args.save_diff);
+  diff_manager.init()?;
 
   let workspace = resolve_workspace(&args.patterns)?;
   let workspace_root = workspace.root().to_path_buf();
