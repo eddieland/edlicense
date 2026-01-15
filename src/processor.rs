@@ -423,6 +423,36 @@ impl Processor {
       }
     }
 
+    // Skip files with no defined comment style (unknown extensions)
+    if !self.template_manager.can_handle_file_type(path) {
+      trace!("Skipping: {} (no comment style defined for extension)", path.display());
+      if self.collect_report_data {
+        let file_report = FileReport {
+          path: path.to_path_buf(),
+          has_license: false,
+          action_taken: Some(FileAction::Skipped),
+          ignored: true,
+          ignored_reason: Some("No comment style defined for extension".to_string()),
+        };
+        let mut reports = local_reports.lock().await;
+        reports.push(file_report);
+      }
+
+      // Update the shared reports with the local collection
+      if self.collect_report_data {
+        let local_report_data = {
+          let mut reports = local_reports.lock().await;
+          std::mem::take(&mut *reports)
+        };
+        if !local_report_data.is_empty() {
+          let mut reports = self.file_reports.lock().await;
+          reports.extend(local_report_data);
+        }
+      }
+
+      return Ok(());
+    }
+
     // Process the file normally with the local reports collection
     let result = self.process_file_with_local_reports(path, &local_reports).await;
 
@@ -626,6 +656,21 @@ impl Processor {
             }
             Err(_) => return false,
           }
+        }
+
+        // Skip files with no defined comment style (unknown extensions)
+        if !self.template_manager.can_handle_file_type(p) {
+          trace!("Skipping: {} (no comment style defined for extension)", p.display());
+          if self.collect_report_data {
+            local_reports.push(FileReport {
+              path: p.to_path_buf(),
+              has_license: false,
+              action_taken: Some(FileAction::Skipped),
+              ignored: true,
+              ignored_reason: Some("No comment style defined for extension".to_string()),
+            });
+          }
+          return false;
         }
 
         true

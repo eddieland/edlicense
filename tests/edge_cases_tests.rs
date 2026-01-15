@@ -59,8 +59,10 @@ async fn test_binary_file() -> Result<()> {
   let template_path = temp_dir.path().join("license_template.txt");
   fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
-  // Create a binary file (just some non-UTF8 bytes)
-  let binary_file_path = temp_dir.path().join("binary.bin");
+  // Create a binary file (just some non-UTF8 bytes) with a supported extension
+  // so we actually test the binary content handling, not the unknown extension
+  // handling
+  let binary_file_path = temp_dir.path().join("binary.rs");
   fs::write(&binary_file_path, &[0xFF, 0xFE, 0x00, 0x00])?;
 
   // Initialize the template manager
