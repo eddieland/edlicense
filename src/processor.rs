@@ -1902,8 +1902,11 @@ impl Processor {
     }
 
     // Regex to find copyright year patterns - match all copyright symbol formats
-    static YEAR_REGEX: LazyLock<Regex> =
-      LazyLock::new(|| Regex::new(r"(?i)(copyright\s+(?:\(c\)|©)?\s+)(\d{4})(\s+)").expect("year regex must compile"));
+    // The optional group includes both the symbol AND its following whitespace,
+    // so "Copyright 2024" (no symbol, single space) is matched correctly.
+    static YEAR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+      Regex::new(r"(?i)(copyright\s+(?:(?:\(c\)|©)\s+)?)(\d{4})(\s+)").expect("year regex must compile")
+    });
 
     let mut needs_update = false;
     for caps in YEAR_REGEX.captures_iter(content) {
