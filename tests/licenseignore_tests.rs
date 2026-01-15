@@ -842,12 +842,13 @@ async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Resu
   let _result = processor.process_directory(root).await?;
 
   let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
-  // Expected: 3 files processed - code.rs, .licenseignore, and LICENSE.txt
-  // The key assertion is that PNG files (root.png, image1.png, image2.png) are
-  // NOT processed because they match the *.png pattern in .licenseignore
+  // Expected: 1 file processed - code.rs
+  // PNG files (root.png, image1.png, image2.png) are ignored by *.png pattern
+  // .licenseignore and LICENSE.txt have no defined comment style, so they're
+  // skipped
   assert_eq!(
-    files_processed, 3,
-    "Expected 3 files (code.rs, .licenseignore, LICENSE.txt) to be processed, but {} files were processed. PNG files should be ignored by *.png pattern.",
+    files_processed, 1,
+    "Expected 1 file (code.rs) to be processed, but {} files were processed. PNG files should be ignored by *.png pattern, and files without comment styles should be skipped.",
     files_processed
   );
 
