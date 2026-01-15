@@ -271,6 +271,23 @@ And the current year is 2025, running `edlicense` will update it to:
 Copyright (c) 2025 Example Corp
 ```
 
+### Supported Copyright Formats
+
+To avoid accidentally replacing arbitrary 4-digit numbers, year updates only apply to recognized copyright patterns:
+
+| Format | Year Updated? | Example |
+|--------|---------------|---------|
+| `Copyright (c) YEAR` | ✅ Yes | `Copyright (c) 2024 Acme` |
+| `Copyright © YEAR` | ✅ Yes | `Copyright © 2024 Acme` |
+| `Copyright YEAR` | ❌ No | `Copyright 2024 Acme` |
+| Year ranges | ❌ No | `Copyright (c) 2020-2024 Acme` |
+
+The pattern matching is case-insensitive, so `COPYRIGHT (C) 2024` works the same as `Copyright (c) 2024`.
+
+**Why these restrictions?** The regex requires the `(c)` or `©` symbol to ensure we're matching an actual copyright statement, not some other 4-digit number in your code. Year ranges are intentionally preserved since updating `2020-2024` to `2025` would lose historical information.
+
+If you use `--preserve-years`, no year updates will be performed regardless of format.
+
 ## Ratchet Mode
 
 The ratchet mode allows you to only check and format files that have changed relative to a git reference (e.g., `origin/main`). This is particularly useful in CI/CD pipelines where you want to ensure that only new or modified files have proper license headers.
