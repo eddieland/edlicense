@@ -200,9 +200,7 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
   );
 
   // Get trees for both commits
-  let ref_tree = base_commit
-    .tree()
-    .with_context(|| "Failed to get merge base tree")?;
+  let ref_tree = base_commit.tree().with_context(|| "Failed to get merge base tree")?;
   let head_tree = head_commit.tree().with_context(|| "Failed to get HEAD tree")?;
 
   // Set up diff options
