@@ -50,31 +50,41 @@ fn test_comment_formatting() -> Result<()> {
 
   // Test formatting for different file types
   let rust_file_path = Path::new("test.rs");
-  let rust_formatted = template_manager.format_for_file_type(&rendered, rust_file_path);
+  let rust_formatted = template_manager
+    .format_for_file_type(&rendered, rust_file_path)
+    .expect("Rust files should have a comment style");
   assert!(rust_formatted.contains("// Copyright"));
   assert!(rust_formatted.contains("// All rights"));
 
   let python_file_path = Path::new("test.py");
-  let python_formatted = template_manager.format_for_file_type(&rendered, python_file_path);
+  let python_formatted = template_manager
+    .format_for_file_type(&rendered, python_file_path)
+    .expect("Python files should have a comment style");
   assert!(python_formatted.contains("# Copyright"));
   assert!(python_formatted.contains("# All rights"));
 
   let java_file_path = Path::new("test.java");
-  let java_formatted = template_manager.format_for_file_type(&rendered, java_file_path);
+  let java_formatted = template_manager
+    .format_for_file_type(&rendered, java_file_path)
+    .expect("Java files should have a comment style");
   assert!(java_formatted.contains("/*"));
   assert!(java_formatted.contains(" * Copyright"));
   assert!(java_formatted.contains(" * All rights"));
   assert!(java_formatted.contains(" */"));
 
   let js_file_path = Path::new("test.js");
-  let js_formatted = template_manager.format_for_file_type(&rendered, js_file_path);
+  let js_formatted = template_manager
+    .format_for_file_type(&rendered, js_file_path)
+    .expect("JavaScript files should have a comment style");
   assert!(js_formatted.contains("/**"));
   assert!(js_formatted.contains(" * Copyright"));
   assert!(js_formatted.contains(" * All rights"));
   assert!(js_formatted.contains(" */"));
 
   let html_file_path = Path::new("test.html");
-  let html_formatted = template_manager.format_for_file_type(&rendered, html_file_path);
+  let html_formatted = template_manager
+    .format_for_file_type(&rendered, html_file_path)
+    .expect("HTML files should have a comment style");
   assert!(html_formatted.contains("<!--"));
   assert!(html_formatted.contains(" Copyright"));
   assert!(html_formatted.contains(" All rights"));
@@ -103,15 +113,21 @@ fn test_special_filenames() -> Result<()> {
 
   // Test special filenames
   let cmake_file_path = Path::new("CMakeLists.txt");
-  let cmake_formatted = template_manager.format_for_file_type(&rendered, cmake_file_path);
+  let cmake_formatted = template_manager
+    .format_for_file_type(&rendered, cmake_file_path)
+    .expect("CMakeLists.txt should have a comment style");
   assert!(cmake_formatted.contains("# Copyright"));
 
   let dockerfile_path = Path::new("Dockerfile");
-  let dockerfile_formatted = template_manager.format_for_file_type(&rendered, dockerfile_path);
+  let dockerfile_formatted = template_manager
+    .format_for_file_type(&rendered, dockerfile_path)
+    .expect("Dockerfile should have a comment style");
   assert!(dockerfile_formatted.contains("# Copyright"));
 
   let custom_dockerfile_path = Path::new("custom.dockerfile");
-  let custom_dockerfile_formatted = template_manager.format_for_file_type(&rendered, custom_dockerfile_path);
+  let custom_dockerfile_formatted = template_manager
+    .format_for_file_type(&rendered, custom_dockerfile_path)
+    .expect(".dockerfile files should have a comment style");
   assert!(custom_dockerfile_formatted.contains("# Copyright"));
 
   Ok(())

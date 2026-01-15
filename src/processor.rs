@@ -818,7 +818,21 @@ impl Processor {
             Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
           };
 
-          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          // Skip files with no defined comment style
+          let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
+            verbose_log!("Skipping: {} (no comment style defined for extension)", path.display());
+            if self.collect_report_data {
+              batch_reports.push(FileReport {
+                path: path.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: Some("No comment style defined for extension".to_string()),
+              });
+            }
+            return Ok(());
+          };
+
           let (prefix, content_without_prefix) = self.extract_prefix(&content);
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
@@ -930,7 +944,21 @@ impl Processor {
         Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
       };
 
-      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      // Skip files with no defined comment style
+      let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
+        verbose_log!("Skipping: {} (no comment style defined for extension)", path.display());
+        if self.collect_report_data {
+          batch_reports.push(FileReport {
+            path: path.to_path_buf(),
+            has_license: false,
+            action_taken: Some(FileAction::Skipped),
+            ignored: true,
+            ignored_reason: Some("No comment style defined for extension".to_string()),
+          });
+        }
+        return Ok(());
+      };
+
       let (prefix, content_remainder) = self.extract_prefix(&content);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 
@@ -1154,7 +1182,22 @@ impl Processor {
             .render(&self.license_data)
             .with_context(|| "Failed to render license template")?;
 
-          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          // Skip files with no defined comment style
+          let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
+            verbose_log!("Skipping: {} (no comment style defined for extension)", path.display());
+            if self.collect_report_data {
+              let file_report = FileReport {
+                path: path.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: Some("No comment style defined for extension".to_string()),
+              };
+              let mut reports = local_reports.lock().await;
+              reports.push(file_report);
+            }
+            return Ok(());
+          };
 
           // Handle shebang or other special headers
           let (prefix, content_without_prefix) = self.extract_prefix(&content);
@@ -1292,7 +1335,22 @@ impl Processor {
 
       verbose_log!("Rendered license text:\n{}", license_text);
 
-      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      // Skip files with no defined comment style
+      let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
+        verbose_log!("Skipping: {} (no comment style defined for extension)", path.display());
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: false,
+            action_taken: Some(FileAction::Skipped),
+            ignored: true,
+            ignored_reason: Some("No comment style defined for extension".to_string()),
+          };
+          let mut reports = local_reports.lock().await;
+          reports.push(file_report);
+        }
+        return Ok(());
+      };
 
       verbose_log!("Formatted license for file type:\n{}", formatted_license);
 
@@ -1466,7 +1524,22 @@ impl Processor {
             Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
           };
 
-          let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+          // Skip files with no defined comment style
+          let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
+            verbose_log!("Skipping: {} (no comment style defined for extension)", path.display());
+            if self.collect_report_data {
+              let file_report = FileReport {
+                path: path.to_path_buf(),
+                has_license: false,
+                action_taken: Some(FileAction::Skipped),
+                ignored: true,
+                ignored_reason: Some("No comment style defined for extension".to_string()),
+              };
+              let _ = report_sender.try_send(file_report);
+            }
+            return Ok(());
+          };
+
           let (prefix, content_without_prefix) = self.extract_prefix(&content);
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
@@ -1592,7 +1665,22 @@ impl Processor {
         Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
       };
 
-      let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
+      // Skip files with no defined comment style
+      let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
+        verbose_log!("Skipping: {} (no comment style defined for extension)", path.display());
+        if self.collect_report_data {
+          let file_report = FileReport {
+            path: path.to_path_buf(),
+            has_license: false,
+            action_taken: Some(FileAction::Skipped),
+            ignored: true,
+            ignored_reason: Some("No comment style defined for extension".to_string()),
+          };
+          let _ = report_sender.try_send(file_report);
+        }
+        return Ok(());
+      };
+
       let (prefix, content_remainder) = self.extract_prefix(&content);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 
