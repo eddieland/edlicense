@@ -317,6 +317,13 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   // Print start message with file count
   print_start_message(file_count, !check_only);
 
+  // Short-circuit if no files to process
+  if file_count == 0 {
+    print_blank_line();
+    print_all_files_ok();
+    return Ok(());
+  }
+
   // Start timing
   let start_time = Instant::now();
 
