@@ -294,12 +294,15 @@ impl Processor {
   }
 
   fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
-    let files: Vec<PathBuf> = if self.git_only {
-      git::get_git_tracked_files(&self.workspace_root)?.into_iter().collect()
-    } else if let Some(reference) = &self.ratchet_reference {
+    // Check ratchet_reference first since it's a more specific filter than
+    // git_only. When both are set, ratchet should take precedence to return
+    // only changed files.
+    let files: Vec<PathBuf> = if let Some(reference) = &self.ratchet_reference {
       git::get_changed_files_for_workspace(&self.workspace_root, reference)?
         .into_iter()
         .collect()
+    } else if self.git_only {
+      git::get_git_tracked_files(&self.workspace_root)?.into_iter().collect()
     } else {
       return Ok(Vec::new());
     };
