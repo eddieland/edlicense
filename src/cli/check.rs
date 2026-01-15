@@ -10,10 +10,12 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use chrono::Datelike;
 use clap::Args;
+use tracing::debug;
 
 use crate::config::{CliOverrides, Config, load_config};
 use crate::diff::DiffManager;
 use crate::file_filter::ExtensionFilter;
+use crate::info_log;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::output::{
   CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
@@ -24,7 +26,6 @@ use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager, create_resolver};
 use crate::tree::print_tree;
 use crate::workspace::resolve_workspace;
-use crate::{info_log, verbose_log};
 
 /// Arguments for the check command
 #[derive(Args, Debug, Default)]
@@ -176,7 +177,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   // Initialize tracing subscriber for structured logging
   init_tracing(args.quiet, args.verbose);
 
-  // Set legacy logging mode for existing verbose_log!/info_log! macros
+  // Set verbose mode for output formatting and info_log! macro
   if args.verbose > 0 {
     set_verbose();
   } else if args.quiet {
@@ -191,7 +192,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 
   // Disable git ownership check if requested (useful in Docker)
   if args.skip_git_owner_check {
-    verbose_log!("Disabling git repository ownership check");
+    debug!("Disabling git repository ownership check");
     // SAFETY: This is safe to call as long as no git operations are in progress.
     // We call this early, before any Repository operations.
     unsafe {
@@ -207,7 +208,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
       unsafe {
         std::env::set_var("GLOBAL_LICENSE_IGNORE", path_str);
       }
-      verbose_log!("Setting GLOBAL_LICENSE_IGNORE to {}", global_ignore_file.display());
+      debug!("Setting GLOBAL_LICENSE_IGNORE to {}", global_ignore_file.display());
     } else {
       eprintln!("Warning: Could not convert global ignore file path to string");
     }
@@ -234,7 +235,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   if git_only {
     if workspace.is_git() {
       info_log!("Git repository detected, only processing tracked files");
-      verbose_log!("Using workspace root: {}", workspace_root.display());
+      debug!("Using workspace root: {}", workspace_root.display());
     } else {
       eprintln!("ERROR: Git-only mode is enabled, but not in a git repository");
       eprintln!("When --git-only is enabled, you must run edlicense from inside a git repository");
@@ -246,7 +247,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   let mut config = load_config(args.config.as_deref(), &workspace_root, args.no_config)?;
 
   if config.is_some() {
-    verbose_log!("Using configuration file for comment style overrides");
+    debug!("Using configuration file for comment style overrides");
   }
 
   // Parse and apply CLI comment style overrides
@@ -279,7 +280,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     filter.merge_cli(args.include_ext, args.exclude_ext);
 
     if filter.is_active() {
-      verbose_log!("Extension filtering is active");
+      debug!("Extension filtering is active");
       Some(filter)
     } else {
       None
@@ -413,7 +414,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
   // Disable git ownership check if requested (useful in Docker)
   if args.skip_git_owner_check {
-    verbose_log!("Disabling git repository ownership check");
+    debug!("Disabling git repository ownership check");
     // SAFETY: This is safe to call as long as no git operations are in progress.
     // We call this early, before any Repository operations.
     unsafe {
@@ -429,7 +430,7 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
       unsafe {
         std::env::set_var("GLOBAL_LICENSE_IGNORE", path_str);
       }
-      verbose_log!("Setting GLOBAL_LICENSE_IGNORE to {}", global_ignore_file.display());
+      debug!("Setting GLOBAL_LICENSE_IGNORE to {}", global_ignore_file.display());
     } else {
       eprintln!("Warning: Could not convert global ignore file path to string");
     }
@@ -459,7 +460,7 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
     filter.merge_cli(args.include_ext.clone(), args.exclude_ext.clone());
 
     if filter.is_active() {
-      verbose_log!("Extension filtering is active");
+      debug!("Extension filtering is active");
       Some(filter)
     } else {
       None

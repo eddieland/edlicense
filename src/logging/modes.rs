@@ -54,8 +54,8 @@ impl ColorMode {
 
 /// Sets the global verbose logging flag.
 ///
-/// When verbose logging is enabled, the [`verbose_log!`] macro will output
-/// messages to stderr. When disabled, verbose log messages are suppressed.
+/// When verbose logging is enabled, the output module shows additional details.
+/// Note: For debug logging, use `tracing::debug!` instead.
 pub fn set_verbose() {
   OUTPUT_MODE.store(OutputMode::Verbose as u8, Ordering::SeqCst);
 }
@@ -66,8 +66,8 @@ pub fn set_quiet() {
 
 /// Checks if verbose logging is currently enabled.
 ///
-/// This function is used internally by the [`verbose_log!`] macro to determine
-/// whether to output verbose log messages.
+/// This function is used by the output module to determine whether to show
+/// additional details in user-facing output.
 ///
 /// # Returns
 ///
