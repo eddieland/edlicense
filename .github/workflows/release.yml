@@ -273,6 +273,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
+          pattern: edlicense-*
 
       - name: Prepare release assets
         run: |
