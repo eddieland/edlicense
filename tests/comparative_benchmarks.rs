@@ -4,7 +4,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use anyhow::Result;
-use edlicense::logging::set_quiet;
+use edlicense::logging::init_tracing;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 use rand::prelude::*;
@@ -986,7 +986,7 @@ fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path) -> R
 fn comparative_benchmark() -> Result<()> {
   use std::fs;
 
-  set_quiet();
+  init_tracing(true, 0);
 
   // Create output directory for benchmark results
   let output_dir = PathBuf::from("target/benchmark_results");
@@ -1171,7 +1171,7 @@ fn run_chaotic_addlicense_benchmark(
 #[test]
 #[ignore] // Ignored by default as it's a long-running test
 fn chaotic_benchmark() -> Result<()> {
-  set_quiet();
+  init_tracing(true, 0);
 
   let output_dir = PathBuf::from("target/benchmark_results");
   fs::create_dir_all(&output_dir)?;

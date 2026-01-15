@@ -9,8 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use git2::Repository;
-
-use crate::{info_log, verbose_log};
+use tracing::{debug, info};
 
 /// Checks if the current directory is inside a git repository.
 ///
@@ -39,10 +38,10 @@ pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
     Err(e) => {
       // Check if this is an ownership error (common in Docker/containers)
       if e.code() == git2::ErrorCode::Owner {
-        info_log!("Git repository found but ownership check failed: {}", e.message());
-        info_log!("Hint: Use --skip-git-owner-check to bypass this (common in Docker)");
+        info!("Git repository found but ownership check failed: {}", e.message());
+        info!("Hint: Use --skip-git-owner-check to bypass this (common in Docker)");
       } else {
-        verbose_log!(
+        debug!(
           "Git repository discovery failed for {}: {} (code: {:?})",
           start_dir.display(),
           e.message(),
@@ -71,7 +70,7 @@ pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
 /// - The git repository cannot be opened
 /// - Git operations fail
 pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> {
-  verbose_log!("Getting all files tracked by git");
+  debug!("Getting all files tracked by git");
 
   let repo = Repository::discover(workspace_root).with_context(|| "Failed to discover git repository")?;
   let workdir = repo
@@ -126,7 +125,7 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
     })
     .with_context(|| "Failed to walk tree")?;
 
-  verbose_log!("Found {} tracked files", tracked_files.len());
+  debug!("Found {} tracked files", tracked_files.len());
 
   Ok(tracked_files)
 }
@@ -151,10 +150,10 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
 /// - Git operations fail
 #[allow(dead_code)]
 pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
-  verbose_log!("Getting changed files since commit: {}", commit);
+  debug!("Getting changed files since commit: {}", commit);
 
   let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
-  verbose_log!("Current directory: {}", current_dir.display());
+  debug!("Current directory: {}", current_dir.display());
 
   get_changed_files_for_workspace(&current_dir, commit)
 }
@@ -163,7 +162,7 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
 ///
 /// The returned paths are relative to the provided workspace root.
 pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> Result<HashSet<PathBuf>> {
-  verbose_log!("Getting changed files since commit: {}", commit);
+  debug!("Getting changed files since commit: {}", commit);
 
   let repo = Repository::discover(workspace_root).with_context(|| "Failed to discover git repository")?;
   let workdir = repo
@@ -183,7 +182,7 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
   let head = repo.head().with_context(|| "Failed to get HEAD reference")?;
   let head_commit = head.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
 
-  verbose_log!(
+  debug!(
     "Comparing {} with HEAD {}",
     ref_commit.id().to_string(),
     head_commit.id().to_string()
@@ -217,7 +216,7 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
       None,
       Some(&mut |diff_delta, _progress, _path| {
         if let Some(new_file) = diff_delta.new_file().path() {
-          verbose_log!("Found changed file in git: {:?}", new_file);
+          debug!("Found changed file in git: {:?}", new_file);
 
           if use_fast_path {
             // Fast path: git path is already workspace-relative
@@ -231,7 +230,7 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
               .map(|path| path.to_path_buf())
               .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
               .unwrap_or_else(|| new_file.to_path_buf());
-            verbose_log!("Added relative path: {}", rel_path.display());
+            debug!("Added relative path: {}", rel_path.display());
             changed_files.insert(rel_path);
           }
         }
@@ -240,9 +239,9 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
     )
     .with_context(|| "Failed to process diff")?;
 
-  verbose_log!("Found {} changed files", changed_files.len());
+  debug!("Found {} changed files", changed_files.len());
   for file in &changed_files {
-    verbose_log!("  Changed file: {}", file.display());
+    debug!("  Changed file: {}", file.display());
   }
 
   Ok(changed_files)

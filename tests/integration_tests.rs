@@ -93,8 +93,12 @@ fn test_add_license() -> Result<()> {
   // Check that the command succeeded
   assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
 
-  // Check that the files were processed
-  assert!(stderr.contains("Processing file: "));
+  // Check that the files were processed (tracing INFO output)
+  assert!(
+    stderr.contains("Added license to:") || stderr.contains("Updated year in:"),
+    "Expected tracing output in stderr, got: {}",
+    stderr
+  );
 
   // Check that the licenses were added
   let main_content = fs::read_to_string(temp_dir.path().join("src/main.rs"))?;

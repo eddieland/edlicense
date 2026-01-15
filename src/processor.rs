@@ -15,14 +15,15 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
+use tracing::{debug, info};
 
 use crate::diff::DiffManager;
 use crate::file_filter::{ExtensionFilter, FileFilter, FilterResult, IgnoreFilter, create_default_filter};
+use crate::git;
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
 use crate::templates::{LicenseData, TemplateManager};
-use crate::{git, info_log, verbose_log};
 
 /// Processor for handling license operations on files.
 ///
@@ -342,7 +343,7 @@ impl Processor {
     match std::fs::symlink_metadata(&absolute_path) {
       Ok(metadata) => {
         if metadata.file_type().is_symlink() {
-          verbose_log!("Skipping: {} (symlink)", path.display());
+          debug!("Skipping: {} (symlink)", path.display());
           if self.collect_report_data {
             let file_report = FileReport {
               path: path.to_path_buf(),
@@ -372,11 +373,11 @@ impl Processor {
 
           if let Some(cached_manager) = cache.get(parent_dir) {
             // Use cached ignore manager
-            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+            debug!("Using cached ignore manager for: {}", parent_dir.display());
             cached_manager.clone()
           } else {
             // Create new ignore manager and cache it
-            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+            debug!("Creating new ignore manager for: {}", parent_dir.display());
             let mut new_manager = self.ignore_manager.clone();
             new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
 
@@ -388,7 +389,7 @@ impl Processor {
 
         // Check if the file is ignored by the parent directory-specific patterns
         if ignore_manager.is_ignored(&absolute_path) {
-          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+          debug!("Skipping: {} (matches .licenseignore pattern)", path.display());
 
           // Add to local reports if collecting report data
           if self.collect_report_data {
@@ -483,7 +484,7 @@ impl Processor {
     dirs_to_process.push_back(dir.to_path_buf());
 
     // Process directories in batches for better performance
-    verbose_log!("Scanning directory: {}", dir.display());
+    debug!("Scanning directory: {}", dir.display());
     let start_time = std::time::Instant::now();
 
     while let Some(current_dir) = dirs_to_process.pop_front() {
@@ -508,7 +509,7 @@ impl Processor {
       }
     }
 
-    verbose_log!(
+    debug!(
       "Found {} files in {}ms",
       all_files.len(),
       start_time.elapsed().as_millis()
@@ -540,7 +541,7 @@ impl Processor {
     let has_missing_clone = Arc::clone(&has_missing_license);
 
     if files.is_empty() {
-      verbose_log!("No files to process");
+      debug!("No files to process");
       return Ok(false);
     }
 
@@ -556,7 +557,7 @@ impl Processor {
         match std::fs::symlink_metadata(p) {
           Ok(metadata) => {
             if metadata.file_type().is_symlink() {
-              verbose_log!("Skipping: {} (symlink)", p.display());
+              debug!("Skipping: {} (symlink)", p.display());
               if self.collect_report_data {
                 local_reports.push(FileReport {
                   path: p.to_path_buf(),
@@ -580,7 +581,7 @@ impl Processor {
           Ok(result) => {
             if !result.should_process {
               let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
-              verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+              debug!("Skipping: {} ({})", p.display(), reason_display);
 
               if self.collect_report_data {
                 let file_report = FileReport {
@@ -606,7 +607,7 @@ impl Processor {
             Ok(result) => {
               if !result.should_process {
                 let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
-                verbose_log!("Skipping: {} ({})", p.display(), reason_display);
+                debug!("Skipping: {} ({})", p.display(), reason_display);
 
                 if self.collect_report_data {
                   let file_report = FileReport {
@@ -631,14 +632,14 @@ impl Processor {
       })
       .collect();
 
-    verbose_log!(
+    debug!(
       "Filtered to {} files to process in {}ms",
       files.len(),
       filter_start.elapsed().as_millis()
     );
 
     if files.is_empty() {
-      verbose_log!("No files to process after filtering");
+      debug!("No files to process after filtering");
 
       if self.collect_report_data && !local_reports.is_empty() {
         let mut reports = self.file_reports.lock().await;
@@ -656,13 +657,12 @@ impl Processor {
     if let Some(override_concurrency) = concurrency_override {
       let override_concurrency = std::cmp::max(override_concurrency, 1);
       concurrency = std::cmp::min(override_concurrency, files_len);
-      verbose_log!(
+      debug!(
         "Processing {} files with concurrency {} (override)",
-        files_len,
-        concurrency
+        files_len, concurrency
       );
     } else {
-      verbose_log!("Processing {} files with concurrency {}", files_len, concurrency);
+      debug!("Processing {} files with concurrency {}", files_len, concurrency);
     }
 
     use futures::stream::{self, StreamExt};
@@ -678,7 +678,7 @@ impl Processor {
     // Run as many batches concurrently as we have concurrency slots.
     let batch_concurrency = std::cmp::max(1, std::cmp::min(concurrency, batch_count));
 
-    verbose_log!(
+    debug!(
       "Processing {} files in {} batches (batch size: {}, batch concurrency: {})",
       files_len,
       batch_count,
@@ -705,7 +705,7 @@ impl Processor {
       }
     }
 
-    verbose_log!(
+    debug!(
       "Processed {} files in {}ms",
       files_len,
       process_start.elapsed().as_millis()
@@ -887,7 +887,7 @@ impl Processor {
           Self::write_file_sync(path, updated_content.as_ref())?;
 
           // Log the updated file with colors
-          info_log!("Updated year in: {}", path.display());
+          info!("Updated year in: {}", path.display());
 
           // Collect report locally
           if self.collect_report_data {
@@ -938,7 +938,7 @@ impl Processor {
       Self::write_file_sync(path, &new_content)?;
 
       // Log the added license with colors
-      info_log!("Added license to: {}", path.display());
+      info!("Added license to: {}", path.display());
 
       // Collect report locally
       if self.collect_report_data {
@@ -964,7 +964,7 @@ impl Processor {
       match std::fs::symlink_metadata(&path) {
         Ok(metadata) => {
           if metadata.file_type().is_symlink() {
-            verbose_log!("Skipping: {} (symlink)", path.display());
+            debug!("Skipping: {} (symlink)", path.display());
             if self.collect_report_data {
               local_reports.push(FileReport {
                 path: path.to_path_buf(),
@@ -993,10 +993,10 @@ impl Processor {
           let mut cache = self.ignore_manager_cache.lock().await;
 
           if let Some(cached_manager) = cache.get(parent_dir) {
-            verbose_log!("Using cached ignore manager for: {}", parent_dir.display());
+            debug!("Using cached ignore manager for: {}", parent_dir.display());
             cached_manager.clone()
           } else {
-            verbose_log!("Creating new ignore manager for: {}", parent_dir.display());
+            debug!("Creating new ignore manager for: {}", parent_dir.display());
             let mut new_manager = self.ignore_manager.clone();
             new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
             cache.insert(parent_dir.to_path_buf(), new_manager.clone());
@@ -1005,7 +1005,7 @@ impl Processor {
         };
 
         if ignore_manager.is_ignored(&absolute_path) {
-          verbose_log!("Skipping: {} (matches .licenseignore pattern)", path.display());
+          debug!("Skipping: {} (matches .licenseignore pattern)", path.display());
           ignored = true;
 
           if self.collect_report_data {
@@ -1088,13 +1088,13 @@ impl Processor {
     path: &Path,
     local_reports: &Arc<tokio::sync::Mutex<Vec<FileReport>>>,
   ) -> Result<()> {
-    verbose_log!("Processing file: {}", path.display());
+    debug!("Processing file: {}", path.display());
 
     // Use our composite file filter to determine if we should process this file
     let filter_result = self.should_process_file(path)?;
     if !filter_result.should_process {
       let reason_display = filter_result.reason.as_deref().unwrap_or("Unknown reason");
-      verbose_log!("Skipping: {} ({})", path.display(), reason_display);
+      debug!("Skipping: {} ({})", path.display(), reason_display);
 
       // Add to local reports if collecting report data
       if self.collect_report_data {
@@ -1139,7 +1139,7 @@ impl Processor {
       prefix_content
     };
 
-    verbose_log!("File has license: {}", has_license);
+    debug!("File has license: {}", has_license);
 
     if self.check_only {
       if !has_license {
@@ -1231,14 +1231,14 @@ impl Processor {
       if !self.preserve_years {
         let updated_content = self.update_year_in_license(&content)?;
         if updated_content != content {
-          verbose_log!("Updating year in: {}", path.display());
+          debug!("Updating year in: {}", path.display());
 
           fs::write(path, updated_content.as_ref().as_bytes())
             .await
             .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
           // Log the updated file with colors
-          info_log!("Updated year in: {}", path.display());
+          info!("Updated year in: {}", path.display());
 
           // Add to local reports if collecting report data
           if self.collect_report_data {
@@ -1290,11 +1290,11 @@ impl Processor {
         .render(&self.license_data)
         .with_context(|| "Failed to render license template")?;
 
-      verbose_log!("Rendered license text:\n{}", license_text);
+      debug!("Rendered license text:\n{}", license_text);
 
       let formatted_license = self.template_manager.format_for_file_type(&license_text, path);
 
-      verbose_log!("Formatted license for file type:\n{}", formatted_license);
+      debug!("Formatted license for file type:\n{}", formatted_license);
 
       // Handle shebang or other special headers
       let (prefix, content) = self.extract_prefix(&content);
@@ -1302,7 +1302,7 @@ impl Processor {
       // Combine prefix, license, and content
       let new_content = format!("{}{}{}", prefix, formatted_license, content);
 
-      verbose_log!("Writing updated content to: {}", path.display());
+      debug!("Writing updated content to: {}", path.display());
 
       // Write the updated content back to the file
       fs::write(path, &new_content)
@@ -1310,7 +1310,7 @@ impl Processor {
         .with_context(|| format!("Failed to write to file: {}", path.display()))?;
 
       // Log the added license with colors
-      info_log!("Added license to: {}", path.display());
+      info!("Added license to: {}", path.display());
 
       // Add to local reports if collecting report data
       if self.collect_report_data {
@@ -1357,7 +1357,7 @@ impl Processor {
     let filter_result = self.should_process_file(path)?;
     if !filter_result.should_process {
       // Only log in verbose mode to reduce I/O overhead
-      verbose_log!(
+      debug!(
         "Skipping: {} ({})",
         path.display(),
         filter_result.reason.as_deref().unwrap_or("Unknown reason")
@@ -1543,7 +1543,7 @@ impl Processor {
           }
 
           // Log the updated file with colors
-          info_log!("Updated year in: {}", path.display());
+          info!("Updated year in: {}", path.display());
 
           // Send report through channel if collecting report data
           if self.collect_report_data {
@@ -1602,7 +1602,7 @@ impl Processor {
       }
 
       // Log the added license with colors
-      info_log!("Added license to: {}", path.display());
+      info!("Added license to: {}", path.display());
 
       // Send report through channel if collecting report data
       if self.collect_report_data {

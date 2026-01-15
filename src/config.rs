@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-
-use crate::verbose_log;
+use tracing::debug;
 
 /// The default config file name.
 pub const DEFAULT_CONFIG_FILENAME: &str = ".edlicense.toml";
@@ -221,7 +220,7 @@ impl Config {
   /// The loaded configuration, or an error if the file cannot be read or
   /// parsed.
   pub fn load(path: &Path) -> Result<Self, ConfigError> {
-    verbose_log!("Loading config from: {}", path.display());
+    debug!("Loading config from: {}", path.display());
 
     let content = std::fs::read_to_string(path).map_err(|e| ConfigError::ReadError {
       path: path.to_path_buf(),
@@ -238,7 +237,7 @@ impl Config {
     // Normalize keys to lowercase for case-insensitive matching
     let config = config.normalize();
 
-    verbose_log!("Loaded {} comment style overrides", config.comment_styles.len());
+    debug!("Loaded {} comment style overrides", config.comment_styles.len());
 
     Ok(config)
   }
@@ -342,7 +341,7 @@ impl Config {
   pub fn merge_cli_overrides(&mut self, overrides: CliOverrides) {
     // CLI comment style overrides take precedence over config file
     for (ext, style) in overrides.comment_styles {
-      verbose_log!("CLI override for extension '{}': {:?}", ext, style.middle);
+      debug!("CLI override for extension '{}': {:?}", ext, style.middle);
       self.comment_styles.insert(ext, style);
     }
   }
@@ -367,10 +366,10 @@ pub fn discover_config_path(explicit_path: Option<&Path>, workspace_root: &Path)
   // 1. Explicit path from CLI takes highest priority
   if let Some(path) = explicit_path {
     if path.exists() {
-      verbose_log!("Using explicit config path: {}", path.display());
+      debug!("Using explicit config path: {}", path.display());
       return Some(path.to_path_buf());
     }
-    verbose_log!("Explicit config path does not exist: {}", path.display());
+    debug!("Explicit config path does not exist: {}", path.display());
     return None;
   }
 
@@ -378,20 +377,20 @@ pub fn discover_config_path(explicit_path: Option<&Path>, workspace_root: &Path)
   if let Ok(env_path) = std::env::var(CONFIG_ENV_VAR) {
     let path = PathBuf::from(&env_path);
     if path.exists() {
-      verbose_log!("Using config from {}: {}", CONFIG_ENV_VAR, path.display());
+      debug!("Using config from {}: {}", CONFIG_ENV_VAR, path.display());
       return Some(path);
     }
-    verbose_log!("{} path does not exist: {}", CONFIG_ENV_VAR, env_path);
+    debug!("{} path does not exist: {}", CONFIG_ENV_VAR, env_path);
   }
 
   // 3. Check workspace root
   let workspace_config = workspace_root.join(DEFAULT_CONFIG_FILENAME);
   if workspace_config.exists() {
-    verbose_log!("Using workspace config: {}", workspace_config.display());
+    debug!("Using workspace config: {}", workspace_config.display());
     return Some(workspace_config);
   }
 
-  verbose_log!("No config file found");
+  debug!("No config file found");
   None
 }
 
@@ -409,7 +408,7 @@ pub fn discover_config_path(explicit_path: Option<&Path>, workspace_root: &Path)
 /// found.
 pub fn load_config(explicit_path: Option<&Path>, workspace_root: &Path, no_config: bool) -> Result<Option<Config>> {
   if no_config {
-    verbose_log!("Config file discovery disabled (--no-config)");
+    debug!("Config file discovery disabled (--no-config)");
     return Ok(None);
   }
 
