@@ -368,7 +368,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 
   // Print summary
   print_blank_line();
-  print_summary(&summary);
+  print_summary(&summary, check_only);
 
   // Print hint if there are missing licenses in check mode
   if check_only && has_missing_license {
