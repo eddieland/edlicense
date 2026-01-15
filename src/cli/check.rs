@@ -19,7 +19,7 @@ use crate::info_log;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::output::{
   CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
-  print_start_message, print_summary, print_updated_files,
+  print_outdated_files, print_start_message, print_summary, print_updated_files,
 };
 use crate::processor::Processor;
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
@@ -341,11 +341,25 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   print_blank_line();
 
   if check_only {
-    // Check mode: show missing files
-    if !has_missing_license {
+    // Check mode: show missing and outdated files
+    let has_missing = !categorized.missing.is_empty();
+    let has_outdated = !categorized.updated.is_empty();
+
+    if !has_missing_license && !has_outdated {
       print_all_files_ok();
-    } else if !categorized.missing.is_empty() {
-      print_missing_files(&categorized.missing, Some(&workspace_root));
+    } else {
+      // Split the limit between lists if both have content
+      let limit = if has_missing && has_outdated { Some(10) } else { None };
+
+      if has_missing {
+        print_missing_files(&categorized.missing, Some(&workspace_root), limit);
+      }
+      if has_outdated {
+        if has_missing {
+          print_blank_line();
+        }
+        print_outdated_files(&categorized.updated, Some(&workspace_root), limit);
+      }
     }
     // If has_missing_license but categorized.missing is empty, files failed to
     // process - errors were already logged, so we skip the success message
@@ -370,10 +384,17 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   print_blank_line();
   print_summary(&summary);
 
-  // Print hint if there are missing licenses in check mode
-  if check_only && has_missing_license {
+  // Print hint if there are issues in check mode
+  let has_outdated = !categorized.updated.is_empty();
+  if check_only && (has_missing_license || has_outdated) {
     print_blank_line();
-    print_hint("Run with --modify to add missing headers.");
+    let hint = match (has_missing_license, has_outdated) {
+      (true, true) => "Run with --modify to add missing headers and update years.",
+      (true, false) => "Run with --modify to add missing headers.",
+      (false, true) => "Run with --modify to update outdated years.",
+      (false, false) => unreachable!(),
+    };
+    print_hint(hint);
   }
 
   // Generate HTML report if requested
@@ -406,8 +427,8 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     }
   }
 
-  // Exit with non-zero code if in dry run mode and there are missing licenses
-  if check_only && has_missing_license {
+  // Exit with non-zero code if in check mode and there are issues
+  if check_only && (has_missing_license || has_outdated) {
     process::exit(1);
   }
 
