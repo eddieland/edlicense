@@ -1862,13 +1862,20 @@ impl Processor {
 
     for prefix in &prefixes {
       if first_line.starts_with(prefix) {
-        let mut prefix_str = content[..=first_line_end].to_string();
+        // Use exclusive range to avoid out-of-bounds when file has no trailing newline
+        let mut prefix_str = content[..first_line_end].to_string();
         if !prefix_str.ends_with('\n') {
           prefix_str.push('\n');
         }
         // Add an extra newline to ensure separation between shebang and license
         prefix_str.push('\n');
-        return (prefix_str, &content[first_line_end + 1..]);
+        // Handle case where file ends with just the prefix line (no remaining content)
+        let remaining = if first_line_end < content.len() {
+          &content[first_line_end + 1..]
+        } else {
+          ""
+        };
+        return (prefix_str, remaining);
       }
     }
 
