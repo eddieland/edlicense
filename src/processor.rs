@@ -1900,19 +1900,24 @@ impl Processor {
     let current_year = &self.license_data.year;
 
     // Fast path: if the content already contains the current year in a copyright
-    // statement, we can skip the regex processing entirely
+    // statement, we can skip the regex processing entirely. Check common formats
+    // including comma-separated (e.g., "Copyright (c) 2024, Company").
     if content.contains(&format!("Copyright (c) {} ", current_year))
+      || content.contains(&format!("Copyright (c) {},", current_year))
       || content.contains(&format!("Copyright © {} ", current_year))
+      || content.contains(&format!("Copyright © {},", current_year))
       || content.contains(&format!("Copyright {} ", current_year))
+      || content.contains(&format!("Copyright {},", current_year))
     {
       return Ok(Cow::Borrowed(content));
     }
 
-    // Regex to find copyright year patterns - match all copyright symbol formats
+    // Regex to find copyright year patterns - match all copyright symbol formats.
     // The optional group includes both the symbol AND its following whitespace,
     // so "Copyright 2024" (no symbol, single space) is matched correctly.
+    // Also handles comma/period after year (e.g., "Copyright 2024, Company").
     static YEAR_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-      Regex::new(r"(?i)(copyright\s+(?:(?:\(c\)|©)\s+)?)(\d{4})(\s+)").expect("year regex must compile")
+      Regex::new(r"(?i)(copyright\s+(?:(?:\(c\)|©)\s+)?)(\d{4})([,.]?\s+)").expect("year regex must compile")
     });
 
     let mut needs_update = false;

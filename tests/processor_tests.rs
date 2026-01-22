@@ -236,6 +236,61 @@ async fn test_year_updating() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_year_updating_with_comma_after_year() -> Result<()> {
+  // Regression test: the regex required whitespace immediately after the year,
+  // but some copyright formats use a comma (e.g., "Copyright (c) 2024, Company").
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}}, ACME INC.",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "// Copyright (c) 2024, ACME INC. All rights reserved.\n\nfn main() {}";
+  let updated_content = processor.update_year_in_license(content)?;
+  assert!(
+    updated_content.contains("// Copyright (c) 2025,"),
+    "Expected year to be updated when followed by comma: got {:?}",
+    updated_content
+  );
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_year_updating_with_period_after_year() -> Result<()> {
+  // Regression test: the regex required whitespace immediately after the year,
+  // but some copyright formats use a period (e.g., "Copyright (c) 2024. All
+  // rights").
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}}. All rights reserved.",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "// Copyright (c) 2024. All rights reserved.\n\nfn main() {}";
+  let updated_content = processor.update_year_in_license(content)?;
+  assert!(
+    updated_content.contains("// Copyright (c) 2025."),
+    "Expected year to be updated when followed by period: got {:?}",
+    updated_content
+  );
+
+  Ok(())
+}
+
+#[tokio::test]
 async fn test_ignore_patterns() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
