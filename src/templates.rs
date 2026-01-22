@@ -167,8 +167,8 @@ impl TemplateManager {
   /// Renders a license template with the given data.
   ///
   /// This method replaces template variables with actual values from the
-  /// provided license data. Currently, it supports the `{{year}}` variable
-  /// which is replaced with the year from the license data.
+  /// provided license data. Supports both `{{year}}` and Go-style `{{.Year}}`
+  /// variables which are replaced with the year from the license data.
   ///
   /// # Parameters
   ///
@@ -181,8 +181,11 @@ impl TemplateManager {
   pub fn render(&self, data: &LicenseData) -> Result<String> {
     trace!("Rendering template with year: {}", data.year);
 
-    // Simple string replacement
-    let rendered = self.template.replace("{{year}}", &data.year);
+    // Simple string replacement - support both {{year}} and Go-style {{.Year}}
+    let rendered = self
+      .template
+      .replace("{{year}}", &data.year)
+      .replace("{{.Year}}", &data.year);
 
     Ok(rendered)
   }
