@@ -220,11 +220,8 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
 
   diff
     .foreach(
-      &mut |_delta, _| true,
-      None,
-      None,
-      Some(&mut |diff_delta, _progress, _path| {
-        if let Some(new_file) = diff_delta.new_file().path() {
+      &mut |delta, _progress| {
+        if let Some(new_file) = delta.new_file().path() {
           trace!("Found changed file in git: {:?}", new_file);
 
           if use_fast_path {
@@ -244,7 +241,10 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
           }
         }
         true
-      }),
+      },
+      None,
+      None,
+      None,
     )
     .with_context(|| "Failed to process diff")?;
 
