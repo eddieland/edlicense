@@ -291,6 +291,32 @@ async fn test_year_updating_with_period_after_year() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_year_updating_with_go_style_template() -> Result<()> {
+  // Test Go-style {{.Year}} template syntax with comma after year
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{.Year}}, ACME INC. All rights reserved.",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "// Copyright (c) 2024, ACME INC. All rights reserved.\n\nfn main() {}";
+  let updated_content = processor.update_year_in_license(content)?;
+  assert!(
+    updated_content.contains("// Copyright (c) 2025,"),
+    "Expected year to be updated with Go-style template format: got {:?}",
+    updated_content
+  );
+
+  Ok(())
+}
+
+#[tokio::test]
 async fn test_ignore_patterns() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
