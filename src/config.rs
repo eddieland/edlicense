@@ -114,6 +114,22 @@ struct RawConfig {
 }
 
 impl RawConfig {
+  /// Validate raw config entries before alias resolution.
+  ///
+  /// Checks that extension keys don't include a leading dot.
+  fn validate(&self) -> Result<(), ConfigError> {
+    for ext in self.comment_styles.keys() {
+      if ext.starts_with('.') {
+        return Err(ConfigError::InvalidCommentStyle {
+          extension: ext.clone(),
+          message: "extension should not include leading dot".to_string(),
+        });
+      }
+    }
+
+    Ok(())
+  }
+
   /// Resolve all alias entries to full `CommentStyleConfig` values.
   fn resolve(self) -> Result<Config, ConfigError> {
     let comment_styles = self
@@ -309,6 +325,8 @@ impl Config {
       source: e,
     })?;
 
+    raw.validate()?;
+
     let config = raw.resolve()?;
 
     config.validate()?;
@@ -321,38 +339,12 @@ impl Config {
     Ok(config)
   }
 
-  /// Validate the configuration.
+  /// Validate the resolved configuration.
   ///
-  /// Checks that:
-  /// - All `middle` fields are non-empty
-  /// - Extension names don't include the leading dot
-  /// - Extension filter entries don't include the leading dot
+  /// Checks that extension filter entries don't include a leading dot.
+  /// Comment style and extension key validation is handled by
+  /// `RawConfig::validate` before resolution.
   fn validate(&self) -> Result<(), ConfigError> {
-    for (ext, style) in &self.comment_styles {
-      if style.middle.is_empty() {
-        return Err(ConfigError::InvalidCommentStyle {
-          extension: ext.clone(),
-          message: "middle field cannot be empty".to_string(),
-        });
-      }
-
-      if ext.starts_with('.') {
-        return Err(ConfigError::InvalidCommentStyle {
-          extension: ext.clone(),
-          message: "extension should not include leading dot".to_string(),
-        });
-      }
-    }
-
-    for (filename, style) in &self.filenames {
-      if style.middle.is_empty() {
-        return Err(ConfigError::InvalidCommentStyle {
-          extension: filename.clone(),
-          message: "middle field cannot be empty".to_string(),
-        });
-      }
-    }
-
     // Validate extension filter entries
     if let Some(ref include) = self.extensions.include {
       for ext in include {
@@ -544,43 +536,38 @@ mod tests {
   }
 
   #[test]
-  fn test_validate_empty_middle() {
-    let config = Config {
-      comment_styles: {
-        let mut map = HashMap::new();
-        map.insert(
-          "bad".to_string(),
-          CommentStyleConfig {
-            top: String::new(),
-            middle: String::new(),
-            bottom: String::new(),
-          },
-        );
-        map
-      },
-      filenames: HashMap::new(),
-      extensions: ExtensionConfig::default(),
-    };
+  fn test_empty_middle_is_allowed() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
 
-    let result = config.validate();
-    assert!(result.is_err());
-    let err = result.expect_err("should fail");
-    assert!(matches!(err, ConfigError::InvalidCommentStyle { .. }));
+    std::fs::write(
+      &config_path,
+      concat!(
+        "[comment-styles]\n",
+        "custom = { top = \"{#\", middle = \"\", bottom = \"#}\" }\n",
+      ),
+    )
+    .expect("write config");
+
+    let config = Config::load(&config_path).expect("empty middle should be allowed");
+    let style = config.comment_styles.get("custom").expect("custom should exist");
+    assert_eq!(style.top, "{#");
+    assert_eq!(style.middle, "");
+    assert_eq!(style.bottom, "#}");
   }
 
   #[test]
   fn test_validate_leading_dot() {
-    let config = Config {
-      comment_styles: {
-        let mut map = HashMap::new();
-        map.insert(".bad".to_string(), CommentStyleConfig::line("// "));
-        map
-      },
-      filenames: HashMap::new(),
-      extensions: ExtensionConfig::default(),
-    };
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
 
-    let result = config.validate();
+    std::fs::write(
+      &config_path,
+      concat!("[comment-styles]\n", "\".bad\" = { middle = \"// \" }\n",),
+    )
+    .expect("write config");
+
+    let result = Config::load(&config_path);
     assert!(result.is_err());
     let err = result.expect_err("should fail");
     assert!(matches!(err, ConfigError::InvalidCommentStyle { .. }));
@@ -1059,5 +1046,20 @@ mod tests {
     assert_eq!(style.top, "");
     assert_eq!(style.middle, "# ");
     assert_eq!(style.bottom, "");
+  }
+
+  #[test]
+  fn test_alias_builtin_with_empty_middle() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    // j2 is a built-in with empty middle: {#, "", #}
+    std::fs::write(&config_path, concat!("[comment-styles]\n", "jinja = \"j2\"\n",)).expect("write config");
+
+    let config = Config::load(&config_path).expect("alias to j2 should succeed");
+    let style = config.comment_styles.get("jinja").expect("jinja should exist");
+    assert_eq!(style.top, "{#");
+    assert_eq!(style.middle, "");
+    assert_eq!(style.bottom, "#}");
   }
 }
