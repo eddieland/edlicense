@@ -14,6 +14,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use tracing::{debug, info};
 
+use crate::templates::get_builtin_style_for_extension;
+
 /// The default config file name.
 pub const DEFAULT_CONFIG_FILENAME: &str = ".edlicense.toml";
 
@@ -81,6 +83,81 @@ pub struct ExtensionConfig {
   /// Ignored if `include` is specified.
   #[serde(default)]
   pub exclude: Vec<String>,
+}
+
+/// A comment style entry that can be either a full definition or an alias
+/// to a built-in style.
+///
+/// In config files, users can write either:
+/// - `cjs = { top = "/*!", middle = " * ", bottom = " */" }` (full definition)
+/// - `cjs = "js"` (alias referencing a built-in extension's style)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum CommentStyleEntry {
+  /// An alias referencing a built-in extension's comment style (e.g., "js").
+  Alias(String),
+  /// A full inline comment style definition.
+  Full(CommentStyleConfig),
+}
+
+/// Intermediate raw config for deserialization before alias resolution.
+#[derive(Debug, Deserialize)]
+struct RawConfig {
+  #[serde(default, rename = "comment-styles")]
+  comment_styles: HashMap<String, CommentStyleEntry>,
+
+  #[serde(default)]
+  filenames: HashMap<String, CommentStyleEntry>,
+
+  #[serde(default)]
+  extensions: ExtensionConfig,
+}
+
+impl RawConfig {
+  /// Resolve all alias entries to full `CommentStyleConfig` values.
+  fn resolve(self) -> Result<Config, ConfigError> {
+    let comment_styles = self
+      .comment_styles
+      .into_iter()
+      .map(|(key, entry)| {
+        let style = resolve_entry(&key, entry)?;
+        Ok((key, style))
+      })
+      .collect::<Result<HashMap<_, _>, ConfigError>>()?;
+
+    let filenames = self
+      .filenames
+      .into_iter()
+      .map(|(key, entry)| {
+        let style = resolve_entry(&key, entry)?;
+        Ok((key, style))
+      })
+      .collect::<Result<HashMap<_, _>, ConfigError>>()?;
+
+    Ok(Config {
+      comment_styles,
+      filenames,
+      extensions: self.extensions,
+    })
+  }
+}
+
+/// Resolve a single `CommentStyleEntry` to a `CommentStyleConfig`.
+fn resolve_entry(key: &str, entry: CommentStyleEntry) -> Result<CommentStyleConfig, ConfigError> {
+  match entry {
+    CommentStyleEntry::Full(config) => Ok(config),
+    CommentStyleEntry::Alias(alias) => {
+      let style = get_builtin_style_for_extension(&alias).ok_or_else(|| ConfigError::InvalidCommentStyle {
+        extension: key.to_string(),
+        message: format!("unknown built-in style '{alias}' — no built-in comment style exists for that extension"),
+      })?;
+      Ok(CommentStyleConfig {
+        top: style.top,
+        middle: style.middle,
+        bottom: style.bottom,
+      })
+    }
+  }
 }
 
 /// Main configuration struct for edlicense.
@@ -227,10 +304,12 @@ impl Config {
       source: e,
     })?;
 
-    let config: Config = toml::from_str(&content).map_err(|e| ConfigError::ParseError {
+    let raw: RawConfig = toml::from_str(&content).map_err(|e| ConfigError::ParseError {
       path: path.to_path_buf(),
       source: e,
     })?;
+
+    let config = raw.resolve()?;
 
     config.validate()?;
 
@@ -895,5 +974,90 @@ mod tests {
     // Java should be changed
     let java_style = config.comment_styles.get("java").expect("java should exist");
     assert_eq!(java_style.middle, "// ");
+  }
+
+  #[test]
+  fn test_alias_resolves_to_builtin_style() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    std::fs::write(
+      &config_path,
+      concat!("[comment-styles]\n", "cjs = \"js\"\n", "mts = \"ts\"\n",),
+    )
+    .expect("write config");
+
+    let config = Config::load(&config_path).expect("load should succeed");
+
+    // cjs should resolve to the JS built-in style (/*! block style)
+    let cjs_style = config.comment_styles.get("cjs").expect("cjs should exist");
+    assert_eq!(cjs_style.top, "/*!");
+    assert_eq!(cjs_style.middle, " * ");
+    assert_eq!(cjs_style.bottom, " */");
+
+    // mts should also resolve to the TS built-in style (same as JS)
+    let mts_style = config.comment_styles.get("mts").expect("mts should exist");
+    assert_eq!(mts_style.top, "/*!");
+    assert_eq!(mts_style.middle, " * ");
+    assert_eq!(mts_style.bottom, " */");
+  }
+
+  #[test]
+  fn test_alias_unknown_extension_errors() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    std::fs::write(&config_path, concat!("[comment-styles]\n", "cjs = \"nonexistent\"\n",)).expect("write config");
+
+    let result = Config::load(&config_path);
+    assert!(result.is_err());
+    let err = result.expect_err("should fail");
+    assert!(matches!(err, ConfigError::InvalidCommentStyle { .. }));
+    let msg = err.to_string();
+    assert!(msg.contains("nonexistent"), "error should mention the bad alias: {msg}");
+  }
+
+  #[test]
+  fn test_mixed_alias_and_full_config() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    std::fs::write(
+      &config_path,
+      concat!(
+        "[comment-styles]\n",
+        "cjs = \"js\"\n",
+        "custom = { top = \"/*\", middle = \" * \", bottom = \" */\" }\n",
+      ),
+    )
+    .expect("write config");
+
+    let config = Config::load(&config_path).expect("load should succeed");
+
+    // Alias entry
+    let cjs_style = config.comment_styles.get("cjs").expect("cjs should exist");
+    assert_eq!(cjs_style.top, "/*!");
+    assert_eq!(cjs_style.middle, " * ");
+
+    // Full entry
+    let custom_style = config.comment_styles.get("custom").expect("custom should exist");
+    assert_eq!(custom_style.top, "/*");
+    assert_eq!(custom_style.middle, " * ");
+    assert_eq!(custom_style.bottom, " */");
+  }
+
+  #[test]
+  fn test_filename_alias_resolves_to_builtin_style() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    std::fs::write(&config_path, concat!("[filenames]\n", "\"Justfile\" = \"sh\"\n",)).expect("write config");
+
+    let config = Config::load(&config_path).expect("load should succeed");
+
+    let style = config.filenames.get("justfile").expect("justfile should exist");
+    assert_eq!(style.top, "");
+    assert_eq!(style.middle, "# ");
+    assert_eq!(style.bottom, "");
   }
 }

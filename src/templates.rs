@@ -422,6 +422,23 @@ pub fn create_resolver(config: Option<Config>) -> Box<dyn CommentStyleResolver> 
   }
 }
 
+/// Look up a built-in comment style by extension name (without leading dot).
+///
+/// This is useful for resolving config aliases like `cjs = "js"` where the
+/// string value references a built-in extension's comment style.
+///
+/// # Arguments
+///
+/// * `ext` - The file extension to look up (e.g., "js", "rs", "py")
+///
+/// # Returns
+///
+/// `Some(CommentStyle)` if the extension has a built-in style, `None`
+/// otherwise.
+pub fn get_builtin_style_for_extension(ext: &str) -> Option<CommentStyle> {
+  style_for_extension(&ext.to_lowercase())
+}
+
 /// Determines the appropriate comment style for a file based on its extension.
 ///
 /// This function examines the file extension (and in some cases the filename)
@@ -449,19 +466,18 @@ pub fn create_resolver(config: Option<Config>) -> Box<dyn CommentStyleResolver> 
 /// For unknown file types, returns `None`. Users can specify comment styles
 /// for additional file types via configuration or CLI options.
 fn get_comment_style_for_file(path: &Path) -> Option<CommentStyle> {
-  let file_name = path
-    .file_name()
-    .and_then(|name| name.to_str())
-    .unwrap_or("")
-    .to_lowercase();
-
   let extension = path
     .extension()
     .and_then(|ext| ext.to_str())
     .unwrap_or("")
     .to_lowercase();
 
-  match extension.as_str() {
+  style_for_extension(&extension).or_else(|| style_for_filename(path))
+}
+
+/// Look up a built-in comment style by lowercase extension string.
+fn style_for_extension(ext: &str) -> Option<CommentStyle> {
+  match ext {
     "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => Some(CommentStyle::block("/*", " * ", " */")),
     "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => {
       Some(CommentStyle::block("/*!", " * ", " */"))
@@ -476,20 +492,28 @@ fn get_comment_style_for_file(path: &Path) -> Option<CommentStyle> {
     "php" => Some(CommentStyle::line("// ")),
     "j2" => Some(CommentStyle::block("{#", "", "#}")),
     "ml" | "mli" | "mll" | "mly" => Some(CommentStyle::block("(**", "   ", "*)")),
-    _ => {
-      // Handle special cases based on filename
-      if file_name == "cmakelists.txt"
-        || file_name.ends_with(".cmake.in")
-        || file_name.ends_with(".cmake")
-        || file_name == "dockerfile"
-        || file_name.ends_with(".dockerfile")
-      {
-        Some(CommentStyle::line("# "))
-      } else {
-        // No known comment style for this file type
-        None
-      }
-    }
+    _ => None,
+  }
+}
+
+/// Look up a built-in comment style by filename (for special-case files
+/// without a recognized extension).
+fn style_for_filename(path: &Path) -> Option<CommentStyle> {
+  let file_name = path
+    .file_name()
+    .and_then(|name| name.to_str())
+    .unwrap_or("")
+    .to_lowercase();
+
+  if file_name == "cmakelists.txt"
+    || file_name.ends_with(".cmake.in")
+    || file_name.ends_with(".cmake")
+    || file_name == "dockerfile"
+    || file_name.ends_with(".dockerfile")
+  {
+    Some(CommentStyle::line("# "))
+  } else {
+    None
   }
 }
 
