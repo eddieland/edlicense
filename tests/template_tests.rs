@@ -76,7 +76,7 @@ fn test_comment_formatting() -> Result<()> {
   let js_formatted = template_manager
     .format_for_file_type(&rendered, js_file_path)
     .expect("JavaScript files should have a comment style");
-  assert!(js_formatted.contains("/**"));
+  assert!(js_formatted.contains("/*!"));
   assert!(js_formatted.contains(" * Copyright"));
   assert!(js_formatted.contains(" * All rights"));
   assert!(js_formatted.contains(" */"));

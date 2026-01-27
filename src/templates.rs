@@ -441,7 +441,7 @@ pub fn create_resolver(config: Option<Config>) -> Box<dyn CommentStyleResolver> 
 /// The function supports many common file types including:
 /// - C/C++/C#/Go/Rust/Swift/Dart: `// comment style`
 /// - Java/Scala/Kotlin: `/* comment style */`
-/// - JavaScript/TypeScript/CSS: `/** comment style */`
+/// - JavaScript/TypeScript/CSS: `/*! comment style */`
 /// - Python/Shell/YAML/Ruby: `# comment style`
 /// - HTML/XML/Vue: `<!-- comment style -->`
 /// - And many more...
@@ -464,7 +464,7 @@ fn get_comment_style_for_file(path: &Path) -> Option<CommentStyle> {
   match extension.as_str() {
     "c" | "h" | "gv" | "java" | "scala" | "kt" | "kts" => Some(CommentStyle::block("/*", " * ", " */")),
     "js" | "mjs" | "cjs" | "jsx" | "tsx" | "css" | "scss" | "sass" | "ts" => {
-      Some(CommentStyle::block("/**", " * ", " */"))
+      Some(CommentStyle::block("/*!", " * ", " */"))
     }
     "cc" | "cpp" | "cs" | "go" | "hcl" | "hh" | "hpp" | "m" | "mm" | "proto" | "rs" | "swift" | "dart" | "groovy"
     | "v" | "sv" => Some(CommentStyle::line("// ")),
@@ -593,7 +593,7 @@ mod tests {
       .resolve(Path::new("app.js"))
       .expect("JS files should have a style");
 
-    assert_eq!(style.top, "/**");
+    assert_eq!(style.top, "/*!");
     assert_eq!(style.middle, " * ");
     assert_eq!(style.bottom, " */");
   }
