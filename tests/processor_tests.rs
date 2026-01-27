@@ -1,6 +1,9 @@
+mod common;
+
 use std::fs;
 
 use anyhow::Result;
+use common::{git_add_and_commit, init_git_repo};
 use edlicense::diff::DiffManager;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
@@ -636,9 +639,7 @@ async fn test_file_filtering() -> Result<()> {
 #[tokio::test]
 async fn test_ratchet_mode_directory() -> Result<()> {
   // First, check that git is available
-  let git_version = std::process::Command::new("git").args(["--version"]).output();
-
-  if git_version.is_err() {
+  if !common::is_git_available() {
     println!("Skipping test_ratchet_mode_directory: git not available");
     return Ok(());
   }
@@ -647,28 +648,7 @@ async fn test_ratchet_mode_directory() -> Result<()> {
   let temp_dir = tempdir()?;
   let test_dir = temp_dir.path();
 
-  // Create git repo
-  // NOTE: We'll use the same directory for git repo and working dir
-  std::process::Command::new("git")
-    .args(["init"])
-    .current_dir(test_dir)
-    .output()?;
-
-  // Set git config
-  std::process::Command::new("git")
-    .args(["config", "user.name", "Test User"])
-    .current_dir(test_dir)
-    .output()?;
-  std::process::Command::new("git")
-    .args(["config", "user.email", "test@example.com"])
-    .current_dir(test_dir)
-    .output()?;
-
-  // Set default branch name to avoid any git config issues
-  std::process::Command::new("git")
-    .args(["config", "init.defaultBranch", "main"])
-    .current_dir(test_dir)
-    .output()?;
+  init_git_repo(test_dir)?;
 
   // Create initial files
   let file1 = test_dir.join("file1.rs");
@@ -677,14 +657,7 @@ async fn test_ratchet_mode_directory() -> Result<()> {
   fs::write(&file2, "fn file2_fn() { /* test */ }")?;
 
   // Initial commit
-  std::process::Command::new("git")
-    .args(["add", "."])
-    .current_dir(test_dir)
-    .output()?;
-  std::process::Command::new("git")
-    .args(["commit", "-m", "Initial commit"])
-    .current_dir(test_dir)
-    .output()?;
+  git_add_and_commit(test_dir, ".", "Initial commit")?;
 
   // Save the commit hash for ratchet reference
   let rev_parse_output = std::process::Command::new("git")
@@ -696,14 +669,7 @@ async fn test_ratchet_mode_directory() -> Result<()> {
 
   // Modify file1 and commit
   fs::write(&file1, "fn file1_fn_modified() { /* test */ }")?;
-  std::process::Command::new("git")
-    .args(["add", "file1.rs"])
-    .current_dir(test_dir)
-    .output()?;
-  std::process::Command::new("git")
-    .args(["commit", "-m", "Modify file1"])
-    .current_dir(test_dir)
-    .output()?;
+  git_add_and_commit(test_dir, "file1.rs", "Modify file1")?;
 
   // Print debug info about the file paths
   println!("file1 path: {}", file1.display());

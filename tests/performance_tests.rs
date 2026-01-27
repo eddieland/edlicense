@@ -1,9 +1,12 @@
+mod common;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::{Result, anyhow};
+use common::run_git;
 use edlicense::processor::Processor;
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
@@ -100,31 +103,6 @@ fn env_bool(name: &str, default_value: bool) -> bool {
     .ok()
     .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
     .unwrap_or(default_value)
-}
-
-fn ensure_git_available() -> bool {
-  std::process::Command::new("git")
-    .args(["--version"])
-    .output()
-    .map(|output| output.status.success())
-    .unwrap_or(false)
-}
-
-fn run_git(repo_dir: &Path, args: &[&str]) -> Result<()> {
-  let output = std::process::Command::new("git")
-    .args(args)
-    .current_dir(repo_dir)
-    .output()?;
-
-  if !output.status.success() {
-    return Err(anyhow!(
-      "git {:?} failed: {}",
-      args,
-      String::from_utf8_lossy(&output.stderr)
-    ));
-  }
-
-  Ok(())
 }
 
 fn git_head_sha(repo_dir: &Path) -> Result<String> {
@@ -613,7 +591,7 @@ async fn test_realistic_repository_performance() -> Result<()> {
 #[tokio::test]
 #[ignore] // Ignore by default as it's a long-running test
 async fn test_monorepo_git_history_benchmark() -> Result<()> {
-  if !ensure_git_available() {
+  if !common::is_git_available() {
     println!("Skipping test_monorepo_git_history_benchmark: git not available");
     return Ok(());
   }
@@ -631,9 +609,10 @@ async fn test_monorepo_git_history_benchmark() -> Result<()> {
   fs::create_dir_all(&repo_dir)?;
 
   run_git(&repo_dir, &["init"])?;
+  run_git(&repo_dir, &["config", "init.defaultBranch", "main"])?;
+  run_git(&repo_dir, &["branch", "-M", "main"])?;
   run_git(&repo_dir, &["config", "user.name", "Perf Test User"])?;
   run_git(&repo_dir, &["config", "user.email", "perf@example.com"])?;
-  run_git(&repo_dir, &["config", "init.defaultBranch", "main"])?;
 
   println!(
     "Generating monorepo: {} modules x {} files ({} bytes each)",
