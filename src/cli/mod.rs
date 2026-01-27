@@ -18,11 +18,23 @@ const CUSTOM_STYLES: Styles = Styles::styled()
   .valid(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))))
   .invalid(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))));
 
+fn long_version() -> &'static str {
+  static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+  VERSION.get_or_init(|| {
+    format!(
+      "{} ({} {})",
+      env!("CARGO_PKG_VERSION"),
+      env!("GIT_HASH"),
+      env!("GIT_DATE"),
+    )
+  })
+}
+
 /// Top-level CLI arguments
 #[derive(Parser, Debug)]
 #[command(
   author,
-  version,
+  version = long_version(),
   about,
   styles = CUSTOM_STYLES,
   after_help = "Examples:
