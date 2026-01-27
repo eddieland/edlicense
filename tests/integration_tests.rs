@@ -1,8 +1,11 @@
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 use anyhow::Result;
+use common::{git_add_and_commit, init_git_repo, is_git_available};
 use tempfile::tempdir;
 
 // Helper function to create a test environment
@@ -253,11 +256,6 @@ fn test_custom_year() -> Result<()> {
   Ok(())
 }
 
-// Helper function to check if git is available
-fn is_git_available() -> bool {
-  Command::new("git").arg("--version").status().is_ok()
-}
-
 #[test]
 fn test_git_only_from_subdirectory() -> Result<()> {
   // Skip test if git is not available
@@ -267,20 +265,7 @@ fn test_git_only_from_subdirectory() -> Result<()> {
   }
 
   let temp_dir = tempdir()?;
-
-  // Initialize git repository
-  Command::new("git").args(["init"]).current_dir(&temp_dir).status()?;
-
-  // Configure git user for commits
-  Command::new("git")
-    .args(["config", "user.name", "Test User"])
-    .current_dir(&temp_dir)
-    .status()?;
-
-  Command::new("git")
-    .args(["config", "user.email", "test@example.com"])
-    .current_dir(&temp_dir)
-    .status()?;
+  init_git_repo(temp_dir.path())?;
 
   // Create a license template at the repo root
   let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
@@ -295,12 +280,7 @@ fn test_git_only_from_subdirectory() -> Result<()> {
   fs::write(temp_dir.path().join("src/nested/module.rs"), "fn module() {}")?;
 
   // Add and commit all files
-  Command::new("git").args(["add", "."]).current_dir(&temp_dir).status()?;
-
-  Command::new("git")
-    .args(["commit", "-m", "Initial commit"])
-    .current_dir(&temp_dir)
-    .status()?;
+  git_add_and_commit(temp_dir.path(), ".", "Initial commit")?;
 
   // Run edlicense from the src/nested subdirectory with --git-only
   // Use **/*.rs pattern to match all Rust files across the repo
@@ -362,20 +342,7 @@ fn test_git_only_glob_with_parent_dir_segments() -> Result<()> {
   }
 
   let temp_dir = tempdir()?;
-
-  // Initialize git repository
-  Command::new("git").args(["init"]).current_dir(&temp_dir).status()?;
-
-  // Configure git user for commits
-  Command::new("git")
-    .args(["config", "user.name", "Test User"])
-    .current_dir(&temp_dir)
-    .status()?;
-
-  Command::new("git")
-    .args(["config", "user.email", "test@example.com"])
-    .current_dir(&temp_dir)
-    .status()?;
+  init_git_repo(temp_dir.path())?;
 
   // Create a license template at the repo root
   let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
@@ -391,12 +358,7 @@ fn test_git_only_glob_with_parent_dir_segments() -> Result<()> {
   fs::write(temp_dir.path().join("src/other/deep/nested.rs"), "fn nested() {}")?;
 
   // Add and commit all files
-  Command::new("git").args(["add", "."]).current_dir(&temp_dir).status()?;
-
-  Command::new("git")
-    .args(["commit", "-m", "Initial commit"])
-    .current_dir(&temp_dir)
-    .status()?;
+  git_add_and_commit(temp_dir.path(), ".", "Initial commit")?;
 
   // Run edlicense from the src/nested subdirectory with --git-only
   // Use a relative pattern with `..` to match files in the sibling directory
@@ -458,20 +420,7 @@ fn test_git_only_directory_with_parent_dir_segments() -> Result<()> {
   }
 
   let temp_dir = tempdir()?;
-
-  // Initialize git repository
-  Command::new("git").args(["init"]).current_dir(&temp_dir).status()?;
-
-  // Configure git user for commits
-  Command::new("git")
-    .args(["config", "user.name", "Test User"])
-    .current_dir(&temp_dir)
-    .status()?;
-
-  Command::new("git")
-    .args(["config", "user.email", "test@example.com"])
-    .current_dir(&temp_dir)
-    .status()?;
+  init_git_repo(temp_dir.path())?;
 
   // Create a license template at the repo root
   let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
@@ -487,12 +436,7 @@ fn test_git_only_directory_with_parent_dir_segments() -> Result<()> {
   fs::write(temp_dir.path().join("src/other/deep/nested.rs"), "fn nested() {}")?;
 
   // Add and commit all files
-  Command::new("git").args(["add", "."]).current_dir(&temp_dir).status()?;
-
-  Command::new("git")
-    .args(["commit", "-m", "Initial commit"])
-    .current_dir(&temp_dir)
-    .status()?;
+  git_add_and_commit(temp_dir.path(), ".", "Initial commit")?;
 
   // Run edlicense from the src/nested subdirectory with --git-only
   // Use a relative directory path with `..` to match files in the sibling

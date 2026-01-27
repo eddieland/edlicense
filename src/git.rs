@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use git2::Repository;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::info_log;
 
@@ -164,6 +164,11 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
 ///
 /// The returned paths are relative to the provided workspace root and are
 /// computed from the merge base of the reference and `HEAD`.
+///
+/// In shallow clones (common in CI), merge base computation may fail because
+/// the full history is not available. In that case, this function falls back
+/// to a direct diff between the reference commit and HEAD, which may include
+/// extra files but will not miss any changed files.
 pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> Result<HashSet<PathBuf>> {
   debug!("Getting changed files since commit: {}", commit);
 
@@ -172,10 +177,22 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
     .workdir()
     .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
 
-  // Get the commit object for the reference commit
-  let commit_obj = repo
-    .revparse_single(commit)
-    .with_context(|| format!("Failed to find commit: {}", commit))?;
+  // Get the commit object for the reference commit.
+  // In shallow clones the ref may not be reachable at all.
+  let commit_obj = match repo.revparse_single(commit) {
+    Ok(obj) => obj,
+    Err(e) if repo.is_shallow() => {
+      return Err(anyhow::anyhow!(
+        "Cannot resolve '{}' in this shallow clone: {}. \
+         Deepen the clone with 'git fetch --deepen=N' or use a full clone.",
+        commit,
+        e
+      ));
+    }
+    Err(e) => {
+      return Err(e).with_context(|| format!("Failed to find commit: {}", commit));
+    }
+  };
 
   let ref_commit = commit_obj
     .as_commit()
@@ -185,32 +202,64 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
   let head = repo.head().with_context(|| "Failed to get HEAD reference")?;
   let head_commit = head.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
 
-  let merge_base = repo
-    .merge_base(ref_commit.id(), head_commit.id())
-    .with_context(|| "Failed to resolve merge base for ratchet mode")?;
-  let base_commit = repo
-    .find_commit(merge_base)
-    .with_context(|| "Failed to load merge base commit for ratchet mode")?;
+  // Try to find the merge base. In shallow clones this may fail because the
+  // common ancestor is outside the fetched history.
+  let base_tree = match repo.merge_base(ref_commit.id(), head_commit.id()) {
+    Ok(merge_base) => {
+      let base_commit = repo
+        .find_commit(merge_base)
+        .with_context(|| "Failed to load merge base commit for ratchet mode")?;
+      debug!(
+        "Comparing merge base {} with HEAD {} (reference: {})",
+        base_commit.id(),
+        head_commit.id(),
+        ref_commit.id()
+      );
+      base_commit.tree().with_context(|| "Failed to get merge base tree")?
+    }
+    Err(e) if repo.is_shallow() => {
+      warn!(
+        "Shallow clone detected: merge base resolution failed ({}). \
+         Falling back to direct diff between '{}' and HEAD. \
+         This may report more changed files than expected. \
+         Deepen the clone with 'git fetch --deepen=N' for accurate results.",
+        e, commit
+      );
+      debug!(
+        "Falling back to direct diff: {} -> {}",
+        ref_commit.id(),
+        head_commit.id()
+      );
+      ref_commit
+        .tree()
+        .with_context(|| "Failed to get reference commit tree")?
+    }
+    Err(e) => {
+      return Err(e).with_context(|| "Failed to resolve merge base for ratchet mode");
+    }
+  };
 
-  debug!(
-    "Comparing merge base {} with HEAD {} (reference: {})",
-    base_commit.id().to_string(),
-    head_commit.id().to_string(),
-    ref_commit.id().to_string()
-  );
-
-  // Get trees for both commits
-  let ref_tree = base_commit.tree().with_context(|| "Failed to get merge base tree")?;
   let head_tree = head_commit.tree().with_context(|| "Failed to get HEAD tree")?;
 
-  // Set up diff options
+  collect_diff_files(&repo, workdir, workspace_root, &base_tree, &head_tree)
+}
+
+/// Collects changed file paths from a tree-to-tree diff.
+///
+/// Returns paths relative to the provided workspace root.
+fn collect_diff_files(
+  repo: &Repository,
+  workdir: &Path,
+  workspace_root: &Path,
+  old_tree: &git2::Tree<'_>,
+  new_tree: &git2::Tree<'_>,
+) -> Result<HashSet<PathBuf>> {
   let mut diff_options = git2::DiffOptions::new();
   diff_options.include_untracked(false);
   diff_options.recurse_untracked_dirs(false);
 
-  // Diff between the reference commit and HEAD
   let diff = repo
-    .diff_tree_to_tree(Some(&ref_tree), Some(&head_tree), Some(&mut diff_options))
+    .diff_tree_to_tree(Some(old_tree), Some(new_tree), Some(&mut diff_options))
     .with_context(|| "Failed to diff trees")?;
 
   let mut changed_files = HashSet::new();
