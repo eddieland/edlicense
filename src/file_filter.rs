@@ -58,26 +58,13 @@ pub struct IgnoreFilter {
 }
 
 impl IgnoreFilter {
-  /// Creates a new IgnoreFilter with the given IgnoreManager.
-  #[allow(dead_code)]
-  pub const fn new(ignore_manager: IgnoreManager) -> Self {
-    Self { ignore_manager }
-  }
-
   /// Creates a new IgnoreFilter from a list of ignore patterns.
   pub fn from_patterns(patterns: Vec<String>) -> Result<Self> {
     let ignore_manager = IgnoreManager::new(patterns)?;
     Ok(Self { ignore_manager })
   }
 
-  /// Updates the ignore manager with .licenseignore files from a directory.
-  #[allow(dead_code)]
-  pub fn load_licenseignore_files(&mut self, dir: &Path, workspace_root: &Path) -> Result<()> {
-    self.ignore_manager.load_licenseignore_files(dir, workspace_root)
-  }
-
   /// Creates a new IgnoreFilter with updated ignore patterns from a directory.
-  #[allow(dead_code)]
   pub fn with_licenseignore_files(&self, dir: &Path, workspace_root: &Path) -> Result<Self> {
     let mut ignore_manager = self.ignore_manager.clone();
     ignore_manager.load_licenseignore_files(dir, workspace_root)?;

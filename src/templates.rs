@@ -353,15 +353,6 @@ impl ConfigurableResolver {
       config: Arc::new(config),
     }
   }
-
-  /// Create a new configurable resolver from an Arc'd config.
-  ///
-  /// This is useful when you want to share the config across multiple
-  /// resolvers.
-  #[allow(dead_code)]
-  pub const fn from_arc(config: Arc<Config>) -> Self {
-    Self { config }
-  }
 }
 
 impl CommentStyleResolver for ConfigurableResolver {

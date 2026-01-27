@@ -64,7 +64,7 @@ fn diagnose_broken_alternates(repo: &Repository) -> Option<String> {
 ///
 /// `true` if the current directory is inside a git repository, `false`
 /// otherwise.
-#[allow(dead_code)]
+#[allow(dead_code)] // Used by integration tests
 pub fn is_git_repository() -> bool {
   let current_dir = match std::env::current_dir() {
     Ok(dir) => dir,
@@ -191,7 +191,7 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
 /// - The git repository cannot be opened
 /// - The specified commit cannot be found
 /// - Git operations fail
-#[allow(dead_code)]
+#[allow(dead_code)] // Used by integration tests
 pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
   debug!("Getting changed files since commit: {}", commit);
 

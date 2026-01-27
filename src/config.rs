@@ -46,7 +46,6 @@ pub struct CommentStyleConfig {
 
 impl CommentStyleConfig {
   /// Create a new line-comment style (no top/bottom markers).
-  #[allow(dead_code)]
   pub fn line(prefix: &str) -> Self {
     Self {
       top: String::new(),
@@ -56,7 +55,7 @@ impl CommentStyleConfig {
   }
 
   /// Create a new block-comment style.
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn block(top: &str, middle: &str, bottom: &str) -> Self {
     Self {
       top: top.to_string(),
@@ -370,13 +369,13 @@ impl Config {
   }
 
   /// Check if the configuration has any comment style overrides.
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn has_overrides(&self) -> bool {
     !self.comment_styles.is_empty() || !self.filenames.is_empty()
   }
 
   /// Check if the configuration has any extension filtering.
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub const fn has_extension_filter(&self) -> bool {
     self.extensions.include.is_some() || !self.extensions.exclude.is_empty()
   }

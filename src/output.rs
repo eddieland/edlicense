@@ -23,9 +23,6 @@ pub mod symbols {
   pub const SUCCESS: &str = "\u{2713}"; // ✓
   /// Missing license/failure
   pub const FAILURE: &str = "\u{2717}"; // ✗
-  /// Ignored/skipped (used in verbose mode - Phase 2)
-  #[allow(dead_code)]
-  pub const IGNORED: &str = "-";
   /// Year updated
   pub const UPDATED: &str = "\u{21bb}"; // ↻
 }
@@ -307,76 +304,7 @@ pub fn print_hint(message: &str) {
   println!("{}", message.if_supports_color(Stream::Stdout, |s| s.yellow()));
 }
 
-/// Print verbose per-file status during processing.
-/// Only shown in verbose mode.
-///
-/// Note: This function is planned for Phase 2 (verbose mode improvements).
-#[allow(dead_code)]
-pub fn print_file_status_verbose(path: &Path, status: FileStatus, workspace_root: Option<&Path>) {
-  if !is_verbose() {
-    return;
-  }
-
-  let display_path = make_relative_path(path, workspace_root);
-  let (symbol, message) = match status {
-    FileStatus::HasLicense => (
-      symbols::SUCCESS
-        .if_supports_color(Stream::Stdout, |s| s.green())
-        .to_string(),
-      display_path,
-    ),
-    FileStatus::MissingLicense => (
-      symbols::FAILURE
-        .if_supports_color(Stream::Stdout, |s| s.red())
-        .to_string(),
-      format!("{} (missing header)", display_path),
-    ),
-    FileStatus::LicenseAdded => (
-      symbols::SUCCESS
-        .if_supports_color(Stream::Stdout, |s| s.green())
-        .to_string(),
-      format!("{} (added)", display_path),
-    ),
-    FileStatus::YearUpdated => (
-      symbols::UPDATED
-        .if_supports_color(Stream::Stdout, |s| s.yellow())
-        .to_string(),
-      format!("{} (year updated)", display_path),
-    ),
-    FileStatus::Ignored(reason) => (
-      symbols::IGNORED
-        .if_supports_color(Stream::Stdout, |s| s.dimmed())
-        .to_string(),
-      format!(
-        "{} (ignored: {})",
-        display_path.if_supports_color(Stream::Stdout, |s| s.dimmed()),
-        reason
-      ),
-    ),
-  };
-
-  println!("  {} {}", symbol, message);
-}
-
-/// Status of a file for verbose output.
-///
-/// Note: This enum is planned for Phase 2 (verbose mode improvements).
-#[allow(dead_code)]
-pub enum FileStatus<'a> {
-  /// File already has a license header
-  HasLicense,
-  /// File is missing a license header
-  MissingLicense,
-  /// License was added to the file
-  LicenseAdded,
-  /// Year was updated in the file
-  YearUpdated,
-  /// File was ignored with a reason
-  Ignored(&'a str),
-}
-
 /// Categorize file reports into different groups for output.
-#[allow(dead_code)] // Some fields are used in Phase 2 (verbose mode)
 pub struct CategorizedReports<'a> {
   /// Files missing license headers (not ignored, no license)
   pub missing: Vec<&'a FileReport>,
@@ -384,9 +312,11 @@ pub struct CategorizedReports<'a> {
   pub added: Vec<&'a FileReport>,
   /// Files that had years updated
   pub updated: Vec<&'a FileReport>,
-  /// Files that already had correct licenses (used in verbose mode - Phase 2)
+  /// Files that already had correct licenses
+  #[allow(dead_code)] // Read in tests
   pub ok: Vec<&'a FileReport>,
-  /// Files that were ignored (used in verbose mode - Phase 2)
+  /// Files that were ignored
+  #[allow(dead_code)] // Read in tests
   pub ignored: Vec<&'a FileReport>,
 }
 
