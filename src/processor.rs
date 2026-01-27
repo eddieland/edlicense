@@ -881,7 +881,7 @@ impl Processor {
             return Ok(());
           };
 
-          let (prefix, content_without_prefix) = self.extract_prefix(&content);
+          let (prefix, content_without_prefix) = self.extract_prefix(&content, path);
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
           // Generate and display/save the diff
@@ -1020,7 +1020,7 @@ impl Processor {
         return Ok(());
       };
 
-      let (prefix, content_remainder) = self.extract_prefix(&content);
+      let (prefix, content_remainder) = self.extract_prefix(&content, path);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 
       // Write the updated content back to the file using sync I/O
@@ -1261,7 +1261,7 @@ impl Processor {
           };
 
           // Handle shebang or other special headers
-          let (prefix, content_without_prefix) = self.extract_prefix(&content);
+          let (prefix, content_without_prefix) = self.extract_prefix(&content, path);
 
           // Combine prefix, license, and content
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
@@ -1432,7 +1432,7 @@ impl Processor {
       trace!("Formatted license for file type:\n{}", formatted_license);
 
       // Handle shebang or other special headers
-      let (prefix, content) = self.extract_prefix(&content);
+      let (prefix, content) = self.extract_prefix(&content, path);
 
       // Combine prefix, license, and content
       let new_content = format!("{}{}{}", prefix, formatted_license, content);
@@ -1616,7 +1616,7 @@ impl Processor {
             return Ok(());
           };
 
-          let (prefix, content_without_prefix) = self.extract_prefix(&content);
+          let (prefix, content_without_prefix) = self.extract_prefix(&content, path);
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
           // Generate and display/save the diff
@@ -1772,7 +1772,7 @@ impl Processor {
         return Ok(());
       };
 
-      let (prefix, content_remainder) = self.extract_prefix(&content);
+      let (prefix, content_remainder) = self.extract_prefix(&content, path);
       let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
 
       // Write the updated content back to the file with optimized I/O
@@ -1843,7 +1843,7 @@ impl Processor {
   /// - The extracted prefix as a String (with added newlines for proper
   ///   separation)
   /// - The remaining content as a string slice
-  pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
+  pub fn extract_prefix<'a>(&self, content: &'a str, path: &Path) -> (String, &'a str) {
     // Common prefixes to preserve
     let prefixes = [
       "#!",                       // shebang
@@ -1879,7 +1879,134 @@ impl Processor {
       }
     }
 
+    // For JS/TS/JSX files, extract pinned comments (directives that must remain
+    // at the top of the file, above the license header).
+    if Self::is_js_ts_file(path) {
+      return Self::extract_js_pinned_comments(content);
+    }
+
     (String::new(), content)
+  }
+
+  /// Returns true if the file is a JavaScript, TypeScript, or JSX/TSX file.
+  fn is_js_ts_file(path: &Path) -> bool {
+    matches!(
+      path.extension().and_then(|e| e.to_str()),
+      Some("js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx" | "mts" | "cts")
+    )
+  }
+
+  /// Checks whether a single line is a JS/TS pinned comment or directive that
+  /// must remain at the top of the file (above the license header).
+  ///
+  /// Recognized patterns:
+  /// - `// @ts-check` / `// @ts-nocheck` — TypeScript directives
+  /// - `// @flow` — Flow type annotations
+  /// - `"use strict"` / `'use strict'` — strict mode
+  /// - `"use client"` / `'use client'` — React Server Components
+  /// - `"use server"` / `'use server'` — React Server Components
+  /// - `/* eslint-disable */` and variants — ESLint file-level disables
+  /// - `/** @jsx … */` / `/** @jsxImportSource … */` / `/** @jsxRuntime … */` — JSX pragmas
+  /// - `/* @jsxImportSource … */` / `/* @jsxRuntime … */` — JSX pragmas (non-doc)
+  fn is_js_pinned_line(line: &str) -> bool {
+    let trimmed = line.trim();
+
+    // Single-line comment directives: // @ts-check, // @ts-nocheck, // @flow
+    if let Some(after_slash) = trimmed.strip_prefix("//") {
+      let comment_body = after_slash.trim();
+      if comment_body.starts_with("@ts-check")
+        || comment_body.starts_with("@ts-nocheck")
+        || comment_body.starts_with("@flow")
+      {
+        return true;
+      }
+    }
+
+    // String literal directives: "use strict", "use client", "use server"
+    // (with optional semicolon)
+    {
+      let s = trimmed.strip_suffix(';').unwrap_or(trimmed);
+      if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        let inner = &s[1..s.len() - 1];
+        if inner == "use strict" || inner == "use client" || inner == "use server" {
+          return true;
+        }
+      }
+    }
+
+    // Block comment directives on a single line:
+    // /* eslint-disable */  /* eslint-disable no-console */
+    // /** @jsx React.createElement */
+    // /** @jsxImportSource @emotion/react */
+    // /** @jsxRuntime classic */
+    // /* @jsxImportSource ... */  /* @jsxRuntime ... */
+    if (trimmed.starts_with("/*") || trimmed.starts_with("/**")) && trimmed.ends_with("*/") {
+      // Strip comment markers
+      let inner = if let Some(rest) = trimmed.strip_prefix("/**") {
+        rest.strip_suffix("*/").unwrap_or(rest)
+      } else {
+        trimmed
+          .strip_prefix("/*")
+          .unwrap_or(trimmed)
+          .strip_suffix("*/")
+          .unwrap_or(trimmed)
+      };
+      let inner = inner.trim();
+
+      if inner.starts_with("eslint-disable")
+        || inner.starts_with("@jsx")
+        || inner.starts_with("@jsxImportSource")
+        || inner.starts_with("@jsxRuntime")
+      {
+        return true;
+      }
+    }
+
+    false
+  }
+
+  /// Extracts consecutive pinned comment lines from the top of a JS/TS file.
+  ///
+  /// Returns a tuple of (pinned_prefix, remaining_content) where the prefix
+  /// includes a trailing blank line separator when non-empty.
+  fn extract_js_pinned_comments(content: &str) -> (String, &str) {
+    let mut consumed = 0;
+
+    for line in content.lines() {
+      if Self::is_js_pinned_line(line) {
+        // +1 for the newline character (if present)
+        consumed += line.len();
+        if consumed < content.len() && content.as_bytes()[consumed] == b'\n' {
+          consumed += 1;
+        }
+      } else if line.trim().is_empty() && consumed > 0 {
+        // Allow blank lines between pinned comments
+        consumed += line.len();
+        if consumed < content.len() && content.as_bytes()[consumed] == b'\n' {
+          consumed += 1;
+        }
+      } else {
+        break;
+      }
+    }
+
+    if consumed == 0 {
+      return (String::new(), content);
+    }
+
+    // Trim trailing blank lines from the prefix itself, then add separator
+    let prefix_raw = &content[..consumed];
+    let prefix_trimmed = prefix_raw.trim_end_matches('\n');
+    let mut prefix_str = prefix_trimmed.to_string();
+    prefix_str.push('\n');
+    prefix_str.push('\n');
+
+    let remaining = &content[consumed..];
+    // Skip leading blank lines in the remaining content so we don't get extra
+    // whitespace between the license and the code
+    let remaining = remaining.trim_start_matches('\n');
+
+    (prefix_str, remaining)
   }
 
   /// Updates the year in existing license headers.

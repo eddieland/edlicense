@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 
 use anyhow::Result;
 use edlicense::diff::DiffManager;
@@ -98,19 +99,19 @@ async fn test_prefix_extraction() -> Result<()> {
 
   // Test shebang extraction
   let content_with_shebang = "#!/usr/bin/env python3\n\ndef main():\n    print('Hello, world!')";
-  let (prefix, content) = processor.extract_prefix(content_with_shebang);
+  let (prefix, content) = processor.extract_prefix(content_with_shebang, Path::new("test.py"));
   assert_eq!(prefix, "#!/usr/bin/env python3\n\n");
   assert_eq!(content, "\ndef main():\n    print('Hello, world!')");
 
   // Test XML declaration extraction
   let content_with_xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root>\n    <element>Test</element>\n</root>";
-  let (prefix, content) = processor.extract_prefix(content_with_xml);
+  let (prefix, content) = processor.extract_prefix(content_with_xml, Path::new("test.xml"));
   assert_eq!(prefix, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\n");
   assert_eq!(content, "<root>\n    <element>Test</element>\n</root>");
 
   // Test HTML doctype extraction
   let content_with_doctype = "<!DOCTYPE html>\n<html>\n<head>\n    <title>Test</title>\n</head>\n<body>\n    <h1>Hello, world!</h1>\n</body>\n</html>";
-  let (prefix, content) = processor.extract_prefix(content_with_doctype);
+  let (prefix, content) = processor.extract_prefix(content_with_doctype, Path::new("test.html"));
   assert_eq!(prefix, "<!DOCTYPE html>\n\n");
   assert_eq!(
     content,
@@ -119,14 +120,14 @@ async fn test_prefix_extraction() -> Result<()> {
 
   // Test PHP opening tag extraction
   let content_with_php = "<?php\n\necho 'Hello, world!';";
-  let (prefix, content) = processor.extract_prefix(content_with_php);
+  let (prefix, content) = processor.extract_prefix(content_with_php, Path::new("test.php"));
   assert_eq!(prefix, "<?php\n\n");
   assert_eq!(content, "\necho 'Hello, world!';");
 
   // Test content without prefix - avoid anything that might be interpreted as a
   // license
   let content_without_prefix = "fn main() {\n    println!(\"Prefix test\");\n}";
-  let (prefix, _content) = processor.extract_prefix(content_without_prefix);
+  let (prefix, _content) = processor.extract_prefix(content_without_prefix, Path::new("test.rs"));
   assert_eq!(prefix, "");
 
   Ok(())
@@ -152,37 +153,37 @@ async fn test_prefix_extraction_no_trailing_newline() -> Result<()> {
 
   // Test shebang without trailing newline - this was causing a panic
   let shebang_only = "#!/bin/bash";
-  let (prefix, content) = processor.extract_prefix(shebang_only);
+  let (prefix, content) = processor.extract_prefix(shebang_only, Path::new("test.sh"));
   assert_eq!(prefix, "#!/bin/bash\n\n");
   assert_eq!(content, "");
 
   // Test XML declaration without trailing newline
   let xml_only = "<?xml version=\"1.0\"?>";
-  let (prefix, content) = processor.extract_prefix(xml_only);
+  let (prefix, content) = processor.extract_prefix(xml_only, Path::new("test.xml"));
   assert_eq!(prefix, "<?xml version=\"1.0\"?>\n\n");
   assert_eq!(content, "");
 
   // Test PHP tag without trailing newline
   let php_only = "<?php";
-  let (prefix, content) = processor.extract_prefix(php_only);
+  let (prefix, content) = processor.extract_prefix(php_only, Path::new("test.php"));
   assert_eq!(prefix, "<?php\n\n");
   assert_eq!(content, "");
 
   // Test HTML doctype without trailing newline
   let doctype_only = "<!DOCTYPE html>";
-  let (prefix, content) = processor.extract_prefix(doctype_only);
+  let (prefix, content) = processor.extract_prefix(doctype_only, Path::new("test.html"));
   assert_eq!(prefix, "<!DOCTYPE html>\n\n");
   assert_eq!(content, "");
 
   // Test Ruby encoding without trailing newline
   let ruby_encoding_only = "# encoding: utf-8";
-  let (prefix, content) = processor.extract_prefix(ruby_encoding_only);
+  let (prefix, content) = processor.extract_prefix(ruby_encoding_only, Path::new("test.rb"));
   assert_eq!(prefix, "# encoding: utf-8\n\n");
   assert_eq!(content, "");
 
   // Test Dockerfile directive without trailing newline
   let dockerfile_escape = "# escape=\\";
-  let (prefix, content) = processor.extract_prefix(dockerfile_escape);
+  let (prefix, content) = processor.extract_prefix(dockerfile_escape, Path::new("Dockerfile"));
   assert_eq!(prefix, "# escape=\\\n\n");
   assert_eq!(content, "");
 
@@ -941,6 +942,246 @@ async fn test_process() -> Result<()> {
     !ignored_content.contains("Copyright (c) 2025 Test Company"),
     "The .json file should not have a license header"
   );
+
+  Ok(())
+}
+
+// ── Pinned comment tests for JS/TS/JSX files ──
+
+#[tokio::test]
+async fn test_js_pinned_ts_check() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // @ts-check directive should be pinned
+  let content = "// @ts-check\nconst x = 1;\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.ts"));
+  assert_eq!(prefix, "// @ts-check\n\n");
+  assert_eq!(remaining, "const x = 1;\n");
+
+  // @ts-nocheck directive should be pinned
+  let content = "// @ts-nocheck\nconst x = 1;\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.ts"));
+  assert_eq!(prefix, "// @ts-nocheck\n\n");
+  assert_eq!(remaining, "const x = 1;\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_flow() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "// @flow\nimport React from 'react';\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("component.js"));
+  assert_eq!(prefix, "// @flow\n\n");
+  assert_eq!(remaining, "import React from 'react';\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_use_strict() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // Double-quoted with semicolon
+  let content = "\"use strict\";\nconst x = 1;\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.js"));
+  assert_eq!(prefix, "\"use strict\";\n\n");
+  assert_eq!(remaining, "const x = 1;\n");
+
+  // Single-quoted without semicolon
+  let content = "'use strict'\nconst x = 1;\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.js"));
+  assert_eq!(prefix, "'use strict'\n\n");
+  assert_eq!(remaining, "const x = 1;\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_use_client_server() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "\"use client\";\nimport React from 'react';\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("page.tsx"));
+  assert_eq!(prefix, "\"use client\";\n\n");
+  assert_eq!(remaining, "import React from 'react';\n");
+
+  let content = "'use server';\nexport async function action() {}\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("action.ts"));
+  assert_eq!(prefix, "'use server';\n\n");
+  assert_eq!(remaining, "export async function action() {}\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_eslint_disable() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "/* eslint-disable */\nconst x = eval('1');\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("legacy.js"));
+  assert_eq!(prefix, "/* eslint-disable */\n\n");
+  assert_eq!(remaining, "const x = eval('1');\n");
+
+  // eslint-disable with specific rule
+  let content = "/* eslint-disable no-console */\nconsole.log('hi');\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("debug.js"));
+  assert_eq!(prefix, "/* eslint-disable no-console */\n\n");
+  assert_eq!(remaining, "console.log('hi');\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_jsx_pragma() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  let content = "/** @jsx React.createElement */\nimport React from 'react';\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.jsx"));
+  assert_eq!(prefix, "/** @jsx React.createElement */\n\n");
+  assert_eq!(remaining, "import React from 'react';\n");
+
+  let content = "/** @jsxImportSource @emotion/react */\nimport { css } from '@emotion/react';\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("styled.tsx"));
+  assert_eq!(prefix, "/** @jsxImportSource @emotion/react */\n\n");
+  assert_eq!(remaining, "import { css } from '@emotion/react';\n");
+
+  // Non-doc block comment variant
+  let content = "/* @jsxRuntime classic */\nimport React from 'react';\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.jsx"));
+  assert_eq!(prefix, "/* @jsxRuntime classic */\n\n");
+  assert_eq!(remaining, "import React from 'react';\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_multiple_directives() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // Multiple pinned lines should all be extracted
+  let content = "// @ts-check\n\"use strict\";\n\nimport { foo } from './foo';\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.ts"));
+  assert_eq!(prefix, "// @ts-check\n\"use strict\";\n\n");
+  assert_eq!(remaining, "import { foo } from './foo';\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_no_pinned_comments() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // Regular JS content should not produce a prefix
+  let content = "import React from 'react';\nconst App = () => <div />;\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("app.jsx"));
+  assert_eq!(prefix, "");
+  assert_eq!(remaining, "import React from 'react';\nconst App = () => <div />;\n");
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_js_pinned_not_applied_to_non_js_files() -> Result<()> {
+  let (processor, _temp_dir) = create_test_processor(
+    "Copyright (c) {{year}} Test Company",
+    vec![],
+    false,
+    false,
+    None,
+    None,
+    None,
+    false,
+  )
+  .await?;
+
+  // A line that looks like a JS pinned comment should NOT be extracted for
+  // non-JS files
+  let content = "// @ts-check\nfn main() {}\n";
+  let (prefix, remaining) = processor.extract_prefix(content, Path::new("main.rs"));
+  assert_eq!(prefix, "");
+  assert_eq!(remaining, "// @ts-check\nfn main() {}\n");
 
   Ok(())
 }
