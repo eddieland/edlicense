@@ -249,8 +249,7 @@ pub fn print_all_files_ok() {
 ///
 /// The `check_only` parameter affects how year-updated files are counted:
 /// - In check mode: they're "outdated" and excluded from OK count
-/// - In modify mode: they're "updated" and included in OK count (since they're
-///   now fixed)
+/// - In modify mode: they're "updated" and included in OK count (since they're now fixed)
 pub fn print_summary(summary: &ProcessingSummary, check_only: bool) {
   if is_quiet() {
     return;

@@ -14,10 +14,8 @@
 //! * Automatic detection of file types and appropriate comment formatting
 //! * Check-only mode to verify license headers without modifying files
 //! * Ignore patterns to exclude specific files or directories
-//! * Automatic year reference updates - automatically updates copyright year
-//!   references when the year changes
-//! * Ratchet mode - only check and format files that have changed relative to a
-//!   git reference
+//! * Automatic year reference updates - automatically updates copyright year references when the year changes
+//! * Ratchet mode - only check and format files that have changed relative to a git reference
 
 // Re-export modules for public API
 pub mod cli;

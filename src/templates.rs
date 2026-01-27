@@ -7,8 +7,7 @@
 //! The module includes:
 //! - [`TemplateManager`] for loading and rendering license templates
 //! - [`LicenseData`] for providing data to fill in templates
-//! - [`CommentStyle`] for defining how comments should be formatted in
-//!   different file types
+//! - [`CommentStyle`] for defining how comments should be formatted in different file types
 //!
 //! ## Example
 //!
@@ -61,8 +60,7 @@ pub struct LicenseData {
 /// The `TemplateManager` is responsible for:
 /// - Loading license templates from files
 /// - Rendering templates with specific data (like the year)
-/// - Formatting license text with appropriate comment styles for different file
-///   types
+/// - Formatting license text with appropriate comment styles for different file types
 ///
 /// # Examples
 ///
@@ -200,8 +198,7 @@ impl TemplateManager {
   /// # Parameters
   ///
   /// * `license_text` - The rendered license text to format
-  /// * `file_path` - Path to the file, used to determine the appropriate
-  ///   comment style
+  /// * `file_path` - Path to the file, used to determine the appropriate comment style
   ///
   /// # Returns
   ///
@@ -231,10 +228,8 @@ impl TemplateManager {
 /// # Fields
 ///
 /// * `top` - The string to use at the top of a comment block (e.g., "/*")
-/// * `middle` - The string to use at the beginning of each line in the comment
-///   block (e.g., " * ")
-/// * `bottom` - The string to use at the bottom of a comment block (e.g., "
-///   */")
+/// * `middle` - The string to use at the beginning of each line in the comment block (e.g., " * ")
+/// * `bottom` - The string to use at the bottom of a comment block (e.g., " */")
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommentStyle {
   /// The string to use at the top of a comment block

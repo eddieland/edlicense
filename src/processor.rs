@@ -112,13 +112,11 @@ impl Processor {
   /// * `template_manager` - Manager for license templates
   /// * `license_data` - Data for rendering license templates (year, etc.)
   /// * `ignore_patterns` - Glob patterns for files to ignore
-  /// * `check_only` - Whether to only check for licenses without modifying
-  ///   files
+  /// * `check_only` - Whether to only check for licenses without modifying files
   /// * `preserve_years` - Whether to preserve existing years in license headers
-  /// * `ratchet_reference` - Git reference for ratchet mode (only process
-  ///   changed files)
-  /// * `diff_manager` - Optional manager for handling diff creation and
-  ///   rendering. If not provided, a default one will be created.
+  /// * `ratchet_reference` - Git reference for ratchet mode (only process changed files)
+  /// * `diff_manager` - Optional manager for handling diff creation and rendering. If not provided, a default one will
+  ///   be created.
   /// * `workspace_root` - Root directory for the current workspace
   /// * `workspace_is_git` - Whether the workspace is backed by git
   ///
@@ -213,8 +211,7 @@ impl Processor {
   ///
   /// # Parameters
   ///
-  /// * `patterns` - A slice of strings representing file paths, directory
-  ///   paths, or glob patterns
+  /// * `patterns` - A slice of strings representing file paths, directory paths, or glob patterns
   ///
   /// # Returns
   ///
@@ -1840,8 +1837,7 @@ impl Processor {
   /// # Returns
   ///
   /// A tuple containing:
-  /// - The extracted prefix as a String (with added newlines for proper
-  ///   separation)
+  /// - The extracted prefix as a String (with added newlines for proper separation)
   /// - The remaining content as a string slice
   pub fn extract_prefix<'a>(&self, content: &'a str) -> (String, &'a str) {
     // Common prefixes to preserve
@@ -2030,8 +2026,7 @@ impl Processor {
   ///
   /// # Parameters
   ///
-  /// * `patterns` - A slice of strings representing file paths, directory
-  ///   paths, or glob patterns
+  /// * `patterns` - A slice of strings representing file paths, directory paths, or glob patterns
   ///
   /// # Returns
   ///

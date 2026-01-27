@@ -82,8 +82,7 @@ impl TreeNode {
 /// # Parameters
 ///
 /// * `files` - A slice of file paths to display
-/// * `base_path` - The base path to display as the root (if provided, paths
-///   will be shown relative to it)
+/// * `base_path` - The base path to display as the root (if provided, paths will be shown relative to it)
 ///
 /// # Returns
 ///

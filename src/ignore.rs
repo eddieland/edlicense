@@ -4,10 +4,8 @@
 //! determining which files should be ignored during license processing.
 //!
 //! It supports:
-//! - .licenseignore files in directories (using gitignore-style pattern
-//!   matching)
-//! - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment
-//!   variable
+//! - .licenseignore files in directories (using gitignore-style pattern matching)
+//! - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment variable
 //! - Command-line ignore patterns
 
 use std::borrow::Cow;
@@ -24,8 +22,7 @@ use tracing::debug;
 /// This struct combines ignore patterns from:
 /// - Command-line arguments
 /// - .licenseignore files in directories
-/// - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment
-///   variable
+/// - A global ignore file specified by the GLOBAL_LICENSE_IGNORE environment variable
 ///
 /// # Examples
 ///

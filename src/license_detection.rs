@@ -84,8 +84,7 @@ impl ContentBasedLicenseDetector {
   /// # Parameters
   ///
   /// * `license_text` - The expected license text to look for in files
-  /// * `check_length` - The number of characters to check at the beginning of
-  ///   files (defaults to 2000)
+  /// * `check_length` - The number of characters to check at the beginning of files (defaults to 2000)
   ///
   /// # Returns
   ///

@@ -155,10 +155,8 @@ impl ExtensionFilter {
   /// Merges CLI arguments into an existing ExtensionFilter from config.
   ///
   /// CLI arguments take precedence over config file settings:
-  /// - If CLI specifies any include extensions, they completely replace config
-  ///   includes
-  /// - If CLI specifies any exclude extensions, they are added to config
-  ///   excludes
+  /// - If CLI specifies any include extensions, they completely replace config includes
+  /// - If CLI specifies any exclude extensions, they are added to config excludes
   pub fn merge_cli(&mut self, include_exts: Vec<String>, exclude_exts: Vec<String>) {
     // CLI include completely replaces config include if specified
     if !include_exts.is_empty() {
