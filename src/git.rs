@@ -13,6 +13,47 @@ use tracing::{debug, trace, warn};
 
 use crate::info_log;
 
+/// Checks `.git/objects/info/alternates` for paths that don't exist on the filesystem.
+///
+/// When a git repository is volume-mounted into a Docker container, the alternates file
+/// may contain host-absolute paths that are unreachable inside the container. This causes
+/// libgit2 to fail with opaque "object not found" errors when resolving commits.
+///
+/// Returns a diagnostic message if broken alternates are detected, or `None` if the file
+/// doesn't exist or all paths are valid.
+fn diagnose_broken_alternates(repo: &Repository) -> Option<String> {
+  let alternates_path = repo.path().join("objects").join("info").join("alternates");
+  let contents = std::fs::read_to_string(&alternates_path).ok()?;
+
+  let broken_paths: Vec<&str> = contents
+    .lines()
+    .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    .filter(|line| !Path::new(line).exists())
+    .collect();
+
+  if broken_paths.is_empty() {
+    return None;
+  }
+
+  let mut msg = String::from(
+    "Broken git alternates detected — .git/objects/info/alternates references \
+     paths that don't exist on this filesystem:\n",
+  );
+  for path in &broken_paths {
+    msg.push_str(&format!("  - {path}\n"));
+  }
+  msg.push_str(
+    "\nThis commonly happens when a git workspace is volume-mounted into a Docker container \
+     and the alternates file contains host-absolute paths.\n\n\
+     To fix this, either:\n\
+     1. Run 'git repack -ad' in the host workspace before mounting into Docker \
+        (repacks objects locally so alternates are not needed)\n\
+     2. Mount the alternates path into the container at the same absolute path",
+  );
+
+  Some(msg)
+}
+
 /// Checks if the current directory is inside a git repository.
 ///
 /// This function uses the current working directory (`$CWD`) to determine if
@@ -189,8 +230,13 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
            Try 'git fetch --unshallow' or use a full clone.",
           commit, e
         )
+      } else if e.code() == git2::ErrorCode::NotFound {
+        match diagnose_broken_alternates(&repo) {
+          Some(diagnostic) => format!("Failed to find commit '{commit}': {e}\n\n{diagnostic}"),
+          None => format!("Failed to find commit '{commit}': {e}"),
+        }
       } else {
-        format!("Failed to find commit '{}': {}", commit, e)
+        format!("Failed to find commit '{commit}': {e}")
       };
       return Err(anyhow::anyhow!(hint));
     }
