@@ -1,26 +1,27 @@
 use std::process::Command;
 
 fn main() {
-  // Get the short commit hash
-  let hash = Command::new("git")
-    .args(["rev-parse", "--short", "HEAD"])
-    .output()
-    .ok()
-    .filter(|o| o.status.success())
-    .and_then(|o| String::from_utf8(o.stdout).ok())
-    .map(|s| s.trim().to_string())
-    .unwrap_or_else(|| "unknown".to_string());
+  embed_build_info();
+  set_rerun_conditions();
+}
 
-  // Get the commit date in YYYY-MM-DD format
-  let date = Command::new("git")
-    .args(["log", "-1", "--format=%cs"])
-    .output()
-    .ok()
-    .filter(|o| o.status.success())
-    .and_then(|o| String::from_utf8(o.stdout).ok())
-    .map(|s| s.trim().to_string())
-    .unwrap_or_else(|| "unknown".to_string());
+fn embed_build_info() {
+  // Capture the current Git commit hash for version identification.
+  // Falls back gracefully if Git is unavailable or not in a repository.
+  if let Ok(output) = Command::new("git").args(["rev-parse", "--short", "HEAD"]).output() {
+    let git_hash = String::from_utf8(output.stdout).unwrap_or_default().trim().to_string();
+    println!("cargo:rustc-env=GIT_HASH={git_hash}");
+  }
 
-  println!("cargo:rustc-env=GIT_HASH={hash}");
-  println!("cargo:rustc-env=GIT_DATE={date}");
+  // Capture the commit date in YYYY-MM-DD format.
+  // Falls back gracefully if Git is unavailable.
+  if let Ok(output) = Command::new("git").args(["log", "-1", "--format=%cs"]).output() {
+    let git_date = String::from_utf8(output.stdout).unwrap_or_default().trim().to_string();
+    println!("cargo:rustc-env=GIT_DATE={git_date}");
+  }
+}
+
+fn set_rerun_conditions() {
+  println!("cargo:rerun-if-changed=build.rs");
+  println!("cargo:rerun-if-changed=.git/HEAD");
 }

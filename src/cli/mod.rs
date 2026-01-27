@@ -21,12 +21,14 @@ const CUSTOM_STYLES: Styles = Styles::styled()
 fn long_version() -> &'static str {
   static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
   VERSION.get_or_init(|| {
-    format!(
-      "{} ({} {})",
-      env!("CARGO_PKG_VERSION"),
-      env!("GIT_HASH"),
-      env!("GIT_DATE"),
-    )
+    let version = env!("CARGO_PKG_VERSION");
+    let hash = option_env!("GIT_HASH").unwrap_or_default();
+    let date = option_env!("GIT_DATE").unwrap_or_default();
+    if hash.is_empty() && date.is_empty() {
+      version.to_string()
+    } else {
+      format!("{version} ({hash} {date})")
+    }
   })
 }
 
