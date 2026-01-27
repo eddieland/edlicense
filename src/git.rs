@@ -165,10 +165,10 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
 /// The returned paths are relative to the provided workspace root and are
 /// computed from the merge base of the reference and `HEAD`.
 ///
-/// In shallow clones (common in CI), merge base computation may fail because
-/// the full history is not available. In that case, this function falls back
-/// to a direct diff between the reference commit and HEAD, which may include
-/// extra files but will not miss any changed files.
+/// In shallow or partial clones (common in CI), merge base computation may
+/// fail because the full history is not available. In that case, this function
+/// falls back to a direct diff between the reference commit and HEAD, which
+/// may include extra files but will not miss any changed files.
 pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> Result<HashSet<PathBuf>> {
   debug!("Getting changed files since commit: {}", commit);
 
@@ -178,19 +178,21 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
     .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
 
   // Get the commit object for the reference commit.
-  // In shallow clones the ref may not be reachable at all.
+  // In shallow or partial clones the ref may not be reachable at all.
+  let is_shallow = repo.is_shallow();
   let commit_obj = match repo.revparse_single(commit) {
     Ok(obj) => obj,
-    Err(e) if repo.is_shallow() => {
-      return Err(anyhow::anyhow!(
-        "Cannot resolve '{}' in this shallow clone: {}. \
-         Deepen the clone with 'git fetch --deepen=N' or use a full clone.",
-        commit,
-        e
-      ));
-    }
     Err(e) => {
-      return Err(e).with_context(|| format!("Failed to find commit: {}", commit));
+      let hint = if is_shallow {
+        format!(
+          "Cannot resolve '{}' in this shallow clone: {}. \
+           Try 'git fetch --unshallow' or use a full clone.",
+          commit, e
+        )
+      } else {
+        format!("Failed to find commit '{}': {}", commit, e)
+      };
+      return Err(anyhow::anyhow!(hint));
     }
   };
 
@@ -202,8 +204,10 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
   let head = repo.head().with_context(|| "Failed to get HEAD reference")?;
   let head_commit = head.peel_to_commit().with_context(|| "Failed to get HEAD commit")?;
 
-  // Try to find the merge base. In shallow clones this may fail because the
-  // common ancestor is outside the fetched history.
+  // Try to find the merge base. This may fail in shallow/partial clones
+  // because the common ancestor is outside the fetched history.  When it
+  // fails, fall back to a direct diff between the reference and HEAD —
+  // this may include extra files but won't miss any changed files.
   let base_tree = match repo.merge_base(ref_commit.id(), head_commit.id()) {
     Ok(merge_base) => {
       let base_commit = repo
@@ -217,13 +221,18 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
       );
       base_commit.tree().with_context(|| "Failed to get merge base tree")?
     }
-    Err(e) if repo.is_shallow() => {
+    Err(e) => {
       warn!(
-        "Shallow clone detected: merge base resolution failed ({}). \
+        "Merge base resolution failed ({}). \
          Falling back to direct diff between '{}' and HEAD. \
-         This may report more changed files than expected. \
-         Deepen the clone with 'git fetch --deepen=N' for accurate results.",
-        e, commit
+         This may report more changed files than expected.{}",
+        e,
+        commit,
+        if is_shallow {
+          " Try 'git fetch --unshallow' for accurate results."
+        } else {
+          ""
+        }
       );
       debug!(
         "Falling back to direct diff: {} -> {}",
@@ -233,9 +242,6 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
       ref_commit
         .tree()
         .with_context(|| "Failed to get reference commit tree")?
-    }
-    Err(e) => {
-      return Err(e).with_context(|| "Failed to resolve merge base for ratchet mode");
     }
   };
 
