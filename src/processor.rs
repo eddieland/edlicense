@@ -229,9 +229,7 @@ impl Processor {
 
     if self.should_use_git_list() {
       let files = self.collect_files(patterns)?;
-      let files = self.filter_files_with_ignore_context(files).await?;
-      let passthrough_filter = PassthroughFilter;
-      return self.process_files_with_filter(files, &passthrough_filter, None).await;
+      return self.process_collected(files).await;
     }
 
     // Process each pattern
@@ -286,11 +284,21 @@ impl Processor {
     Ok(has_missing_license.load(Ordering::Relaxed))
   }
 
-  const fn should_use_git_list(&self) -> bool {
+  /// Process files from a pre-collected list (git-only/ratchet mode).
+  ///
+  /// Use this when files have already been collected via [`collect_files`] to
+  /// avoid repeating the git operation.
+  pub async fn process_collected(&self, files: Vec<PathBuf>) -> Result<bool> {
+    let files = self.filter_files_with_ignore_context(files).await?;
+    let passthrough_filter = PassthroughFilter;
+    self.process_files_with_filter(files, &passthrough_filter, None).await
+  }
+
+  pub const fn should_use_git_list(&self) -> bool {
     self.git_only || self.ratchet_reference.is_some()
   }
 
-  fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
+  pub fn collect_files(&self, patterns: &[String]) -> Result<Vec<PathBuf>> {
     // Check ratchet_reference first since it's a more specific filter than
     // git_only. When both are set, ratchet should take precedence to return
     // only changed files.

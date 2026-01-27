@@ -312,8 +312,20 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     extension_filter,
   )?;
 
-  // Collect files to get count for start message
-  let file_count = processor.collect_planned_files(&args.patterns).await?.len();
+  // Collect files to get count for start message.
+  // When using git-list mode, collect once and reuse for processing to avoid
+  // duplicate git operations.
+  let collected_files: Option<Vec<std::path::PathBuf>> = if processor.should_use_git_list() {
+    Some(processor.collect_files(&args.patterns)?)
+  } else {
+    None
+  };
+
+  let file_count = if let Some(ref files) = collected_files {
+    files.len()
+  } else {
+    processor.collect_planned_files(&args.patterns).await?.len()
+  };
 
   // Print start message with file count
   print_start_message(file_count, !check_only);
@@ -328,7 +340,11 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   // Start timing
   let start_time = Instant::now();
 
-  let has_missing_license = processor.process(&args.patterns).await?;
+  let has_missing_license = if let Some(files) = collected_files {
+    processor.process_collected(files).await?
+  } else {
+    processor.process(&args.patterns).await?
+  };
 
   // Calculate elapsed time
   let elapsed = start_time.elapsed();
