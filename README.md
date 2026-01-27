@@ -190,6 +190,111 @@ edlicense [OPTIONS] <PATTERNS>...
 
 Note: `--dry-run` and `--modify` are mutually exclusive options. If neither is specified, dry run mode is used by default.
 
+## Configuration File
+
+`edlicense` supports an optional TOML configuration file (`.edlicense.toml`) for customizing comment styles and extension filtering. The config file is discovered in this order:
+
+1. Path specified via `--config <FILE>`
+2. Path specified via the `EDLICENSE_CONFIG` environment variable
+3. `.edlicense.toml` in the workspace root
+
+Use `--no-config` to skip config file discovery entirely.
+
+### Sections
+
+The configuration file has three sections, all optional:
+
+#### `[comment-styles]`
+
+Override or add comment styles for file extensions. Keys are extensions without the leading dot.
+
+Each entry can be either a full definition or an alias to a built-in extension's style:
+
+```toml
+[comment-styles]
+# Full definition: line-style comments (only middle is required)
+acme = { middle = "## " }
+
+# Full definition: block-style comments
+xyz = { top = "/*", middle = " * ", bottom = " */" }
+
+# Alias: reuse a built-in extension's style
+cjs = "js"
+mts = "ts"
+```
+
+**Fields:**
+
+| Field    | Required | Default | Description                                   |
+| -------- | -------- | ------- | --------------------------------------------- |
+| `top`    | No       | `""`    | Opening marker for block comments (e.g. `/*`) |
+| `middle` | Yes      | —       | Line prefix (e.g. `// `, `# `, `*`)           |
+| `bottom` | No       | `""`    | Closing marker for block comments (e.g. `*/`) |
+
+**Aliases** reference a built-in extension by name (e.g. `"js"`, `"py"`, `"rs"`). If the referenced extension has no built-in style, the config will fail to load with an error.
+
+#### `[filenames]`
+
+Map specific filenames or glob patterns to comment styles. This is useful for files without extensions (e.g. `Makefile`, `Dockerfile`). Supports the same full definition and alias syntax as `[comment-styles]`:
+
+```toml
+[filenames]
+"justfile" = { middle = "# " }
+"*.cmake.in" = { middle = "# " }
+
+# Or use an alias
+"Vagrantfile" = "rb"
+```
+
+#### `[extensions]`
+
+Control which file extensions are processed. If `include` is specified, only those extensions are processed and `exclude` is ignored. If only `exclude` is specified, those extensions are skipped.
+
+```toml
+[extensions]
+# Only process these extensions (all others are ignored)
+include = ["rs", "go", "py", "js", "ts"]
+
+# OR exclude specific extensions (ignored if include is set)
+# exclude = ["min.js", "pb.go"]
+```
+
+Extensions should not include a leading dot (use `rs`, not `.rs`).
+
+### CLI Overrides
+
+CLI flags take precedence over config file settings:
+
+| CLI Flag                      | Config Equivalent    |
+| ----------------------------- | -------------------- |
+| `--comment-style <EXT:STYLE>` | `[comment-styles]`   |
+| `--include-ext <EXT>`         | `extensions.include` |
+| `--exclude-ext <EXT>`         | `extensions.exclude` |
+
+The `--comment-style` flag accepts the format `EXT:STYLE` where `STYLE` is a line-comment prefix:
+
+```bash
+edlicense --comment-style "java:// " --comment-style "xyz:# " .
+```
+
+### Full Example
+
+```toml
+# .edlicense.toml
+
+[comment-styles]
+# Override Java to use line comments instead of block comments
+java = { middle = "// " }
+# Alias CommonJS to use the built-in JS style
+cjs = "js"
+
+[filenames]
+"justfile" = { middle = "# " }
+
+[extensions]
+include = ["rs", "go", "py", "js", "ts", "java"]
+```
+
 ## Examples
 
 Check if all files have license headers without modifying them (dry run mode):
