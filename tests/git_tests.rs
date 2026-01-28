@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use common::{git_add_and_commit, init_git_repo, is_git_available, run_git};
-use edlicense::git;
+use edlicense::git::{self, RatchetOptions};
 use tempfile::{TempDir, tempdir};
 
 // Helper function to initialize a git repository in a temporary directory
@@ -243,7 +243,7 @@ fn test_shallow_clone_ratchet_fallback_merge_base() -> Result<()> {
 
   // In a shallow clone, merge_base against origin/main should fail but
   // the function should fall back to a direct diff instead of erroring.
-  let result = git::get_changed_files_for_workspace(shallow_dir.path(), "origin/main");
+  let result = git::get_changed_files_for_workspace(shallow_dir.path(), "origin/main", &RatchetOptions::default());
   assert!(
     result.is_ok(),
     "Expected fallback to succeed in shallow clone, got: {:?}",
@@ -271,7 +271,11 @@ fn test_shallow_clone_ratchet_unresolvable_ref_errors() -> Result<()> {
 
   // Try to ratchet against a commit that doesn't exist in the shallow history.
   // This should produce a clear error mentioning the shallow clone.
-  let result = git::get_changed_files_for_workspace(shallow_dir.path(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0");
+  let result = git::get_changed_files_for_workspace(
+    shallow_dir.path(),
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0",
+    &RatchetOptions::default(),
+  );
   assert!(result.is_err(), "Expected error for unresolvable ref in shallow clone");
 
   let err_msg = format!("{}", result.unwrap_err());
@@ -279,6 +283,154 @@ fn test_shallow_clone_ratchet_unresolvable_ref_errors() -> Result<()> {
     err_msg.contains("shallow clone"),
     "Error should mention shallow clone, got: {}",
     err_msg
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_includes_staged_files_by_default() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Create and stage a new file (but don't commit)
+  fs::write(temp_dir.path().join("staged.rs"), "fn staged() {}")?;
+  run_git(temp_dir.path(), &["add", "staged.rs"])?;
+
+  // Get changed files with default options (should include staged)
+  let changed = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD", &RatchetOptions::default())?;
+
+  assert!(
+    changed.contains(&PathBuf::from("staged.rs")),
+    "Default ratchet mode should include staged files, got: {:?}",
+    changed
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_includes_unstaged_files_by_default() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Modify the initial file (unstaged change)
+  fs::write(temp_dir.path().join("initial.txt"), "Modified content")?;
+
+  // Get changed files with default options (should include unstaged)
+  let changed = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD", &RatchetOptions::default())?;
+
+  assert!(
+    changed.contains(&PathBuf::from("initial.txt")),
+    "Default ratchet mode should include unstaged files, got: {:?}",
+    changed
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_committed_only_excludes_staged_files() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Create and stage a new file (but don't commit)
+  fs::write(temp_dir.path().join("staged.rs"), "fn staged() {}")?;
+  run_git(temp_dir.path(), &["add", "staged.rs"])?;
+
+  // Get changed files with committed_only (should NOT include staged)
+  let changed = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD", &RatchetOptions::committed_only())?;
+
+  assert!(
+    !changed.contains(&PathBuf::from("staged.rs")),
+    "committed_only mode should NOT include staged files, got: {:?}",
+    changed
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_committed_only_excludes_unstaged_files() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Modify the initial file (unstaged change)
+  fs::write(temp_dir.path().join("initial.txt"), "Modified content")?;
+
+  // Get changed files with committed_only (should NOT include unstaged)
+  let changed = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD", &RatchetOptions::committed_only())?;
+
+  assert!(
+    !changed.contains(&PathBuf::from("initial.txt")),
+    "committed_only mode should NOT include unstaged files, got: {:?}",
+    changed
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_excludes_deleted_files() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Delete the initial file (this is an unstaged deletion)
+  fs::remove_file(temp_dir.path().join("initial.txt"))?;
+
+  // Get changed files - deleted files should NOT be included
+  // (they don't exist on disk, so processing them would fail)
+  let changed = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD", &RatchetOptions::default())?;
+
+  assert!(
+    !changed.contains(&PathBuf::from("initial.txt")),
+    "Deleted files should be excluded from ratchet results, got: {:?}",
+    changed
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_excludes_staged_deleted_files() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Stage a deletion of the initial file
+  fs::remove_file(temp_dir.path().join("initial.txt"))?;
+  run_git(temp_dir.path(), &["add", "initial.txt"])?;
+
+  // Get changed files - staged deleted files should NOT be included
+  let changed = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD", &RatchetOptions::default())?;
+
+  assert!(
+    !changed.contains(&PathBuf::from("initial.txt")),
+    "Staged deleted files should be excluded from ratchet results, got: {:?}",
+    changed
   );
 
   Ok(())

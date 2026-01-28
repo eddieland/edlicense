@@ -39,6 +39,7 @@ async fn create_test_processor(
     check_only,
     preserve_years,
     ratchet_reference,
+    false, // ratchet_committed_only
     None,
     false,
     None, // Use default LicenseDetector
@@ -80,6 +81,7 @@ async fn create_test_processor_with_git(
     check_only,
     preserve_years,
     ratchet_reference,
+    false, // ratchet_committed_only
     None,
     git_only,
     None, // Use default LicenseDetector
