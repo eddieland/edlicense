@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -32,21 +32,10 @@ async fn create_test_processor(temp_dir: &tempfile::TempDir, check_only: bool) -
     year: "2025".to_string(),
   };
 
-  Processor::new(
-    template_manager,
-    license_data,
-    vec![],
+  Processor::new(ProcessorConfig {
     check_only,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,
-    false,
-    None,
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })
 }
 
 /// Test that processing a file that doesn't exist returns an error

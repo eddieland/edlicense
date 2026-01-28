@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use edlicense::diff::DiffManager;
 // Import the public API
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -34,21 +34,11 @@ async fn test_public_api() -> Result<()> {
   };
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     license_data,
-    vec![], // No ignore patterns
-    false,  // Not check-only mode
-    false,  // Don't preserve years
-    None,   // No ratchet mode
-    false,  // ratchet_committed_only
-    None,   // Use default diff_manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Process a single file
   processor.process_file(&test_file_path).await?;
@@ -116,21 +106,10 @@ async fn test_api_with_check_only() -> Result<()> {
   };
 
   // Create a processor in check-only mode
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    vec![], // No ignore patterns
-    true,   // Check-only mode
-    false,  // Don't preserve years
-    None,   // No ratchet mode
-    false,  // ratchet_committed_only
-    None,   // Use default diff_manager
-    false,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
 
   // Process the file with license - should succeed
   let result = processor.process_file(&file_with_license).await;
@@ -220,21 +199,11 @@ async fn test_show_diff_mode() -> Result<()> {
   };
 
   // Create a processor in check-only mode with show_diff enabled
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    vec![], // No ignore patterns
-    true,   // Check-only mode
-    false,  // Don't preserve years
-    None,   // No ratchet mode
-    false,  // ratchet_committed_only
-    Some(DiffManager::new(true, None)),
-    false,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    diff_manager: Some(DiffManager::new(true, None)),
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
 
   // Process the file - should fail but show diff
   let result = processor.process_file(&test_file_path).await;

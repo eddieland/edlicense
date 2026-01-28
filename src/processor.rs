@@ -26,6 +26,58 @@ use crate::report::{FileAction, FileReport};
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{git, info_log};
 
+/// Configuration for creating a Processor instance.
+pub struct ProcessorConfig {
+  pub template_manager: TemplateManager,
+  pub license_data: LicenseData,
+  pub workspace_root: PathBuf,
+  pub workspace_is_git: bool,
+
+  // Behavior flags
+  pub check_only: bool,
+  pub preserve_years: bool,
+  pub git_only: bool,
+
+  // Ratchet mode
+  pub ratchet_reference: Option<String>,
+  pub ratchet_committed_only: bool,
+
+  // Optional components
+  pub ignore_patterns: Vec<String>,
+  pub diff_manager: Option<DiffManager>,
+  pub license_detector: Option<Box<dyn LicenseDetector + Send + Sync>>,
+  pub extension_filter: Option<ExtensionFilter>,
+}
+
+impl ProcessorConfig {
+  /// Creates a new ProcessorConfig with required fields and sensible defaults.
+  ///
+  /// Use struct update syntax to override specific fields:
+  /// ```ignore
+  /// ProcessorConfig {
+  ///     check_only: true,
+  ///     ..ProcessorConfig::new(template_manager, license_data, workspace_root)
+  /// }
+  /// ```
+  pub fn new(template_manager: TemplateManager, license_data: LicenseData, workspace_root: PathBuf) -> Self {
+    Self {
+      template_manager,
+      license_data,
+      workspace_root,
+      workspace_is_git: false,
+      check_only: false,
+      preserve_years: false,
+      git_only: false,
+      ratchet_reference: None,
+      ratchet_committed_only: false,
+      ignore_patterns: vec![],
+      diff_manager: None,
+      license_detector: None,
+      extension_filter: None,
+    }
+  }
+}
+
 /// Processor for handling license operations on files.
 ///
 /// The `Processor` is responsible for:
@@ -113,16 +165,8 @@ impl Processor {
   ///
   /// # Parameters
   ///
-  /// * `template_manager` - Manager for license templates
-  /// * `license_data` - Data for rendering license templates (year, etc.)
-  /// * `ignore_patterns` - Glob patterns for files to ignore
-  /// * `check_only` - Whether to only check for licenses without modifying files
-  /// * `preserve_years` - Whether to preserve existing years in license headers
-  /// * `ratchet_reference` - Git reference for ratchet mode (only process changed files)
-  /// * `diff_manager` - Optional manager for handling diff creation and rendering. If not provided, a default one will
-  ///   be created.
-  /// * `workspace_root` - Root directory for the current workspace
-  /// * `workspace_is_git` - Whether the workspace is backed by git
+  /// * `config` - Configuration for the processor including template manager, license data, behavior flags, and
+  ///   optional components
   ///
   /// # Returns
   ///
@@ -133,63 +177,50 @@ impl Processor {
   /// Returns an error if:
   /// - Any of the ignore patterns are invalid
   /// - Ratchet mode is enabled but the git repository cannot be accessed
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    template_manager: TemplateManager,
-    license_data: LicenseData,
-    ignore_patterns: Vec<String>,
-    check_only: bool,
-    preserve_years: bool,
-    ratchet_reference: Option<String>,
-    ratchet_committed_only: bool,
-    diff_manager: Option<DiffManager>,
-    git_only: bool,
-    license_detector: Option<Box<dyn LicenseDetector + Send + Sync>>,
-    workspace_root: PathBuf,
-    workspace_is_git: bool,
-    extension_filter: Option<ExtensionFilter>,
-  ) -> Result<Self> {
-    if (git_only || ratchet_reference.is_some()) && !workspace_is_git {
+  pub fn new(config: ProcessorConfig) -> Result<Self> {
+    if (config.git_only || config.ratchet_reference.is_some()) && !config.workspace_is_git {
       return Err(anyhow::anyhow!(
         "Git-only or ratchet mode requires a git-backed workspace"
       ));
     }
 
     // Create ignore manager for base ignore patterns
-    let ignore_manager = IgnoreManager::new(ignore_patterns.clone())?;
+    let ignore_manager = IgnoreManager::new(config.ignore_patterns.clone())?;
 
     // Create a composite file filter with all filtering conditions
-    let file_filter = create_default_filter(ignore_patterns)?;
+    let file_filter = create_default_filter(config.ignore_patterns)?;
 
-    let diff_manager = diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
+    let diff_manager = config.diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
-    let license_detector = license_detector.unwrap_or_else(|| Box::new(SimpleLicenseDetector::new()));
+    let license_detector = config
+      .license_detector
+      .unwrap_or_else(|| Box::new(SimpleLicenseDetector::new()));
 
     // Determine ratchet options based on --ratchet-committed-only flag
-    let ratchet_options = if ratchet_committed_only {
+    let ratchet_options = if config.ratchet_committed_only {
       RatchetOptions::committed_only()
     } else {
       RatchetOptions::default()
     };
 
     Ok(Self {
-      template_manager,
-      license_data,
+      template_manager: config.template_manager,
+      license_data: config.license_data,
       file_filter,
       ignore_manager,
-      check_only,
-      preserve_years,
+      check_only: config.check_only,
+      preserve_years: config.preserve_years,
       diff_manager,
-      workspace_root,
+      workspace_root: config.workspace_root,
       files_processed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
       file_reports: Arc::new(tokio::sync::Mutex::new(Vec::new())),
       collect_report_data: true, // Enable report data collection by default
       license_detector: Arc::new(license_detector),
       ignore_manager_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-      git_only,
-      ratchet_reference,
+      git_only: config.git_only,
+      ratchet_reference: config.ratchet_reference,
       ratchet_options,
-      extension_filter,
+      extension_filter: config.extension_filter,
     })
   }
 

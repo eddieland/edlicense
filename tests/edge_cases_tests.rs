@@ -1,7 +1,7 @@
 use std::fs;
 
 use anyhow::Result;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -23,23 +23,13 @@ async fn test_empty_file() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Process the empty file
   processor.process_file(&empty_file_path).await?;
@@ -71,23 +61,13 @@ async fn test_binary_file() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Process the binary file - should fail gracefully
   let result = processor.process_file(&binary_file_path).await;
@@ -128,23 +108,16 @@ async fn test_invalid_glob_pattern() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Try to create a processor with an invalid glob pattern
-  let result = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec!["[".to_string()], // Invalid glob pattern
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  );
+  let result = Processor::new(ProcessorConfig {
+    ignore_patterns: vec!["[".to_string()], // Invalid glob pattern
+    ..ProcessorConfig::new(
+      template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      temp_dir.path().to_path_buf(),
+    )
+  });
 
   assert!(result.is_err());
 
@@ -170,23 +143,13 @@ async fn test_file_with_unusual_encoding() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Process the UTF-16 file
   processor.process_file(&utf16_file_path).await?;
@@ -217,23 +180,13 @@ async fn test_file_with_multiple_shebangs() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Process the file
   processor.process_file(&multi_shebang_path).await?;
@@ -266,23 +219,13 @@ async fn test_file_with_unusual_year_format() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     LicenseData {
       year: "2026".to_string(),
     },
-    vec![],
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Process the file
   processor.process_file(&unusual_year_path).await?;
@@ -316,23 +259,13 @@ async fn test_process_with_invalid_pattern() -> Result<()> {
   template_manager.load_template(&template_path)?;
 
   // Create a processor
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     LicenseData {
       year: "2025".to_string(),
     },
-    vec![],
-    false,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Try to process with an invalid glob pattern
   let patterns = vec!["[".to_string()]; // Invalid glob pattern

@@ -8,7 +8,7 @@ use std::fs;
 use std::io::Write;
 
 use anyhow::Result;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -25,25 +25,15 @@ async fn create_test_processor(
   let mut template_manager = TemplateManager::new();
   template_manager.load_template(&template_path)?;
 
-  let processor = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2026".to_string(),
-    },
-    vec![],
+  let license_data = LicenseData {
+    year: "2026".to_string(),
+  };
+
+  Processor::new(ProcessorConfig {
     check_only,
     preserve_years,
-    None,
-    false, // ratchet_committed_only
-    None,  // No diff manager
-    false,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
-
-  Ok(processor)
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })
 }
 
 // =============================================================================

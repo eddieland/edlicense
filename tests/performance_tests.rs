@@ -7,7 +7,7 @@ use std::{env, fs};
 
 use anyhow::{Result, anyhow};
 use common::run_git;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -32,21 +32,13 @@ async fn create_test_processor(
     year: "2025".to_string(),
   };
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    ignore_patterns,
+  let processor = Processor::new(ProcessorConfig {
     check_only,
     preserve_years,
     ratchet_reference,
-    false, // ratchet_committed_only
-    None,
-    false,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+    ignore_patterns,
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
 
   Ok((processor, temp_dir))
 }
@@ -74,21 +66,15 @@ async fn create_test_processor_with_git(
     year: "2025".to_string(),
   };
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    ignore_patterns,
+  let processor = Processor::new(ProcessorConfig {
+    workspace_is_git: true,
     check_only,
     preserve_years,
-    ratchet_reference,
-    false, // ratchet_committed_only
-    None,
     git_only,
-    None, // Use default LicenseDetector
-    workspace_root,
-    true,
-    None, // No extension filter
-  )?;
+    ratchet_reference,
+    ignore_patterns,
+    ..ProcessorConfig::new(template_manager, license_data, workspace_root)
+  })?;
 
   Ok((processor, temp_dir))
 }
