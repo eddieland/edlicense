@@ -21,7 +21,7 @@ use crate::output::{
   CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
   print_outdated_files, print_start_message, print_summary, print_updated_files,
 };
-use crate::processor::Processor;
+use crate::processor::{Processor, ProcessorConfig};
 use crate::report::{ProcessingSummary, ReportFormat, ReportGenerator};
 use crate::templates::{LicenseData, TemplateManager, create_resolver};
 use crate::tree::print_tree;
@@ -302,21 +302,18 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     .load_template(license_file)
     .with_context(|| format!("Failed to load license template from {}", license_file.display()))?;
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    args.ignore,
+  let processor = Processor::new(ProcessorConfig {
+    workspace_is_git: workspace.is_git(),
     check_only,
-    args.preserve_years,
-    args.ratchet,
-    args.ratchet_committed_only,
-    Some(diff_manager),
+    preserve_years: args.preserve_years,
     git_only,
-    None, // Use the default LicenseDetector implementation
-    workspace_root.clone(),
-    workspace.is_git(),
+    ratchet_reference: args.ratchet,
+    ratchet_committed_only: args.ratchet_committed_only,
+    ignore_patterns: args.ignore,
+    diff_manager: Some(diff_manager),
     extension_filter,
-  )?;
+    ..ProcessorConfig::new(template_manager, license_data, workspace_root.clone())
+  })?;
 
   // Collect files to get count for start message.
   // When using git-list mode, collect once and reuse for processing to avoid
@@ -529,21 +526,16 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
     year: String::new(), // Not used in plan-tree mode
   };
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    args.ignore.clone(),
-    true,  // check_only
-    false, // preserve_years
-    args.ratchet.clone(),
-    args.ratchet_committed_only,
-    None, // diff_manager
+  let processor = Processor::new(ProcessorConfig {
+    workspace_is_git: workspace.is_git(),
+    check_only: true,
     git_only,
-    None, // license_detector
-    workspace_root.clone(),
-    workspace.is_git(),
+    ratchet_reference: args.ratchet.clone(),
+    ratchet_committed_only: args.ratchet_committed_only,
+    ignore_patterns: args.ignore.clone(),
     extension_filter,
-  )?;
+    ..ProcessorConfig::new(template_manager, license_data, workspace_root.clone())
+  })?;
 
   // Collect files that would be processed
   let files = processor.collect_planned_files(&args.patterns).await?;

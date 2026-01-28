@@ -2,7 +2,7 @@ use std::{env, fs};
 
 use anyhow::Result;
 use edlicense::ignore::IgnoreManager;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -522,21 +522,11 @@ fn test_processor_with_licenseignore() -> Result<()> {
   template_manager.load_template(&license_path)?;
 
   // Create processor with check_only = false to avoid issues with the test
-  let processor = Processor::new(
+  let processor = Processor::new(ProcessorConfig::new(
     template_manager,
     license_data,
-    vec![], // No CLI ignore patterns
-    false,  // NOT check-only mode to avoid issues with the test
-    false,  // Don't preserve years
-    None,   // No ratchet reference
-    false,  // ratchet_committed_only
-    None,   // Use default diff_manager
-    false,
-    None, // Use default LicenseDetector
     temp_path.to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  ))?;
 
   // Read the file content and directly test the has_license method
   let test_content = fs::read_to_string(&rust_file_path)?;
@@ -712,23 +702,16 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
   let mut template_manager = TemplateManager::new();
   template_manager.load_template(&license_path)?;
 
-  let processor = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![],
-    true,  // check_only
-    false, // preserve_years
-    None,  // ratchet_reference
-    false, // ratchet_committed_only
-    None,  // diff_manager
-    false, // collect_report_data
-    None,  // license_detector
-    root.to_path_buf(),
-    false, // git_only
-    None,  // No extension filter
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      root.to_path_buf(),
+    )
+  })?;
 
   // Process specific files - one PNG at root, one in subdir, one deeply nested,
   // and one Rust file
@@ -755,23 +738,16 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
   let mut template_manager2 = TemplateManager::new();
   template_manager2.load_template(&license_path)?;
 
-  let processor2 = Processor::new(
-    template_manager2,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![],
-    true,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,
-    false,
-    None,
-    root.to_path_buf(), // workspace_root is still the root
-    false,
-    None, // No extension filter
-  )?;
+  let processor2 = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      template_manager2,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      root.to_path_buf(),
+    )
+  })?;
 
   // Process files from subdir2's perspective
   let files_to_process2 = vec!["image2.png".to_string(), "code.rs".to_string()];
@@ -824,23 +800,16 @@ async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Resu
   let mut template_manager = TemplateManager::new();
   template_manager.load_template(&license_path)?;
 
-  let processor = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![],
-    true,  // check_only
-    false, // preserve_years
-    None,  // ratchet_reference
-    false, // ratchet_committed_only
-    None,  // diff_manager
-    false, // collect_report_data
-    None,  // license_detector
-    root.to_path_buf(),
-    false, // git_only
-    None,  // No extension filter
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      root.to_path_buf(),
+    )
+  })?;
 
   // Process the entire directory tree
   let _result = processor.process_directory(root).await?;
@@ -898,23 +867,16 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   // Create a processor for testing .licenseignore with explicitly named files
   // We explicitly set git_only to false to avoid git repository detection issues
-  let processor = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![], // No CLI ignore patterns
-    true,   // Check-only mode
-    false,  // Don't preserve years
-    None,   // No ratchet reference
-    false,  // ratchet_committed_only
-    None,   // Use default diff_manager
-    false,
-    None, // Use default LicenseDetector
-    temp_path.to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      temp_path.to_path_buf(),
+    )
+  })?;
 
   // Store the initial files_processed count
   let initial_count = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
@@ -962,23 +924,16 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
   let mut rust_template_manager = TemplateManager::new();
   rust_template_manager.load_template(&rust_license_path)?;
 
-  let rust_processor = Processor::new(
-    rust_template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![], // No CLI ignore patterns
-    true,   // Check-only mode
-    false,  // Don't preserve years
-    None,   // No ratchet reference
-    false,  // ratchet_committed_only
-    None,   // Use default diff_manager
-    false,
-    None, // Use default LicenseDetector
-    rust_path.to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+  let rust_processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      rust_template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      rust_path.to_path_buf(),
+    )
+  })?;
 
   // Store the initial files_processed count for the rust processor
   let rust_initial = rust_processor
@@ -1443,23 +1398,16 @@ async fn test_processor_compound_extension_deeply_nested() -> Result<()> {
   let mut template_manager = TemplateManager::new();
   template_manager.load_template(&license_path)?;
 
-  let processor = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![],
-    true,  // check_only
-    false, // preserve_years
-    None,
-    false, // ratchet_committed_only
-    None,
-    false,
-    None,
-    root.to_path_buf(),
-    false,
-    None,
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      root.to_path_buf(),
+    )
+  })?;
 
   // Process specific files
   let files_to_process = vec![
@@ -1516,23 +1464,16 @@ async fn test_processor_compound_directory_patterns() -> Result<()> {
   let mut template_manager = TemplateManager::new();
   template_manager.load_template(&license_path)?;
 
-  let processor = Processor::new(
-    template_manager,
-    LicenseData {
-      year: "2025".to_string(),
-    },
-    vec![],
-    true,
-    false,
-    None,
-    false, // ratchet_committed_only
-    None,
-    false,
-    None,
-    root.to_path_buf(),
-    false,
-    None,
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    ..ProcessorConfig::new(
+      template_manager,
+      LicenseData {
+        year: "2025".to_string(),
+      },
+      root.to_path_buf(),
+    )
+  })?;
 
   let files_to_process = vec![
     "tests/resources/fixture.rs".to_string(),

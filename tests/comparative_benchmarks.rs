@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use edlicense::logging::set_quiet;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -56,21 +56,13 @@ async fn create_test_processor(
     year: "2025".to_string(),
   };
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    ignore_patterns,
+  let processor = Processor::new(ProcessorConfig {
     check_only,
     preserve_years,
     ratchet_reference,
-    false, // ratchet_committed_only
-    None,
-    false,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+    ignore_patterns,
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
 
   Ok((processor, temp_dir))
 }

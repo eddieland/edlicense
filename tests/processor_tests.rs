@@ -5,7 +5,7 @@ use std::fs;
 use anyhow::Result;
 use common::{git_add_and_commit, init_git_repo};
 use edlicense::diff::DiffManager;
-use edlicense::processor::Processor;
+use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
@@ -35,21 +35,15 @@ async fn create_test_processor(
   // Create diff manager
   let diff_manager = Some(DiffManager::new(show_diff.unwrap_or(false), save_diff_path));
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    ignore_patterns,
+  let processor = Processor::new(ProcessorConfig {
     check_only,
     preserve_years,
-    ratchet_reference,
-    false, // ratchet_committed_only
-    diff_manager,
     git_only,
-    None, // Use default LicenseDetector
-    temp_dir.path().to_path_buf(),
-    false,
-    None, // No extension filter
-  )?;
+    ratchet_reference,
+    ignore_patterns,
+    diff_manager,
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
 
   Ok((processor, temp_dir))
 }
@@ -694,21 +688,11 @@ async fn test_ratchet_mode_directory() -> Result<()> {
     year: "2025".to_string(),
   };
 
-  let processor = Processor::new(
-    template_manager,
-    license_data,
-    vec![],
-    false,
-    false,
-    Some(commit_ref.clone()), // Use the first commit as reference
-    false,                    // ratchet_committed_only
-    None,
-    false,
-    None, // Use default LicenseDetector
-    test_dir.to_path_buf(),
-    true,
-    None, // No extension filter
-  )?;
+  let processor = Processor::new(ProcessorConfig {
+    workspace_is_git: true,
+    ratchet_reference: Some(commit_ref.clone()),
+    ..ProcessorConfig::new(template_manager, license_data, test_dir.to_path_buf())
+  })?;
 
   // Get direct insight into git's changed files list
   println!("Checking git's view of changed files...");
