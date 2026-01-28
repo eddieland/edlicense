@@ -39,6 +39,7 @@ async fn create_test_processor(temp_dir: &tempfile::TempDir, check_only: bool) -
     check_only,
     false,
     None,
+    false, // ratchet_committed_only
     None,
     false,
     None,

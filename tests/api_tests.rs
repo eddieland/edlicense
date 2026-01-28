@@ -41,6 +41,7 @@ async fn test_public_api() -> Result<()> {
     false,  // Not check-only mode
     false,  // Don't preserve years
     None,   // No ratchet mode
+    false,  // ratchet_committed_only
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
@@ -122,6 +123,7 @@ async fn test_api_with_check_only() -> Result<()> {
     true,   // Check-only mode
     false,  // Don't preserve years
     None,   // No ratchet mode
+    false,  // ratchet_committed_only
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
@@ -225,6 +227,7 @@ async fn test_show_diff_mode() -> Result<()> {
     true,   // Check-only mode
     false,  // Don't preserve years
     None,   // No ratchet mode
+    false,  // ratchet_committed_only
     Some(DiffManager::new(true, None)),
     false,
     None, // Use default LicenseDetector

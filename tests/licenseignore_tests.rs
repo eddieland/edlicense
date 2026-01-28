@@ -529,6 +529,7 @@ fn test_processor_with_licenseignore() -> Result<()> {
     false,  // NOT check-only mode to avoid issues with the test
     false,  // Don't preserve years
     None,   // No ratchet reference
+    false,  // ratchet_committed_only
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
@@ -720,6 +721,7 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
     true,  // check_only
     false, // preserve_years
     None,  // ratchet_reference
+    false, // ratchet_committed_only
     None,  // diff_manager
     false, // collect_report_data
     None,  // license_detector
@@ -762,6 +764,7 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
     true,
     false,
     None,
+    false, // ratchet_committed_only
     None,
     false,
     None,
@@ -830,6 +833,7 @@ async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Resu
     true,  // check_only
     false, // preserve_years
     None,  // ratchet_reference
+    false, // ratchet_committed_only
     None,  // diff_manager
     false, // collect_report_data
     None,  // license_detector
@@ -903,6 +907,7 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     true,   // Check-only mode
     false,  // Don't preserve years
     None,   // No ratchet reference
+    false,  // ratchet_committed_only
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
@@ -966,6 +971,7 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
     true,   // Check-only mode
     false,  // Don't preserve years
     None,   // No ratchet reference
+    false,  // ratchet_committed_only
     None,   // Use default diff_manager
     false,
     None, // Use default LicenseDetector
@@ -1446,6 +1452,7 @@ async fn test_processor_compound_extension_deeply_nested() -> Result<()> {
     true,  // check_only
     false, // preserve_years
     None,
+    false, // ratchet_committed_only
     None,
     false,
     None,
@@ -1518,6 +1525,7 @@ async fn test_processor_compound_directory_patterns() -> Result<()> {
     true,
     false,
     None,
+    false, // ratchet_committed_only
     None,
     false,
     None,

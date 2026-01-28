@@ -32,7 +32,8 @@ async fn test_empty_file() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
@@ -79,7 +80,8 @@ async fn test_binary_file() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
@@ -135,7 +137,8 @@ async fn test_invalid_glob_pattern() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
@@ -176,7 +179,8 @@ async fn test_file_with_unusual_encoding() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
@@ -222,7 +226,8 @@ async fn test_file_with_multiple_shebangs() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
@@ -270,7 +275,8 @@ async fn test_file_with_unusual_year_format() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),
@@ -319,7 +325,8 @@ async fn test_process_with_invalid_pattern() -> Result<()> {
     false,
     false,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),

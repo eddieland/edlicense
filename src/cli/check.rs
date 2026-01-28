@@ -113,6 +113,11 @@ pub struct CheckArgs {
   #[arg(long, value_name = "REF")]
   pub ratchet: Option<String>,
 
+  /// Only include committed changes in ratchet mode (exclude staged and unstaged files).
+  /// Useful in CI where only committed changes should be checked.
+  #[arg(long, requires = "ratchet")]
+  pub ratchet_committed_only: bool,
+
   /// Path to a global license ignore file (overrides GLOBAL_LICENSE_IGNORE
   /// environment variable)
   #[arg(long, value_name = "FILE")]
@@ -304,6 +309,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
     check_only,
     args.preserve_years,
     args.ratchet,
+    args.ratchet_committed_only,
     Some(diff_manager),
     git_only,
     None, // Use the default LicenseDetector implementation
@@ -530,6 +536,7 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
     true,  // check_only
     false, // preserve_years
     args.ratchet.clone(),
+    args.ratchet_committed_only,
     None, // diff_manager
     git_only,
     None, // license_detector

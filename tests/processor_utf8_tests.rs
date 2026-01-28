@@ -34,7 +34,8 @@ async fn create_test_processor(
     check_only,
     preserve_years,
     None,
-    None, // No diff manager
+    false, // ratchet_committed_only
+    None,  // No diff manager
     false,
     None, // Use default LicenseDetector
     temp_dir.path().to_path_buf(),

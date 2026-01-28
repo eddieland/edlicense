@@ -8,10 +8,48 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use git2::Repository;
+use git2::{Delta, Repository};
 use tracing::{debug, trace, warn};
 
 use crate::info_log;
+
+/// Options controlling which changes are included in ratchet mode.
+///
+/// By default, ratchet mode includes staged and unstaged changes in addition
+/// to committed changes. This is useful for local development workflows.
+/// Use [`RatchetOptions::committed_only`] in CI environments to only check
+/// committed changes.
+#[derive(Debug, Clone)]
+pub struct RatchetOptions {
+  /// Include staged (index) changes in the ratchet diff.
+  pub include_staged: bool,
+  /// Include unstaged (working directory) changes in the ratchet diff.
+  pub include_unstaged: bool,
+}
+
+impl Default for RatchetOptions {
+  /// Returns options for local development that include staged and unstaged changes.
+  ///
+  /// This is the default behavior for `--ratchet` without `--ratchet-committed-only`.
+  fn default() -> Self {
+    Self {
+      include_staged: true,
+      include_unstaged: true,
+    }
+  }
+}
+
+impl RatchetOptions {
+  /// Returns options for CI that only include committed changes.
+  ///
+  /// This is the behavior when `--ratchet-committed-only` is specified.
+  pub const fn committed_only() -> Self {
+    Self {
+      include_staged: false,
+      include_unstaged: false,
+    }
+  }
+}
 
 /// Checks `.git/objects/info/alternates` for paths that don't exist on the filesystem.
 ///
@@ -198,7 +236,7 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
   let current_dir = std::env::current_dir().with_context(|| "Failed to get current directory")?;
   debug!("Current directory: {}", current_dir.display());
 
-  get_changed_files_for_workspace(&current_dir, commit)
+  get_changed_files_for_workspace(&current_dir, commit, &RatchetOptions::default())
 }
 
 /// Gets the list of files that have changed since a specific commit.
@@ -206,12 +244,22 @@ pub fn get_changed_files(commit: &str) -> Result<HashSet<PathBuf>> {
 /// The returned paths are relative to the provided workspace root and are
 /// computed from the merge base of the reference and `HEAD`.
 ///
+/// When `options.include_staged` is true, staged (index) changes are also included.
+/// When `options.include_unstaged` is true, unstaged (working directory) changes are also included.
+///
 /// In shallow or partial clones (common in CI), merge base computation may
 /// fail because the full history is not available. In that case, this function
 /// falls back to a direct diff between the reference commit and HEAD, which
 /// may include extra files but will not miss any changed files.
-pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> Result<HashSet<PathBuf>> {
-  debug!("Getting changed files since commit: {}", commit);
+pub fn get_changed_files_for_workspace(
+  workspace_root: &Path,
+  commit: &str,
+  options: &RatchetOptions,
+) -> Result<HashSet<PathBuf>> {
+  debug!(
+    "Getting changed files since commit: {} (include_staged: {}, include_unstaged: {})",
+    commit, options.include_staged, options.include_unstaged
+  );
 
   let repo = Repository::discover(workspace_root).with_context(|| "Failed to discover git repository")?;
   let workdir = repo
@@ -293,12 +341,30 @@ pub fn get_changed_files_for_workspace(workspace_root: &Path, commit: &str) -> R
 
   let head_tree = head_commit.tree().with_context(|| "Failed to get HEAD tree")?;
 
-  collect_diff_files(&repo, workdir, workspace_root, &base_tree, &head_tree)
+  // Start with committed changes
+  let mut changed_files = collect_diff_files(&repo, workdir, workspace_root, &base_tree, &head_tree)?;
+
+  // Add staged files if requested
+  if options.include_staged {
+    let staged = get_staged_files(&repo, workdir, workspace_root, &head_tree)?;
+    debug!("Adding {} staged files to ratchet set", staged.len());
+    changed_files.extend(staged);
+  }
+
+  // Add unstaged files if requested
+  if options.include_unstaged {
+    let unstaged = get_unstaged_files(&repo, workdir, workspace_root)?;
+    debug!("Adding {} unstaged files to ratchet set", unstaged.len());
+    changed_files.extend(unstaged);
+  }
+
+  Ok(changed_files)
 }
 
 /// Collects changed file paths from a tree-to-tree diff.
 ///
 /// Returns paths relative to the provided workspace root.
+/// Deleted files are excluded since they no longer exist on disk.
 fn collect_diff_files(
   repo: &Repository,
   workdir: &Path,
@@ -314,6 +380,14 @@ fn collect_diff_files(
     .diff_tree_to_tree(Some(old_tree), Some(new_tree), Some(&mut diff_options))
     .with_context(|| "Failed to diff trees")?;
 
+  collect_diff_paths(&diff, workdir, workspace_root)
+}
+
+/// Collects file paths from a diff object, filtering out deleted files.
+///
+/// This is a shared helper used by tree-to-tree, tree-to-index, and index-to-workdir diffs.
+/// Returns paths relative to the provided workspace root.
+fn collect_diff_paths(diff: &git2::Diff<'_>, workdir: &Path, workspace_root: &Path) -> Result<HashSet<PathBuf>> {
   let mut changed_files = HashSet::new();
 
   // Fast path: if workspace_root equals workdir, we can skip path normalization
@@ -322,6 +396,12 @@ fn collect_diff_files(
   diff
     .foreach(
       &mut |delta, _progress| {
+        // Skip deleted files - they no longer exist on disk and would cause file access errors
+        if delta.status() == Delta::Deleted {
+          trace!("Skipping deleted file in git diff: {:?}", delta.old_file().path());
+          return true;
+        }
+
         if let Some(new_file) = delta.new_file().path() {
           trace!("Found changed file in git: {:?}", new_file);
 
@@ -355,4 +435,43 @@ fn collect_diff_files(
   }
 
   Ok(changed_files)
+}
+
+/// Gets files that are staged (in the index) but not yet committed.
+///
+/// Returns paths relative to the provided workspace root.
+/// Deleted files are excluded since they no longer exist on disk.
+fn get_staged_files(
+  repo: &Repository,
+  workdir: &Path,
+  workspace_root: &Path,
+  head_tree: &git2::Tree<'_>,
+) -> Result<HashSet<PathBuf>> {
+  debug!("Getting staged files");
+
+  let mut diff_options = git2::DiffOptions::new();
+  diff_options.include_untracked(false);
+
+  let diff = repo
+    .diff_tree_to_index(Some(head_tree), None, Some(&mut diff_options))
+    .with_context(|| "Failed to diff tree to index")?;
+
+  collect_diff_paths(&diff, workdir, workspace_root)
+}
+
+/// Gets files that have unstaged changes in the working directory.
+///
+/// Returns paths relative to the provided workspace root.
+/// Deleted files are excluded since they no longer exist on disk.
+fn get_unstaged_files(repo: &Repository, workdir: &Path, workspace_root: &Path) -> Result<HashSet<PathBuf>> {
+  debug!("Getting unstaged files");
+
+  let mut diff_options = git2::DiffOptions::new();
+  diff_options.include_untracked(false);
+
+  let diff = repo
+    .diff_index_to_workdir(None, Some(&mut diff_options))
+    .with_context(|| "Failed to diff index to workdir")?;
+
+  collect_diff_paths(&diff, workdir, workspace_root)
 }

@@ -19,6 +19,7 @@ use tracing::{debug, trace};
 
 use crate::diff::DiffManager;
 use crate::file_filter::{ExtensionFilter, FileFilter, FilterResult, IgnoreFilter, create_default_filter};
+use crate::git::RatchetOptions;
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
 use crate::report::{FileAction, FileReport};
@@ -83,6 +84,9 @@ pub struct Processor {
   /// Git reference for ratchet mode
   ratchet_reference: Option<String>,
 
+  /// Options for ratchet mode (staged/unstaged file inclusion)
+  ratchet_options: RatchetOptions,
+
   /// Optional extension filter for include/exclude based filtering
   extension_filter: Option<ExtensionFilter>,
 }
@@ -137,6 +141,7 @@ impl Processor {
     check_only: bool,
     preserve_years: bool,
     ratchet_reference: Option<String>,
+    ratchet_committed_only: bool,
     diff_manager: Option<DiffManager>,
     git_only: bool,
     license_detector: Option<Box<dyn LicenseDetector + Send + Sync>>,
@@ -160,6 +165,13 @@ impl Processor {
 
     let license_detector = license_detector.unwrap_or_else(|| Box::new(SimpleLicenseDetector::new()));
 
+    // Determine ratchet options based on --ratchet-committed-only flag
+    let ratchet_options = if ratchet_committed_only {
+      RatchetOptions::committed_only()
+    } else {
+      RatchetOptions::default()
+    };
+
     Ok(Self {
       template_manager,
       license_data,
@@ -176,6 +188,7 @@ impl Processor {
       ignore_manager_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
       git_only,
       ratchet_reference,
+      ratchet_options,
       extension_filter,
     })
   }
@@ -303,7 +316,7 @@ impl Processor {
     // git_only. When both are set, ratchet should take precedence to return
     // only changed files.
     let files: Vec<PathBuf> = if let Some(reference) = &self.ratchet_reference {
-      git::get_changed_files_for_workspace(&self.workspace_root, reference)?
+      git::get_changed_files_for_workspace(&self.workspace_root, reference, &self.ratchet_options)?
         .into_iter()
         .collect()
     } else if self.git_only {
