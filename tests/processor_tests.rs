@@ -662,3 +662,51 @@ fn test_process() -> Result<()> {
 
   Ok(())
 }
+
+/// Test that overlapping patterns don't cause duplicate license headers.
+///
+/// When patterns overlap (e.g., passing both a directory and a file inside it),
+/// the same file could be processed multiple times. This test verifies that
+/// deduplication prevents duplicate headers.
+#[test]
+fn test_overlapping_patterns_no_duplicate_headers() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let template_path = temp_dir.path().join("test_template.txt");
+  fs::write(&template_path, "Copyright (c) {{year}} Test Company\n")?;
+
+  // Create a subdirectory with a file
+  let sub_dir = temp_dir.path().join("src");
+  fs::create_dir(&sub_dir)?;
+  let test_file = sub_dir.join("main.rs");
+  fs::write(&test_file, "fn main() {}\n")?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  let license_data = LicenseData {
+    year: "2025".to_string(),
+  };
+
+  let processor = Processor::new(ProcessorConfig {
+    check_only: false,
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
+
+  // Process with overlapping patterns: directory and the same file explicitly
+  let patterns = vec![
+    sub_dir.to_string_lossy().to_string(),
+    test_file.to_string_lossy().to_string(),
+  ];
+  processor.process(&patterns)?;
+
+  // Verify the file has exactly ONE license header, not two
+  let content = fs::read_to_string(&test_file)?;
+  let header_count = content.matches("Copyright (c) 2025 Test Company").count();
+  assert_eq!(
+    header_count, 1,
+    "File should have exactly one license header, but found {}. Content:\n{}",
+    header_count, content
+  );
+
+  Ok(())
+}

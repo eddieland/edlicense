@@ -16,7 +16,7 @@ mod file_collector;
 mod file_io;
 
 // Re-export public types
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -319,6 +319,10 @@ impl Processor {
         }
       }
     }
+
+    // Deduplicate files to prevent race conditions when overlapping patterns
+    // yield the same file (e.g., "src" and "src/main.rs" both specified)
+    let all_files: Vec<PathBuf> = all_files.into_iter().collect::<HashSet<_>>().into_iter().collect();
 
     // Filter files with ignore context and process
     let files = self.filter_files_with_ignore_context(all_files)?;
