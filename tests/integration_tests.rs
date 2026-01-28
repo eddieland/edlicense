@@ -98,7 +98,7 @@ fn test_add_license() -> Result<()> {
   assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
 
   // Check that the files were processed (trace-level output)
-  assert!(stderr.contains("Processing file:"));
+  assert!(stderr.contains("Rendering template"));
 
   // Check that the licenses were added
   let main_content = fs::read_to_string(temp_dir.path().join("src/main.rs"))?;

@@ -21,7 +21,7 @@ use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
 /// Helper to create a test processor with workspace root set to temp dir
-async fn create_test_processor(temp_dir: &tempfile::TempDir, check_only: bool) -> Result<Processor> {
+fn create_test_processor(temp_dir: &tempfile::TempDir, check_only: bool) -> Result<Processor> {
   let template_path = temp_dir.path().join("test_template.txt");
   fs::write(&template_path, "Copyright (c) {{year}} Test Company")?;
 
@@ -38,23 +38,21 @@ async fn create_test_processor(temp_dir: &tempfile::TempDir, check_only: bool) -
   })
 }
 
-/// Test that processing a file that doesn't exist returns an error
-#[tokio::test]
-async fn test_process_nonexistent_file() -> Result<()> {
+/// Test that processing a file that doesn't exist is handled gracefully.
+/// Nonexistent file patterns are silently skipped (glob returns no matches).
+#[test]
+fn test_process_nonexistent_file() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let nonexistent_path = temp_dir.path().join("does_not_exist.rs");
-  let result = processor.process_file(&nonexistent_path).await;
+  let patterns = vec![nonexistent_path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
 
-  assert!(result.is_err());
-  let err_msg = result.unwrap_err().to_string();
-  // The error should indicate file access failure
-  assert!(
-    err_msg.contains("Failed to") || err_msg.contains("No such file"),
-    "Expected file access error, got: {}",
-    err_msg
-  );
+  // Nonexistent file patterns are handled gracefully - no files to process
+  assert!(result.is_ok(), "Should handle nonexistent file gracefully");
+  // has_missing is false because no files were processed
+  assert!(!result.unwrap(), "No files processed means no missing licenses");
 
   Ok(())
 }
@@ -62,10 +60,10 @@ async fn test_process_nonexistent_file() -> Result<()> {
 /// Test that processing continues when one file is deleted between discovery
 /// and processing. This simulates a race condition where a file is deleted
 /// after being discovered but before actually being processed.
-#[tokio::test]
-async fn test_file_deleted_mid_processing_continues() -> Result<()> {
+#[test]
+fn test_file_deleted_mid_processing_continues() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Create multiple files
   let file1 = temp_dir.path().join("file1.rs");
@@ -79,18 +77,23 @@ async fn test_file_deleted_mid_processing_continues() -> Result<()> {
   // Delete file2 to simulate race condition
   fs::remove_file(&file2)?;
 
-  // Process all three files - file2 should fail but file1 and file3 should
-  // succeed
-  let result1 = processor.process_file(&file1).await;
-  let result2 = processor.process_file(&file2).await;
-  let result3 = processor.process_file(&file3).await;
+  // Process all three files - file2 doesn't exist so pattern is skipped
+  let patterns1 = vec![file1.to_string_lossy().to_string()];
+  let patterns2 = vec![file2.to_string_lossy().to_string()];
+  let patterns3 = vec![file3.to_string_lossy().to_string()];
+
+  let result1 = processor.process(&patterns1);
+  let result2 = processor.process(&patterns2);
+  let result3 = processor.process(&patterns3);
 
   // file1 and file3 should succeed
   assert!(result1.is_ok(), "file1 should succeed: {:?}", result1);
   assert!(result3.is_ok(), "file3 should succeed: {:?}", result3);
 
-  // file2 should fail with appropriate error
-  assert!(result2.is_err(), "file2 should fail since it was deleted");
+  // file2 pattern results in no files (pattern doesn't match existing file)
+  assert!(result2.is_ok(), "file2 should be handled gracefully");
+  // No files processed means no missing licenses
+  assert!(!result2.unwrap(), "No files processed for nonexistent pattern");
 
   // Verify file1 and file3 got licenses
   let content1 = fs::read_to_string(&file1)?;
@@ -103,8 +106,8 @@ async fn test_file_deleted_mid_processing_continues() -> Result<()> {
 
 /// Test that the process() method continues when files are deleted during batch
 /// processing. Uses absolute paths to avoid workspace root issues.
-#[tokio::test]
-async fn test_batch_processing_with_deleted_files() -> Result<()> {
+#[test]
+fn test_batch_processing_with_deleted_files() -> Result<()> {
   let temp_dir = tempdir()?;
 
   // Create a subdirectory with multiple files
@@ -117,7 +120,7 @@ async fn test_batch_processing_with_deleted_files() -> Result<()> {
     fs::write(&file_path, format!("fn func{}() {{}}", i))?;
   }
 
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Delete some files to simulate race condition
   fs::remove_file(subdir.join("file2.rs"))?;
@@ -126,7 +129,7 @@ async fn test_batch_processing_with_deleted_files() -> Result<()> {
   // Process using absolute path pattern
   let abs_pattern = format!("{}/**/*.rs", subdir.display());
   let patterns = vec![abs_pattern];
-  let has_missing = processor.process(&patterns).await?;
+  let has_missing = processor.process(&patterns)?;
 
   // Since we're modifying files (not check-only), has_missing should be false
   // for successfully processed files
@@ -145,8 +148,8 @@ async fn test_batch_processing_with_deleted_files() -> Result<()> {
 }
 
 /// Test that check-only mode reports errors for deleted files but continues.
-#[tokio::test]
-async fn test_check_only_with_deleted_files() -> Result<()> {
+#[test]
+fn test_check_only_with_deleted_files() -> Result<()> {
   let temp_dir = tempdir()?;
 
   let subdir = temp_dir.path().join("src");
@@ -161,7 +164,7 @@ async fn test_check_only_with_deleted_files() -> Result<()> {
   fs::write(&file_without_license, "fn helper() {}")?;
   fs::write(&file_to_delete, "fn another() {}")?;
 
-  let processor = create_test_processor(&temp_dir, true).await?;
+  let processor = create_test_processor(&temp_dir, true)?;
 
   // Delete one file
   fs::remove_file(&file_to_delete)?;
@@ -169,7 +172,7 @@ async fn test_check_only_with_deleted_files() -> Result<()> {
   // Process in check-only mode with absolute path
   let abs_pattern = format!("{}/**/*.rs", subdir.display());
   let patterns = vec![abs_pattern];
-  let has_missing = processor.process(&patterns).await?;
+  let has_missing = processor.process(&patterns)?;
 
   // Should report missing licenses (file_without_license + error from deleted
   // file)
@@ -180,10 +183,10 @@ async fn test_check_only_with_deleted_files() -> Result<()> {
 
 /// Test processing when a file is replaced with a directory (edge case race
 /// condition).
-#[tokio::test]
-async fn test_file_replaced_with_directory() -> Result<()> {
+#[test]
+fn test_file_replaced_with_directory() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let path = temp_dir.path().join("ambiguous.rs");
 
@@ -194,43 +197,47 @@ async fn test_file_replaced_with_directory() -> Result<()> {
   fs::remove_file(&path)?;
   fs::create_dir(&path)?;
 
-  // Processing should fail gracefully
-  let result = processor.process_file(&path).await;
-  assert!(result.is_err(), "Should fail when path is a directory");
+  // When the pattern is a directory, it gets traversed (not processed as file)
+  // So no files are found with .rs extension directly, processing succeeds
+  let patterns = vec![path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
+  assert!(result.is_ok(), "Directory should be handled gracefully");
+  // No .rs files inside the empty directory
+  assert!(!result.unwrap(), "Empty directory has no missing licenses");
 
   Ok(())
 }
 
 /// Test that empty files are handled appropriately.
-/// Note: Empty files get licenses added when using process_file() directly.
-/// (Batch processing skips empty files, but single-file processing does not.)
-#[tokio::test]
-async fn test_empty_file_handling() -> Result<()> {
+/// Empty files are skipped by the processor (no license can be added to empty content).
+#[test]
+fn test_empty_file_handling() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let file_path = temp_dir.path().join("empty.rs");
 
   // Create an empty file
   fs::write(&file_path, "")?;
 
-  // Processing empty file should succeed
-  let result = processor.process_file(&file_path).await;
+  // Processing empty file should succeed (file is skipped)
+  let patterns = vec![file_path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
   assert!(result.is_ok(), "Empty files should be handled gracefully");
 
-  // When using process_file directly, licenses are added to empty files
+  // Empty files are skipped, not modified
   let content = fs::read_to_string(&file_path)?;
-  assert!(content.contains("Copyright"), "Empty file should have license added");
+  assert!(content.is_empty(), "Empty file should remain empty (skipped)");
 
   Ok(())
 }
 
 /// Test that processing handles files that become unreadable.
 #[cfg(unix)]
-#[tokio::test]
-async fn test_file_becomes_unreadable() -> Result<()> {
+#[test]
+fn test_file_becomes_unreadable() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let file_path = temp_dir.path().join("unreadable.rs");
   fs::write(&file_path, "fn main() {}")?;
@@ -240,9 +247,13 @@ async fn test_file_becomes_unreadable() -> Result<()> {
   perms.set_mode(0o000);
   fs::set_permissions(&file_path, perms)?;
 
-  // Processing should fail gracefully
-  let result = processor.process_file(&file_path).await;
-  assert!(result.is_err(), "Should fail for unreadable file");
+  // Processing handles errors gracefully - error reported via stderr,
+  // returns Ok with has_missing=true
+  let patterns = vec![file_path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
+  assert!(result.is_ok(), "Should handle unreadable file gracefully");
+  // has_missing is true since file couldn't be processed
+  assert!(result.unwrap(), "has_missing should be true for unreadable file");
 
   // Restore permissions for cleanup
   let mut perms = fs::metadata(&file_path)?.permissions();
@@ -254,10 +265,10 @@ async fn test_file_becomes_unreadable() -> Result<()> {
 
 /// Test that processing handles files that become unwritable.
 #[cfg(unix)]
-#[tokio::test]
-async fn test_file_becomes_unwritable() -> Result<()> {
+#[test]
+fn test_file_becomes_unwritable() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let file_path = temp_dir.path().join("unwritable.rs");
   fs::write(&file_path, "fn main() {}")?;
@@ -267,9 +278,13 @@ async fn test_file_becomes_unwritable() -> Result<()> {
   perms.set_mode(0o444);
   fs::set_permissions(&file_path, perms)?;
 
-  // Processing should fail when trying to write
-  let result = processor.process_file(&file_path).await;
-  assert!(result.is_err(), "Should fail for unwritable file");
+  // Processing handles errors gracefully - error reported via stderr,
+  // returns Ok with has_missing=true
+  let patterns = vec![file_path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
+  assert!(result.is_ok(), "Should handle unwritable file gracefully");
+  // has_missing is true since file couldn't be written
+  assert!(result.unwrap(), "has_missing should be true for unwritable file");
 
   // Restore permissions for cleanup
   let mut perms = fs::metadata(&file_path)?.permissions();
@@ -280,8 +295,8 @@ async fn test_file_becomes_unwritable() -> Result<()> {
 }
 
 /// Test that directory traversal handles directories being deleted.
-#[tokio::test]
-async fn test_directory_deleted_during_traversal() -> Result<()> {
+#[test]
+fn test_directory_deleted_during_traversal() -> Result<()> {
   let temp_dir = tempdir()?;
 
   // Create nested directory structure
@@ -293,7 +308,7 @@ async fn test_directory_deleted_during_traversal() -> Result<()> {
   fs::write(dir1.join("file1.rs"), "fn f1() {}")?;
   fs::write(dir2.join("file2.rs"), "fn f2() {}")?;
 
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Delete dir1 to simulate race condition
   fs::remove_dir_all(&dir1)?;
@@ -301,7 +316,7 @@ async fn test_directory_deleted_during_traversal() -> Result<()> {
   // Process should continue with dir2 using absolute paths
   let abs_pattern = format!("{}/**/*.rs", temp_dir.path().display());
   let patterns = vec![abs_pattern];
-  let _has_missing = processor.process(&patterns).await?;
+  let _has_missing = processor.process(&patterns)?;
 
   // Verify dir2/file2.rs was processed
   let content = fs::read_to_string(dir2.join("file2.rs"))?;
@@ -312,8 +327,8 @@ async fn test_directory_deleted_during_traversal() -> Result<()> {
 
 /// Test concurrent processing with files being deleted.
 /// This tests the actual race condition scenario more realistically.
-#[tokio::test]
-async fn test_concurrent_deletion_race() -> Result<()> {
+#[test]
+fn test_concurrent_deletion_race() -> Result<()> {
   let temp_dir = tempdir()?;
 
   // Create many files to increase chance of race condition
@@ -346,12 +361,12 @@ async fn test_concurrent_deletion_race() -> Result<()> {
     }
   });
 
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Process files using absolute path - some may be deleted during processing
   let abs_pattern = format!("{}/**/*.rs", src_dir.display());
   let patterns = vec![abs_pattern];
-  let result = processor.process(&patterns).await;
+  let result = processor.process(&patterns);
 
   // Signal deleter to stop
   should_delete.store(false, Ordering::Relaxed);
@@ -389,10 +404,10 @@ async fn test_concurrent_deletion_race() -> Result<()> {
 
 /// Test that symbolic link race conditions are handled (link target deleted).
 #[cfg(unix)]
-#[tokio::test]
-async fn test_symlink_target_deleted() -> Result<()> {
+#[test]
+fn test_symlink_target_deleted() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let target = temp_dir.path().join("target.rs");
   let link = temp_dir.path().join("link.rs");
@@ -403,26 +418,31 @@ async fn test_symlink_target_deleted() -> Result<()> {
   // Delete the target, leaving a dangling symlink
   fs::remove_file(&target)?;
 
-  // Processing the dangling symlink should fail gracefully
-  let result = processor.process_file(&link).await;
-  assert!(result.is_err(), "Should fail for dangling symlink");
+  // Symlinks are skipped by the processor (checked in filter stage)
+  // The pattern will match the symlink, but it's filtered out
+  let patterns = vec![link.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
+  assert!(result.is_ok(), "Should handle symlink gracefully");
+  // No files processed (symlink skipped)
+  assert!(!result.unwrap(), "Symlinks are skipped, no missing licenses");
 
   Ok(())
 }
 
 /// Test processing when file content changes between read and write.
 /// This simulates a TOCTOU race where content is modified externally.
-#[tokio::test]
-async fn test_content_modified_between_operations() -> Result<()> {
+#[test]
+fn test_content_modified_between_operations() -> Result<()> {
   let temp_dir = tempdir()?;
 
   let file_path = temp_dir.path().join("modified.rs");
   fs::write(&file_path, "fn original() {}")?;
 
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Start processing
-  let result = processor.process_file(&file_path).await;
+  let patterns = vec![file_path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
   assert!(result.is_ok(), "Processing should succeed");
 
   // Verify the license was added
@@ -435,7 +455,8 @@ async fn test_content_modified_between_operations() -> Result<()> {
   fs::write(&file_path, "fn completely_new() {}")?;
 
   // Process again - this is a fresh read, so it should work
-  let result2 = processor.process_file(&file_path).await;
+  let patterns2 = vec![file_path.to_string_lossy().to_string()];
+  let result2 = processor.process(&patterns2);
   assert!(result2.is_ok(), "Second processing should succeed");
 
   let content2 = fs::read_to_string(&file_path)?;
@@ -446,27 +467,29 @@ async fn test_content_modified_between_operations() -> Result<()> {
 }
 
 /// Test that multiple concurrent processors don't corrupt files.
-#[tokio::test]
-async fn test_multiple_processors_same_file() -> Result<()> {
+#[test]
+fn test_multiple_processors_same_file() -> Result<()> {
   let temp_dir = tempdir()?;
 
   let file_path = temp_dir.path().join("shared.rs");
   fs::write(&file_path, "fn shared() {}")?;
 
   // Create two processors
-  let processor1 = create_test_processor(&temp_dir, false).await?;
-  let processor2 = create_test_processor(&temp_dir, false).await?;
+  let processor1 = create_test_processor(&temp_dir, false)?;
+  let processor2 = create_test_processor(&temp_dir, false)?;
 
   // Process the same file with both (simulating race condition)
   let file_path_clone = file_path.clone();
-  let handle1 = tokio::spawn(async move { processor1.process_file(&file_path_clone).await });
+  let patterns1 = vec![file_path_clone.to_string_lossy().to_string()];
+  let patterns2 = vec![file_path.to_string_lossy().to_string()];
 
-  let handle2 = tokio::spawn(async move { processor2.process_file(&file_path).await });
+  let handle1 = std::thread::spawn(move || processor1.process(&patterns1));
+  let handle2 = std::thread::spawn(move || processor2.process(&patterns2));
 
   // Both should complete (one will add license, other will see it already has
   // one)
-  let result1 = handle1.await?;
-  let result2 = handle2.await?;
+  let result1 = handle1.join().expect("Thread 1 panicked");
+  let result2 = handle2.join().expect("Thread 2 panicked");
 
   // At least one should succeed
   assert!(
@@ -487,18 +510,19 @@ async fn test_multiple_processors_same_file() -> Result<()> {
 }
 
 /// Test that check-only mode handles race conditions without modifying files.
-#[tokio::test]
-async fn test_check_only_race_condition_no_modification() -> Result<()> {
+#[test]
+fn test_check_only_race_condition_no_modification() -> Result<()> {
   let temp_dir = tempdir()?;
 
   let file_path = temp_dir.path().join("check_only.rs");
   let original_content = "fn check_only() {}";
   fs::write(&file_path, original_content)?;
 
-  let processor = create_test_processor(&temp_dir, true).await?;
+  let processor = create_test_processor(&temp_dir, true)?;
 
   // Check mode should not modify even with race conditions
-  let _result = processor.process_file(&file_path).await;
+  let patterns = vec![file_path.to_string_lossy().to_string()];
+  let _result = processor.process(&patterns);
 
   // File should be unchanged
   let content = fs::read_to_string(&file_path)?;
@@ -508,8 +532,8 @@ async fn test_check_only_race_condition_no_modification() -> Result<()> {
 }
 
 /// Test processing a large number of files with random deletions.
-#[tokio::test]
-async fn test_large_batch_with_random_deletions() -> Result<()> {
+#[test]
+fn test_large_batch_with_random_deletions() -> Result<()> {
   let temp_dir = tempdir()?;
 
   let src_dir = temp_dir.path().join("large_batch");
@@ -530,12 +554,12 @@ async fn test_large_batch_with_random_deletions() -> Result<()> {
     }
   }
 
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Process all files using absolute path
   let abs_pattern = format!("{}/**/*.rs", src_dir.display());
   let patterns = vec![abs_pattern];
-  let result = processor.process(&patterns).await;
+  let result = processor.process(&patterns);
 
   // Should complete without error
   assert!(result.is_ok(), "Should complete processing: {:?}", result);
@@ -562,8 +586,8 @@ async fn test_large_batch_with_random_deletions() -> Result<()> {
 
 /// Test that errors from individual files are reported but don't stop
 /// processing.
-#[tokio::test]
-async fn test_error_reporting_continues_processing() -> Result<()> {
+#[test]
+fn test_error_reporting_continues_processing() -> Result<()> {
   let temp_dir = tempdir()?;
 
   // Create mix of valid and problematic files
@@ -573,25 +597,31 @@ async fn test_error_reporting_continues_processing() -> Result<()> {
   fs::write(&valid1, "fn valid1() {}")?;
   fs::write(&valid2, "fn valid2() {}")?;
 
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   // Process valid files - both should succeed
-  let r1 = processor.process_file(&valid1).await;
-  let r2 = processor.process_file(&valid2).await;
+  let patterns1 = vec![valid1.to_string_lossy().to_string()];
+  let patterns2 = vec![valid2.to_string_lossy().to_string()];
+  let r1 = processor.process(&patterns1);
+  let r2 = processor.process(&patterns2);
 
   assert!(r1.is_ok(), "valid1 should succeed");
   assert!(r2.is_ok(), "valid2 should succeed");
 
-  // Process nonexistent file - should error
+  // Process nonexistent file - handled gracefully (no files to process)
   let nonexistent = temp_dir.path().join("nonexistent.rs");
-  let r3 = processor.process_file(&nonexistent).await;
-  assert!(r3.is_err(), "nonexistent should fail");
+  let patterns3 = vec![nonexistent.to_string_lossy().to_string()];
+  let r3 = processor.process(&patterns3);
+  assert!(r3.is_ok(), "nonexistent should be handled gracefully");
+  // No files matched means no missing licenses
+  assert!(!r3.unwrap(), "No files to process for nonexistent pattern");
 
-  // Process another valid file after error - should still work
+  // Process another valid file after - should still work
   let valid3 = temp_dir.path().join("valid3.rs");
   fs::write(&valid3, "fn valid3() {}")?;
-  let r4 = processor.process_file(&valid3).await;
-  assert!(r4.is_ok(), "valid3 should succeed after previous error");
+  let patterns4 = vec![valid3.to_string_lossy().to_string()];
+  let r4 = processor.process(&patterns4);
+  assert!(r4.is_ok(), "valid3 should succeed");
 
   // Verify all valid files have licenses
   for path in [&valid1, &valid2, &valid3] {
@@ -602,20 +632,26 @@ async fn test_error_reporting_continues_processing() -> Result<()> {
   Ok(())
 }
 
-/// Test that binary files are rejected gracefully.
-#[tokio::test]
-async fn test_binary_file_race_condition() -> Result<()> {
+/// Test that binary files are handled gracefully.
+/// Binary files with invalid UTF-8 at the start are reported via stderr but
+/// processing continues, returning Ok with has_missing=true.
+#[test]
+fn test_binary_file_race_condition() -> Result<()> {
   let temp_dir = tempdir()?;
-  let processor = create_test_processor(&temp_dir, false).await?;
+  let processor = create_test_processor(&temp_dir, false)?;
 
   let binary_path = temp_dir.path().join("binary.rs");
 
   // Create a file that looks like source but is actually binary
   fs::write(&binary_path, [0xFF, 0xFE, 0x00, 0x00, 0x00])?;
 
-  // Processing should fail for binary content
-  let result = processor.process_file(&binary_path).await;
-  assert!(result.is_err(), "Should fail for binary file: {:?}", result);
+  // Processing handles binary files gracefully - error reported via stderr
+  // but processing continues with Ok(has_missing=true)
+  let patterns = vec![binary_path.to_string_lossy().to_string()];
+  let result = processor.process(&patterns);
+  assert!(result.is_ok(), "Process should handle binary files gracefully");
+  // has_missing is true since the file couldn't be processed
+  assert!(result.unwrap(), "has_missing should be true for binary file");
 
   Ok(())
 }

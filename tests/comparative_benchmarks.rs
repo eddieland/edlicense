@@ -36,7 +36,7 @@ struct BenchmarkResult {
 }
 
 /// Helper function to create a test processor
-async fn create_test_processor(
+fn create_test_processor(
   template_content: &str,
   ignore_patterns: Vec<String>,
   check_only: bool,
@@ -750,7 +750,7 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
 }
 
 /// Run an edlicense benchmark
-async fn run_edlicense_benchmark(
+fn run_edlicense_benchmark(
   operation: &str,
   test_dir: &Path,
   check_only: bool,
@@ -765,11 +765,11 @@ async fn run_edlicense_benchmark(
 
     // Create processor for benchmark
     let (processor, _template_dir) =
-      create_test_processor("Copyright (c) {{year}} Test Company", vec![], check_only, false, None).await?;
+      create_test_processor("Copyright (c) {{year}} Test Company", vec![], check_only, false, None)?;
 
     // Run benchmark and measure time
     let start = Instant::now();
-    processor.process_directory(test_dir).await?;
+    processor.process_directory(test_dir)?;
     let duration = start.elapsed();
 
     let result = BenchmarkResult {
@@ -861,7 +861,7 @@ fn write_benchmark_results(results: &[BenchmarkResult], output_file: &Path) -> R
 }
 
 /// Run benchmarks for a specific file size
-async fn run_file_size_benchmarks(file_size: usize, config: &BenchmarkConfig, output_dir: &Path) -> Result<()> {
+fn run_file_size_benchmarks(file_size: usize, config: &BenchmarkConfig, output_dir: &Path) -> Result<()> {
   let operation_configs = [
     ("add", false, false),   // (operation name, with_license, check_only)
     ("update", true, false), // Update existing licenses
@@ -889,7 +889,7 @@ async fn run_file_size_benchmarks(file_size: usize, config: &BenchmarkConfig, ou
     copy_dir_recursive(&base_dir, &addlicense_dir)?;
 
     // Run edlicense benchmark
-    let edlicense_results = run_edlicense_benchmark(operation, &edlicense_dir, check_only, config).await?;
+    let edlicense_results = run_edlicense_benchmark(operation, &edlicense_dir, check_only, config)?;
 
     // Run addlicense benchmark
     let addlicense_results = run_addlicense_benchmark(operation, &addlicense_dir, check_only, config)?;
@@ -908,62 +908,47 @@ async fn run_file_size_benchmarks(file_size: usize, config: &BenchmarkConfig, ou
 
 /// Run thread count impact benchmarks
 fn run_thread_count_benchmarks(config: &BenchmarkConfig, output_dir: &Path) -> Result<()> {
-  // Thread counts to test
-  let thread_counts = [1, 2, 4, 8, 16];
+  // Thread counts to test - using rayon's default thread pool
+  let thread_count = rayon::current_num_threads();
   let file_size = 1000; // 1KB
   let mut all_results = Vec::new();
 
-  println!("\n=== Testing impact of thread count on performance ===");
+  println!("\n=== Testing performance with rayon threads: {} ===", thread_count);
 
-  for &threads in &thread_counts {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-      .worker_threads(threads)
-      .enable_all()
-      .build()?;
+  // Create a dedicated temp directory for this test
+  let temp_dir = tempdir()?;
+  let test_dir = temp_dir.path().join(format!("thread_test_{}", thread_count));
+  fs::create_dir_all(&test_dir)?;
 
-    let mut results = runtime.block_on(async {
-      // Create a dedicated temp directory for this test
-      let temp_dir = tempdir()?;
-      let test_dir = temp_dir.path().join(format!("thread_test_{}", threads));
-      fs::create_dir_all(&test_dir)?;
+  // Generate test files
+  generate_test_files(&test_dir, config.file_count, false, file_size)?;
 
-      // Generate test files
-      generate_test_files(&test_dir, config.file_count, false, file_size)?;
+  // Run edlicense benchmark
+  println!("\n=== Running edlicense benchmark with {} threads ===", thread_count);
 
-      // Run edlicense benchmark
-      println!("\n=== Running edlicense benchmark with {} threads ===", threads);
+  for i in 1..=config.iterations {
+    println!("Running iteration {}/{}...", i, config.iterations);
 
-      let mut results = Vec::with_capacity(config.iterations);
+    // Create processor for benchmark
+    let (processor, _template_dir) =
+      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
 
-      for i in 1..=config.iterations {
-        println!("Running iteration {}/{}...", i, config.iterations);
+    // Run benchmark and measure time
+    let start = Instant::now();
+    processor.process_directory(&test_dir)?;
+    let duration = start.elapsed();
 
-        // Create processor for benchmark
-        let (processor, _template_dir) =
-          create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+    let result = BenchmarkResult {
+      tool: "edlicense".to_string(),
+      operation: "add".to_string(),
+      duration_ms: duration.as_millis(),
+      file_count: config.file_count,
+      file_size_kb: file_size / 1000,
+      thread_count: Some(thread_count),
+    };
 
-        // Run benchmark and measure time
-        let start = Instant::now();
-        processor.process_directory_with_concurrency(&test_dir, threads).await?;
-        let duration = start.elapsed();
-
-        let result = BenchmarkResult {
-          tool: "edlicense".to_string(),
-          operation: "add".to_string(),
-          duration_ms: duration.as_millis(),
-          file_count: config.file_count,
-          file_size_kb: file_size / 1000,
-          thread_count: Some(threads),
-        };
-
-        results.push(result);
-        println!("Iteration {} completed in {:.2?}", i, duration);
-      }
-
-      Ok::<Vec<BenchmarkResult>, anyhow::Error>(results)
-    })?;
-
-    all_results.append(&mut results);
+    all_results.push(result);
+    println!("Iteration {} completed in {:.2?}", i, duration);
   }
 
   // Write results
@@ -1016,21 +1001,15 @@ fn comparative_benchmark() -> Result<()> {
 
   println!("=== Running File Size Impact Benchmarks ===");
 
-  let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-
   // Run benchmarks for different file sizes
-  runtime.block_on(async {
-    println!("Running small file benchmarks (1KB)");
-    run_file_size_benchmarks(1000, &small_config, &output_dir).await?;
+  println!("Running small file benchmarks (1KB)");
+  run_file_size_benchmarks(1000, &small_config, &output_dir)?;
 
-    println!("Running medium file benchmarks (10KB)");
-    run_file_size_benchmarks(10_000, &medium_config, &output_dir).await?;
+  println!("Running medium file benchmarks (10KB)");
+  run_file_size_benchmarks(10_000, &medium_config, &output_dir)?;
 
-    println!("Running large file benchmarks (100KB)");
-    run_file_size_benchmarks(100_000, &large_config, &output_dir).await?;
-
-    Ok::<(), anyhow::Error>(())
-  })?;
+  println!("Running large file benchmarks (100KB)");
+  run_file_size_benchmarks(100_000, &large_config, &output_dir)?;
 
   // Run thread count benchmarks (edlicense only)
   println!("Running thread count impact benchmarks");
@@ -1054,7 +1033,7 @@ struct ChaoticBenchmarkResult {
 }
 
 /// Run chaotic benchmark for a specific operation
-async fn run_chaotic_edlicense_benchmark(
+fn run_chaotic_edlicense_benchmark(
   operation: &str,
   test_dir: &Path,
   check_only: bool,
@@ -1074,10 +1053,10 @@ async fn run_chaotic_edlicense_benchmark(
     println!("Running iteration {}/{}...", i, iterations);
 
     let (processor, _template_dir) =
-      create_test_processor("Copyright (c) {{year}} Test Company", vec![], check_only, false, None).await?;
+      create_test_processor("Copyright (c) {{year}} Test Company", vec![], check_only, false, None)?;
 
     let start = Instant::now();
-    processor.process_directory(test_dir).await?;
+    processor.process_directory(test_dir)?;
     let duration = start.elapsed();
 
     let result = ChaoticBenchmarkResult {
@@ -1181,8 +1160,6 @@ fn chaotic_benchmark() -> Result<()> {
     ("varied_seed_b", 8000, 2002),
   ];
 
-  let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-
   let mut all_results: Vec<ChaoticBenchmarkResult> = Vec::new();
 
   for (scenario_name, target_files, seed) in scenarios {
@@ -1221,18 +1198,15 @@ fn chaotic_benchmark() -> Result<()> {
       copy_dir_recursive(&base_dir, &addlicense_dir)?;
 
       // Run benchmarks
-      let edlicense_results = runtime.block_on(async {
-        run_chaotic_edlicense_benchmark(
-          operation,
-          &edlicense_dir,
-          check_only,
-          &stats,
-          seed,
-          scenario_name,
-          iterations,
-        )
-        .await
-      })?;
+      let edlicense_results = run_chaotic_edlicense_benchmark(
+        operation,
+        &edlicense_dir,
+        check_only,
+        &stats,
+        seed,
+        scenario_name,
+        iterations,
+      )?;
 
       let addlicense_results = run_chaotic_addlicense_benchmark(
         operation,

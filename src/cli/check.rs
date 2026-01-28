@@ -173,7 +173,7 @@ impl CheckArgs {
 }
 
 /// Run the check command with the given arguments
-pub async fn run_check(args: CheckArgs) -> Result<()> {
+pub fn run_check(args: CheckArgs) -> Result<()> {
   // Validate arguments
   if let Err(e) = args.validate() {
     eprintln!("ERROR: {e}");
@@ -193,7 +193,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 
   // Handle plan-tree mode early - doesn't need license file
   if args.plan_tree {
-    return run_plan_tree(&args).await;
+    return run_plan_tree(&args);
   }
 
   // Disable git ownership check if requested (useful in Docker)
@@ -327,7 +327,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   let file_count = if let Some(ref files) = collected_files {
     files.len()
   } else {
-    processor.collect_planned_files(&args.patterns).await?.len()
+    processor.collect_planned_files(&args.patterns)?.len()
   };
 
   // Print start message with file count
@@ -344,9 +344,9 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
   let start_time = Instant::now();
 
   let has_missing_license = if let Some(files) = collected_files {
-    processor.process_collected(files).await?
+    processor.process_collected(files)?
   } else {
-    processor.process(&args.patterns).await?
+    processor.process(&args.patterns)?
   };
 
   // Calculate elapsed time
@@ -354,7 +354,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 
   // Get file reports from processor for report generation (take ownership to
   // avoid clone)
-  let file_reports = std::mem::take(&mut *processor.file_reports.lock().await);
+  let file_reports = std::mem::take(&mut *processor.file_reports.lock().expect("mutex poisoned"));
 
   // Create report summary
   let summary = ProcessingSummary::from_reports(&file_reports, elapsed);
@@ -463,7 +463,7 @@ pub async fn run_check(args: CheckArgs) -> Result<()> {
 }
 
 /// Run in plan-tree mode: show a tree of files that would be checked.
-async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
+fn run_plan_tree(args: &CheckArgs) -> Result<()> {
   // Disable git ownership check if requested (useful in Docker)
   if args.skip_git_owner_check {
     debug!("Disabling git repository ownership check");
@@ -538,7 +538,7 @@ async fn run_plan_tree(args: &CheckArgs) -> Result<()> {
   })?;
 
   // Collect files that would be processed
-  let files = processor.collect_planned_files(&args.patterns).await?;
+  let files = processor.collect_planned_files(&args.patterns)?;
 
   // Print the tree
   let tree_output = print_tree(&files, Some(&workspace_root));

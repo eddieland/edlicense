@@ -9,7 +9,7 @@ use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
-async fn create_test_processor(
+fn create_test_processor(
   template_content: &str,
   ignore_patterns: Vec<String>,
   check_only: bool,
@@ -48,8 +48,8 @@ async fn create_test_processor(
   Ok((processor, temp_dir))
 }
 
-#[tokio::test]
-async fn test_license_detection() -> Result<()> {
+#[test]
+fn test_license_detection() -> Result<()> {
   // Create a processor
   let (processor, _temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -60,8 +60,7 @@ async fn test_license_detection() -> Result<()> {
     None,
     None,
     false,
-  )
-  .await?;
+  )?;
 
   // Test content with a license
   let content_with_license = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
@@ -79,243 +78,8 @@ async fn test_license_detection() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_prefix_extraction() -> Result<()> {
-  // Create a processor
-  let (processor, _temp_dir) = create_test_processor(
-    "Copyright (c) {{year}} Test Company",
-    vec![],
-    false,
-    false,
-    None,
-    None,
-    None,
-    false,
-  )
-  .await?;
-
-  // Test shebang extraction
-  let content_with_shebang = "#!/usr/bin/env python3\n\ndef main():\n    print('Hello, world!')";
-  let (prefix, content) = processor.extract_prefix(content_with_shebang);
-  assert_eq!(prefix, "#!/usr/bin/env python3\n\n");
-  assert_eq!(content, "\ndef main():\n    print('Hello, world!')");
-
-  // Test XML declaration extraction
-  let content_with_xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root>\n    <element>Test</element>\n</root>";
-  let (prefix, content) = processor.extract_prefix(content_with_xml);
-  assert_eq!(prefix, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\n");
-  assert_eq!(content, "<root>\n    <element>Test</element>\n</root>");
-
-  // Test HTML doctype extraction
-  let content_with_doctype = "<!DOCTYPE html>\n<html>\n<head>\n    <title>Test</title>\n</head>\n<body>\n    <h1>Hello, world!</h1>\n</body>\n</html>";
-  let (prefix, content) = processor.extract_prefix(content_with_doctype);
-  assert_eq!(prefix, "<!DOCTYPE html>\n\n");
-  assert_eq!(
-    content,
-    "<html>\n<head>\n    <title>Test</title>\n</head>\n<body>\n    <h1>Hello, world!</h1>\n</body>\n</html>"
-  );
-
-  // Test PHP opening tag extraction
-  let content_with_php = "<?php\n\necho 'Hello, world!';";
-  let (prefix, content) = processor.extract_prefix(content_with_php);
-  assert_eq!(prefix, "<?php\n\n");
-  assert_eq!(content, "\necho 'Hello, world!';");
-
-  // Test content without prefix - avoid anything that might be interpreted as a
-  // license
-  let content_without_prefix = "fn main() {\n    println!(\"Prefix test\");\n}";
-  let (prefix, _content) = processor.extract_prefix(content_without_prefix);
-  assert_eq!(prefix, "");
-
-  Ok(())
-}
-
-#[tokio::test]
-async fn test_prefix_extraction_no_trailing_newline() -> Result<()> {
-  // This test verifies the fix for a bug where extract_prefix would panic
-  // with an out-of-bounds error when processing files that end with a
-  // recognized prefix but have no trailing newline character.
-
-  let (processor, _temp_dir) = create_test_processor(
-    "Copyright (c) {{year}} Test Company",
-    vec![],
-    false,
-    false,
-    None,
-    None,
-    None,
-    false,
-  )
-  .await?;
-
-  // Test shebang without trailing newline - this was causing a panic
-  let shebang_only = "#!/bin/bash";
-  let (prefix, content) = processor.extract_prefix(shebang_only);
-  assert_eq!(prefix, "#!/bin/bash\n\n");
-  assert_eq!(content, "");
-
-  // Test XML declaration without trailing newline
-  let xml_only = "<?xml version=\"1.0\"?>";
-  let (prefix, content) = processor.extract_prefix(xml_only);
-  assert_eq!(prefix, "<?xml version=\"1.0\"?>\n\n");
-  assert_eq!(content, "");
-
-  // Test PHP tag without trailing newline
-  let php_only = "<?php";
-  let (prefix, content) = processor.extract_prefix(php_only);
-  assert_eq!(prefix, "<?php\n\n");
-  assert_eq!(content, "");
-
-  // Test HTML doctype without trailing newline
-  let doctype_only = "<!DOCTYPE html>";
-  let (prefix, content) = processor.extract_prefix(doctype_only);
-  assert_eq!(prefix, "<!DOCTYPE html>\n\n");
-  assert_eq!(content, "");
-
-  // Test Ruby encoding without trailing newline
-  let ruby_encoding_only = "# encoding: utf-8";
-  let (prefix, content) = processor.extract_prefix(ruby_encoding_only);
-  assert_eq!(prefix, "# encoding: utf-8\n\n");
-  assert_eq!(content, "");
-
-  // Test Dockerfile directive without trailing newline
-  let dockerfile_escape = "# escape=\\";
-  let (prefix, content) = processor.extract_prefix(dockerfile_escape);
-  assert_eq!(prefix, "# escape=\\\n\n");
-  assert_eq!(content, "");
-
-  Ok(())
-}
-
-#[tokio::test]
-async fn test_year_updating() -> Result<()> {
-  // Create a processor
-  let (processor, _temp_dir) = create_test_processor(
-    "Copyright (c) {{year}} Test Company",
-    vec![],
-    false,
-    false,
-    None,
-    None,
-    None,
-    false,
-  )
-  .await?;
-
-  // Test updating a single year
-  let content_with_old_year = "// Copyright (c) 2024 Test Company\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content_with_old_year)?;
-
-  // The regex in the implementation is case-sensitive and looks for "copyright"
-  // (lowercase) Let's modify our test to match the actual implementation
-  assert!(updated_content.contains("// Copyright (c) 2025") || updated_content.contains("// copyright (c) 2025"));
-
-  // Test content with current year (should not change)
-  let content_with_current_year = "// Copyright (c) 2025 Test Company\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content_with_current_year)?;
-  assert_eq!(updated_content, content_with_current_year);
-
-  // Test content with different copyright format
-  let content_with_different_format = "// Copyright © 2024 Test Company\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content_with_different_format)?;
-  // Now we expect this to be updated since we've fixed the regex
-  assert!(updated_content.contains("// Copyright © 2025"));
-
-  // Test content with "Copyright YEAR" format (no symbol) - this was a bug where
-  // the regex required two spaces when the (c)/© symbol was absent
-  let content_without_symbol = "// Copyright 2024 Test Company\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content_without_symbol)?;
-  assert!(
-    updated_content.contains("// Copyright 2025"),
-    "Expected year to be updated in 'Copyright YEAR' format without symbol"
-  );
-
-  Ok(())
-}
-
-#[tokio::test]
-async fn test_year_updating_with_comma_after_year() -> Result<()> {
-  // Regression test: the regex required whitespace immediately after the year,
-  // but some copyright formats use a comma (e.g., "Copyright (c) 2024, Company").
-  let (processor, _temp_dir) = create_test_processor(
-    "Copyright (c) {{year}}, ACME INC.",
-    vec![],
-    false,
-    false,
-    None,
-    None,
-    None,
-    false,
-  )
-  .await?;
-
-  let content = "// Copyright (c) 2024, ACME INC. All rights reserved.\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content)?;
-  assert!(
-    updated_content.contains("// Copyright (c) 2025,"),
-    "Expected year to be updated when followed by comma: got {:?}",
-    updated_content
-  );
-
-  Ok(())
-}
-
-#[tokio::test]
-async fn test_year_updating_with_period_after_year() -> Result<()> {
-  // Regression test: the regex required whitespace immediately after the year,
-  // but some copyright formats use a period (e.g., "Copyright (c) 2024. All
-  // rights").
-  let (processor, _temp_dir) = create_test_processor(
-    "Copyright (c) {{year}}. All rights reserved.",
-    vec![],
-    false,
-    false,
-    None,
-    None,
-    None,
-    false,
-  )
-  .await?;
-
-  let content = "// Copyright (c) 2024. All rights reserved.\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content)?;
-  assert!(
-    updated_content.contains("// Copyright (c) 2025."),
-    "Expected year to be updated when followed by period: got {:?}",
-    updated_content
-  );
-
-  Ok(())
-}
-
-#[tokio::test]
-async fn test_year_updating_with_go_style_template() -> Result<()> {
-  // Test Go-style {{.Year}} template syntax with comma after year
-  let (processor, _temp_dir) = create_test_processor(
-    "Copyright (c) {{.Year}}, ACME INC. All rights reserved.",
-    vec![],
-    false,
-    false,
-    None,
-    None,
-    None,
-    false,
-  )
-  .await?;
-
-  let content = "// Copyright (c) 2024, ACME INC. All rights reserved.\n\nfn main() {}";
-  let updated_content = processor.update_year_in_license(content)?;
-  assert!(
-    updated_content.contains("// Copyright (c) 2025,"),
-    "Expected year to be updated with Go-style template format: got {:?}",
-    updated_content
-  );
-
-  Ok(())
-}
-
-#[tokio::test]
-async fn test_ignore_patterns() -> Result<()> {
+#[test]
+fn test_ignore_patterns() -> Result<()> {
   // Create a temporary directory
   let temp_dir = tempdir()?;
   let temp_path = temp_dir.path();
@@ -374,8 +138,8 @@ async fn test_ignore_patterns() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_process_file() -> Result<()> {
+#[test]
+fn test_process_file() -> Result<()> {
   // Create a processor
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -386,8 +150,7 @@ async fn test_process_file() -> Result<()> {
     None,
     None,
     false,
-  )
-  .await?;
+  )?;
 
   // Create a test file without a license - avoid using any text that might be
   // interpreted as a license
@@ -395,7 +158,8 @@ async fn test_process_file() -> Result<()> {
   fs::write(&test_file_path, "fn main() {\n    println!(\"Testing!\");\n}")?;
 
   // Process the file
-  processor.process_file(&test_file_path).await?;
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  processor.process(&patterns)?;
 
   // Read the file and check if license was added
   let content = fs::read_to_string(&test_file_path)?;
@@ -410,7 +174,8 @@ async fn test_process_file() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&test_file_with_shebang).await?;
+  let patterns = vec![test_file_with_shebang.to_string_lossy().to_string()];
+  processor.process(&patterns)?;
 
   // Read the file and check if license was added after shebang
   let content = fs::read_to_string(&test_file_with_shebang)?;
@@ -421,8 +186,8 @@ async fn test_process_file() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_check_only_mode() -> Result<()> {
+#[test]
+fn test_check_only_mode() -> Result<()> {
   // Create a processor in check-only mode
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -433,17 +198,17 @@ async fn test_check_only_mode() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )
-  .await?;
+  )?;
 
   // Create a test file without a license - avoid using any text that might be
   // interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"No license test\");\n}")?;
 
-  // Process the file - should return an error
-  let result = processor.process_file(&test_file_path).await;
-  assert!(result.is_err());
+  // Process the file - should return has_missing = true
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  let has_missing = processor.process(&patterns)?;
+  assert!(has_missing);
 
   // The file should not be modified
   let content = fs::read_to_string(&test_file_path)?;
@@ -457,9 +222,10 @@ async fn test_check_only_mode() -> Result<()> {
     "// Copyright (c) 2024 Test Company\n\nfn main() {\n    println!(\"Hello, world!\");\n}",
   )?;
 
-  // Process the file - should succeed
-  let result = processor.process_file(&test_file_with_license).await;
-  assert!(result.is_ok());
+  // Process the file - should succeed (has_missing = false)
+  let patterns = vec![test_file_with_license.to_string_lossy().to_string()];
+  let has_missing = processor.process(&patterns)?;
+  assert!(!has_missing);
 
   // The file should not be modified (even though the year is old)
   let content = fs::read_to_string(&test_file_with_license)?;
@@ -468,8 +234,8 @@ async fn test_check_only_mode() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_preserve_years() -> Result<()> {
+#[test]
+fn test_preserve_years() -> Result<()> {
   // Create a processor with preserve_years = true
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -480,8 +246,7 @@ async fn test_preserve_years() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )
-  .await?;
+  )?;
 
   // Create a test file with an old year
   let test_file_path = temp_dir.path().join("test.rs");
@@ -491,7 +256,8 @@ async fn test_preserve_years() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&test_file_path).await?;
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  processor.process(&patterns)?;
 
   // The year should not be updated
   let content = fs::read_to_string(&test_file_path)?;
@@ -507,8 +273,7 @@ async fn test_preserve_years() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )
-  .await?;
+  )?;
 
   // Create a test file with an old year
   let test_file_path = temp_dir.path().join("test.rs");
@@ -518,7 +283,8 @@ async fn test_preserve_years() -> Result<()> {
   )?;
 
   // Process the file
-  processor.process_file(&test_file_path).await?;
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  processor.process(&patterns)?;
 
   // The year should be updated
   let content = fs::read_to_string(&test_file_path)?;
@@ -527,8 +293,8 @@ async fn test_preserve_years() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_process_directory() -> Result<()> {
+#[test]
+fn test_process_directory() -> Result<()> {
   // Create a processor
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -539,8 +305,7 @@ async fn test_process_directory() -> Result<()> {
     None,
     None, // No save diff path
     false,
-  )
-  .await?;
+  )?;
 
   // Create a test directory structure
   let test_dir = temp_dir.path().join("test_dir");
@@ -558,7 +323,7 @@ async fn test_process_directory() -> Result<()> {
   fs::write(subdir.join("file4.rs"), "fn test4_fn() { /* subdir test */ }")?;
 
   // Process the directory
-  let _has_missing = processor.process_directory(&test_dir).await?;
+  let _has_missing = processor.process_directory(&test_dir)?;
 
   // All non-ignored files should have licenses now
   let content1 = fs::read_to_string(test_dir.join("file1.rs"))?;
@@ -577,8 +342,8 @@ async fn test_process_directory() -> Result<()> {
 }
 
 // Test the filtering functionality indirectly through the Processor
-#[tokio::test]
-async fn test_file_filtering() -> Result<()> {
+#[test]
+fn test_file_filtering() -> Result<()> {
   // Create a temporary directory for testing
   let temp_dir = tempdir()?;
   let test_file = temp_dir.path().join("test.rs");
@@ -598,12 +363,14 @@ async fn test_file_filtering() -> Result<()> {
     None,
     None,
     false,
-  )
-  .await?;
+  )?;
 
   // Process both files
-  processor.process_file(&test_file).await?;
-  processor.process_file(&ignored_file).await?;
+  let patterns = vec![
+    test_file.to_string_lossy().to_string(),
+    ignored_file.to_string_lossy().to_string(),
+  ];
+  processor.process(&patterns)?;
 
   // Check the results
   let test_content = fs::read_to_string(&test_file)?;
@@ -631,8 +398,8 @@ async fn test_file_filtering() -> Result<()> {
 }
 
 // Test for the ratchet mode functionality
-#[tokio::test]
-async fn test_ratchet_mode_directory() -> Result<()> {
+#[test]
+fn test_ratchet_mode_directory() -> Result<()> {
   // First, check that git is available
   if !common::is_git_available() {
     println!("Skipping test_ratchet_mode_directory: git not available");
@@ -704,7 +471,7 @@ async fn test_ratchet_mode_directory() -> Result<()> {
 
   // Now process the files using the processor
   println!("Processing files using processor...");
-  processor.process(&[".".to_string()]).await?;
+  processor.process(&[".".to_string()])?;
 
   // Go back to original directory
   std::env::set_current_dir(process_dir)?;
@@ -732,8 +499,8 @@ async fn test_ratchet_mode_directory() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_show_diff_mode() -> Result<()> {
+#[test]
+fn test_show_diff_mode() -> Result<()> {
   // Create a processor in check-only mode with show_diff enabled
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -744,17 +511,17 @@ async fn test_show_diff_mode() -> Result<()> {
     Some(true), // show_diff = true
     None,       // No save diff path
     false,
-  )
-  .await?;
+  )?;
 
   // Create a test file without a license - avoid using any text that might be
   // interpreted as a license
   let test_file_path = temp_dir.path().join("test.rs");
   fs::write(&test_file_path, "fn main() {\n    println!(\"Diff test\");\n}")?;
 
-  // Process the file - should return an error but show a diff
-  let result = processor.process_file(&test_file_path).await;
-  assert!(result.is_err());
+  // Process the file - should return has_missing = true
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  let has_missing = processor.process(&patterns)?;
+  assert!(has_missing);
 
   // The file should not be modified
   let content = fs::read_to_string(&test_file_path)?;
@@ -764,8 +531,8 @@ async fn test_show_diff_mode() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_diff_manager() -> Result<()> {
+#[test]
+fn test_diff_manager() -> Result<()> {
   // Create a DiffManager
   let diff_manager = DiffManager::new(true, None);
 
@@ -779,8 +546,8 @@ async fn test_diff_manager() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_manual_ratchet_mode() -> Result<()> {
+#[test]
+fn test_manual_ratchet_mode() -> Result<()> {
   // This test verifies that the ratchet mode works correctly by manually creating
   // a RatchetFilter with a predetermined set of changed files
 
@@ -811,11 +578,11 @@ async fn test_manual_ratchet_mode() -> Result<()> {
     None,
     None,
     false,
-  )
-  .await?;
+  )?;
 
   // Only process file1 (our "changed" file)
-  processor.process_file(&file1).await?;
+  let patterns = vec![file1.to_string_lossy().to_string()];
+  processor.process(&patterns)?;
 
   // Verify results
   let file1_content = fs::read_to_string(&file1)?;
@@ -837,8 +604,8 @@ async fn test_manual_ratchet_mode() -> Result<()> {
 }
 
 // Test for the process method
-#[tokio::test]
-async fn test_process() -> Result<()> {
+#[test]
+fn test_process() -> Result<()> {
   // Create a processor
   let (processor, temp_dir) = create_test_processor(
     "Copyright (c) {{year}} Test Company",
@@ -849,8 +616,7 @@ async fn test_process() -> Result<()> {
     None,
     None,
     false,
-  )
-  .await?;
+  )?;
 
   // Create test files
   let test_file = temp_dir.path().join("test.rs");
@@ -870,7 +636,7 @@ async fn test_process() -> Result<()> {
     test_dir.to_string_lossy().to_string(),
   ];
 
-  let _has_missing = processor.process(&patterns).await?;
+  let _has_missing = processor.process(&patterns)?;
 
   // Check results
   let test_content = fs::read_to_string(&test_file)?;

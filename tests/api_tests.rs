@@ -8,8 +8,8 @@ use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
-#[tokio::test]
-async fn test_public_api() -> Result<()> {
+#[test]
+fn test_public_api() -> Result<()> {
   // Create a temporary directory for our test
   let temp_dir = tempdir()?;
 
@@ -41,7 +41,8 @@ async fn test_public_api() -> Result<()> {
   ))?;
 
   // Process a single file
-  processor.process_file(&test_file_path).await?;
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  processor.process(&patterns)?;
 
   // Verify the license was added
   let content = fs::read_to_string(&test_file_path)?;
@@ -59,7 +60,7 @@ async fn test_public_api() -> Result<()> {
   fs::write(&file2_path, "def test2():\n    pass")?;
 
   // Process the directory
-  let has_missing = processor.process_directory(&test_dir).await?;
+  let has_missing = processor.process_directory(&test_dir)?;
   assert!(!has_missing);
 
   // Verify licenses were added to all files
@@ -71,14 +72,14 @@ async fn test_public_api() -> Result<()> {
 
   // Test the process method with patterns
   let patterns = vec![test_dir.to_string_lossy().to_string()];
-  let has_missing = processor.process(&patterns).await?;
+  let has_missing = processor.process(&patterns)?;
   assert!(!has_missing);
 
   Ok(())
 }
 
-#[tokio::test]
-async fn test_api_with_check_only() -> Result<()> {
+#[test]
+fn test_api_with_check_only() -> Result<()> {
   // Create a temporary directory for our test
   let temp_dir = tempdir()?;
 
@@ -111,13 +112,15 @@ async fn test_api_with_check_only() -> Result<()> {
     ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
   })?;
 
-  // Process the file with license - should succeed
-  let result = processor.process_file(&file_with_license).await;
-  assert!(result.is_ok());
+  // Process the file with license - should succeed (no missing)
+  let patterns = vec![file_with_license.to_string_lossy().to_string()];
+  let has_missing = processor.process(&patterns)?;
+  assert!(!has_missing);
 
-  // Process the file without license - should fail
-  let result = processor.process_file(&file_without_license).await;
-  assert!(result.is_err());
+  // Process the file without license - should return has_missing = true
+  let patterns = vec![file_without_license.to_string_lossy().to_string()];
+  let has_missing = processor.process(&patterns)?;
+  assert!(has_missing);
 
   // Process both files with patterns
   let patterns = vec![
@@ -125,14 +128,14 @@ async fn test_api_with_check_only() -> Result<()> {
     file_without_license.to_string_lossy().to_string(),
   ];
 
-  let has_missing = processor.process(&patterns).await?;
+  let has_missing = processor.process(&patterns)?;
   assert!(has_missing);
 
   Ok(())
 }
 
-#[tokio::test]
-async fn test_template_rendering_api() -> Result<()> {
+#[test]
+fn test_template_rendering_api() -> Result<()> {
   // Create a temporary directory for our test
   let temp_dir = tempdir()?;
 
@@ -173,8 +176,8 @@ async fn test_template_rendering_api() -> Result<()> {
   Ok(())
 }
 
-#[tokio::test]
-async fn test_show_diff_mode() -> Result<()> {
+#[test]
+fn test_show_diff_mode() -> Result<()> {
   // Create a temporary directory for our test
   let temp_dir = tempdir()?;
 
@@ -205,9 +208,10 @@ async fn test_show_diff_mode() -> Result<()> {
     ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
   })?;
 
-  // Process the file - should fail but show diff
-  let result = processor.process_file(&test_file_path).await;
-  assert!(result.is_err());
+  // Process the file - should return has_missing = true but show diff
+  let patterns = vec![test_file_path.to_string_lossy().to_string()];
+  let has_missing = processor.process(&patterns)?;
+  assert!(has_missing);
 
   // The file should not be modified
   let content = fs::read_to_string(&test_file_path)?;
