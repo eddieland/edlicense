@@ -118,11 +118,11 @@ impl DiffManager {
       match file_result {
         Ok(mut file) => {
           if let Err(e) = file.write_all(diff_content.as_bytes()) {
-            eprintln!("Error writing to diff file: {}", e);
+            tracing::warn!("Error writing to diff file: {}", e);
           }
         }
         Err(e) => {
-          eprintln!("Error opening diff file: {}", e);
+          tracing::warn!("Error opening diff file: {}", e);
         }
       }
     }

@@ -32,7 +32,7 @@ use crate::file_filter::{ExtensionFilter, FileFilter, FilterResult, IgnoreFilter
 use crate::git::RatchetOptions;
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
-use crate::report::{FileAction, FileReport};
+use crate::report::FileReport;
 use crate::templates::{LicenseData, TemplateManager};
 use crate::{git, info_log};
 
@@ -144,7 +144,7 @@ pub struct Processor {
   collect_report_data: bool,
 
   /// License detector for checking if files have license headers
-  license_detector: Arc<Box<dyn LicenseDetector + Send + Sync>>,
+  license_detector: Arc<dyn LicenseDetector + Send + Sync>,
 
   /// Cache for ignore managers to avoid redundant .licenseignore file loading
   ignore_manager_cache: Arc<Mutex<HashMap<PathBuf, IgnoreManager>>>,
@@ -200,9 +200,10 @@ impl Processor {
 
     let diff_manager = config.diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
-    let license_detector = config
-      .license_detector
-      .unwrap_or_else(|| Box::new(SimpleLicenseDetector::new()));
+    let license_detector: Arc<dyn LicenseDetector + Send + Sync> = match config.license_detector {
+      Some(detector) => Arc::from(detector),
+      None => Arc::new(SimpleLicenseDetector::new()),
+    };
 
     // Determine ratchet options based on --ratchet-committed-only flag
     let ratchet_options = if config.ratchet_committed_only {
@@ -229,7 +230,7 @@ impl Processor {
       files_processed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
       file_reports: Arc::new(Mutex::new(Vec::new())),
       collect_report_data: true, // Enable report data collection by default
-      license_detector: Arc::new(license_detector),
+      license_detector,
       ignore_manager_cache: Arc::new(Mutex::new(HashMap::new())),
       git_only: config.git_only,
       ratchet_reference: config.ratchet_reference,
@@ -238,6 +239,20 @@ impl Processor {
       content_transformer,
       file_collector,
     })
+  }
+
+  /// Gets or creates an ignore manager for a directory, using a cache for efficiency.
+  fn get_or_create_ignore_manager(&self, parent_dir: &Path) -> Result<IgnoreManager> {
+    let mut cache = self.ignore_manager_cache.lock().expect("mutex poisoned");
+    if let Some(cached) = cache.get(parent_dir) {
+      trace!("Using cached ignore manager for: {}", parent_dir.display());
+      return Ok(cached.clone());
+    }
+    trace!("Creating new ignore manager for: {}", parent_dir.display());
+    let mut manager = self.ignore_manager.clone();
+    manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
+    cache.insert(parent_dir.to_path_buf(), manager.clone());
+    Ok(manager)
   }
 
   /// Checks if a file should be processed based on both the ignore filter
@@ -313,7 +328,7 @@ impl Processor {
               }
             }
             Err(e) => {
-              eprintln!("Error with glob pattern: {}", e);
+              tracing::warn!("Error with glob pattern: {}", e);
             }
           }
         }
@@ -434,19 +449,13 @@ impl Processor {
             if metadata.file_type().is_symlink() {
               trace!("Skipping: {} (symlink)", p.display());
               if self.collect_report_data {
-                local_reports.push(FileReport {
-                  path: p.to_path_buf(),
-                  has_license: false,
-                  action_taken: Some(FileAction::Skipped),
-                  ignored: true,
-                  ignored_reason: Some("Symlink".to_string()),
-                });
+                local_reports.push(FileReport::skipped(p.to_path_buf(), "Symlink"));
               }
               return false;
             }
           }
-          Err(_) => {
-            // Can't stat the file, skip it
+          Err(e) => {
+            trace!("Skipping file due to stat error: {} - {}", p.display(), e);
             return false;
           }
         }
@@ -459,21 +468,19 @@ impl Processor {
               trace!("Skipping: {} ({})", p.display(), reason_display);
 
               if self.collect_report_data {
-                let file_report = FileReport {
-                  path: p.to_path_buf(),
-                  has_license: false,
-                  action_taken: Some(FileAction::Skipped),
-                  ignored: true,
-                  ignored_reason: result.reason,
-                };
-
-                local_reports.push(file_report);
+                local_reports.push(FileReport::skipped(
+                  p.to_path_buf(),
+                  result.reason.unwrap_or_else(|| "Unknown reason".to_string()),
+                ));
               }
 
               return false;
             }
           }
-          Err(_) => return false,
+          Err(e) => {
+            trace!("Skipping file due to filter error: {} - {}", p.display(), e);
+            return false;
+          }
         }
 
         // Then check the extension filter if present
@@ -485,21 +492,19 @@ impl Processor {
                 trace!("Skipping: {} ({})", p.display(), reason_display);
 
                 if self.collect_report_data {
-                  let file_report = FileReport {
-                    path: p.to_path_buf(),
-                    has_license: false,
-                    action_taken: Some(FileAction::Skipped),
-                    ignored: true,
-                    ignored_reason: result.reason,
-                  };
-
-                  local_reports.push(file_report);
+                  local_reports.push(FileReport::skipped(
+                    p.to_path_buf(),
+                    result.reason.unwrap_or_else(|| "Unknown reason".to_string()),
+                  ));
                 }
 
                 return false;
               }
             }
-            Err(_) => return false,
+            Err(e) => {
+              trace!("Skipping file due to extension filter error: {} - {}", p.display(), e);
+              return false;
+            }
           }
         }
 
@@ -507,13 +512,10 @@ impl Processor {
         if !self.template_manager.can_handle_file_type(p) {
           trace!("Skipping: {} (no comment style defined for extension)", p.display());
           if self.collect_report_data {
-            local_reports.push(FileReport {
-              path: p.to_path_buf(),
-              has_license: false,
-              action_taken: Some(FileAction::Skipped),
-              ignored: true,
-              ignored_reason: Some("No comment style defined for extension".to_string()),
-            });
+            local_reports.push(FileReport::skipped(
+              p.to_path_buf(),
+              "No comment style defined for extension",
+            ));
           }
           return false;
         }
@@ -595,7 +597,7 @@ impl Processor {
         if self.check_only && e.to_string().contains("Missing license header") {
           has_missing = true;
         } else {
-          eprintln!("Error processing {}: {}", path.display(), e);
+          tracing::warn!("Error processing {}: {}", path.display(), e);
           has_missing = true;
         }
       }
@@ -648,13 +650,10 @@ impl Processor {
           let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
             trace!("Skipping: {} (no comment style defined for extension)", path.display());
             if self.collect_report_data {
-              batch_reports.push(FileReport {
-                path: path.to_path_buf(),
-                has_license: false,
-                action_taken: Some(FileAction::Skipped),
-                ignored: true,
-                ignored_reason: Some("No comment style defined for extension".to_string()),
-              });
+              batch_reports.push(FileReport::skipped(
+                path.to_path_buf(),
+                "No comment style defined for extension",
+              ));
             }
             return Ok(());
           };
@@ -663,18 +662,12 @@ impl Processor {
           let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
 
           if let Err(e) = self.diff_manager.display_diff(path, &content, &new_content) {
-            eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
+            tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
           }
         }
 
         if self.collect_report_data {
-          batch_reports.push(FileReport {
-            path: path.to_path_buf(),
-            has_license,
-            action_taken: None,
-            ignored: false,
-            ignored_reason: None,
-          });
+          batch_reports.push(FileReport::missing(path.to_path_buf()));
         }
 
         return Err(anyhow::anyhow!("Missing license header"));
@@ -684,39 +677,17 @@ impl Processor {
           if (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())
             && let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref())
           {
-            eprintln!("Warning: Failed to display diff for {}: {}", path.display(), e);
+            tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
           }
 
           if self.collect_report_data {
-            batch_reports.push(FileReport {
-              path: path.to_path_buf(),
-              has_license,
-              action_taken: Some(FileAction::YearUpdated),
-              ignored: false,
-              ignored_reason: None,
-            });
+            batch_reports.push(FileReport::year_updated(path.to_path_buf()));
           }
-        } else {
-          if self.collect_report_data {
-            batch_reports.push(FileReport {
-              path: path.to_path_buf(),
-              has_license,
-              action_taken: Some(FileAction::NoActionNeeded),
-              ignored: false,
-              ignored_reason: None,
-            });
-          }
+        } else if self.collect_report_data {
+          batch_reports.push(FileReport::ok(path.to_path_buf()));
         }
-      } else {
-        if self.collect_report_data {
-          batch_reports.push(FileReport {
-            path: path.to_path_buf(),
-            has_license,
-            action_taken: Some(FileAction::NoActionNeeded),
-            ignored: false,
-            ignored_reason: None,
-          });
-        }
+      } else if self.collect_report_data {
+        batch_reports.push(FileReport::ok(path.to_path_buf()));
       }
       return Ok(());
     }
@@ -729,35 +700,13 @@ impl Processor {
           info_log!("Updated year in: {}", path.display());
 
           if self.collect_report_data {
-            batch_reports.push(FileReport {
-              path: path.to_path_buf(),
-              has_license: true,
-              action_taken: Some(FileAction::YearUpdated),
-              ignored: false,
-              ignored_reason: None,
-            });
+            batch_reports.push(FileReport::year_updated(path.to_path_buf()));
           }
-        } else {
-          if self.collect_report_data {
-            batch_reports.push(FileReport {
-              path: path.to_path_buf(),
-              has_license: true,
-              action_taken: Some(FileAction::NoActionNeeded),
-              ignored: false,
-              ignored_reason: None,
-            });
-          }
+        } else if self.collect_report_data {
+          batch_reports.push(FileReport::ok(path.to_path_buf()));
         }
-      } else {
-        if self.collect_report_data {
-          batch_reports.push(FileReport {
-            path: path.to_path_buf(),
-            has_license: true,
-            action_taken: Some(FileAction::NoActionNeeded),
-            ignored: false,
-            ignored_reason: None,
-          });
-        }
+      } else if self.collect_report_data {
+        batch_reports.push(FileReport::ok(path.to_path_buf()));
       }
     } else {
       let license_text = match self.template_manager.render(&self.license_data) {
@@ -768,13 +717,10 @@ impl Processor {
       let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
         trace!("Skipping: {} (no comment style defined for extension)", path.display());
         if self.collect_report_data {
-          batch_reports.push(FileReport {
-            path: path.to_path_buf(),
-            has_license: false,
-            action_taken: Some(FileAction::Skipped),
-            ignored: true,
-            ignored_reason: Some("No comment style defined for extension".to_string()),
-          });
+          batch_reports.push(FileReport::skipped(
+            path.to_path_buf(),
+            "No comment style defined for extension",
+          ));
         }
         return Ok(());
       };
@@ -792,13 +738,7 @@ impl Processor {
       info_log!("Added license to: {}", path.display());
 
       if self.collect_report_data {
-        batch_reports.push(FileReport {
-          path: path.to_path_buf(),
-          has_license: true,
-          action_taken: Some(FileAction::Added),
-          ignored: false,
-          ignored_reason: None,
-        });
+        batch_reports.push(FileReport::added(path.to_path_buf()));
       }
     }
 
@@ -816,13 +756,7 @@ impl Processor {
           if metadata.file_type().is_symlink() {
             trace!("Skipping: {} (symlink)", path.display());
             if self.collect_report_data {
-              local_reports.push(FileReport {
-                path: path.to_path_buf(),
-                has_license: false,
-                action_taken: Some(FileAction::Skipped),
-                ignored: true,
-                ignored_reason: Some("Symlink".to_string()),
-              });
+              local_reports.push(FileReport::skipped(path.to_path_buf(), "Symlink"));
             }
             continue;
           }
@@ -838,35 +772,17 @@ impl Processor {
       if let Some(parent_dir) = absolute_path.parent()
         && parent_dir.exists()
       {
-        let ignore_manager = {
-          let mut cache = self.ignore_manager_cache.lock().expect("mutex poisoned");
-
-          if let Some(cached_manager) = cache.get(parent_dir) {
-            trace!("Using cached ignore manager for: {}", parent_dir.display());
-            cached_manager.clone()
-          } else {
-            trace!("Creating new ignore manager for: {}", parent_dir.display());
-            let mut new_manager = self.ignore_manager.clone();
-            new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
-            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
-            new_manager
-          }
-        };
+        let ignore_manager = self.get_or_create_ignore_manager(parent_dir)?;
 
         if ignore_manager.is_ignored(&absolute_path) {
           trace!("Skipping: {} (matches .licenseignore pattern)", path.display());
           ignored = true;
 
           if self.collect_report_data {
-            let file_report = FileReport {
-              path: path.to_path_buf(),
-              has_license: false,
-              action_taken: Some(FileAction::Skipped),
-              ignored: true,
-              ignored_reason: Some("Matches .licenseignore pattern".to_string()),
-            };
-
-            local_reports.push(file_report);
+            local_reports.push(FileReport::skipped(
+              path.to_path_buf(),
+              "Matches .licenseignore pattern",
+            ));
           }
         }
       }
@@ -931,7 +847,7 @@ impl Processor {
               }
             }
             Err(e) => {
-              eprintln!("Error with glob pattern: {}", e);
+              tracing::warn!("Error with glob pattern: {}", e);
             }
           }
         }
@@ -959,7 +875,10 @@ impl Processor {
             continue;
           }
         }
-        Err(_) => continue,
+        Err(e) => {
+          trace!("Skipping file due to stat error: {} - {}", path.display(), e);
+          continue;
+        }
       }
 
       match filter.should_process(&path) {
@@ -968,7 +887,10 @@ impl Processor {
             continue;
           }
         }
-        Err(_) => continue,
+        Err(e) => {
+          trace!("Skipping file due to filter error: {} - {}", path.display(), e);
+          continue;
+        }
       }
 
       if let Some(ref ext_filter) = self.extension_filter {
@@ -978,7 +900,14 @@ impl Processor {
               continue;
             }
           }
-          Err(_) => continue,
+          Err(e) => {
+            trace!(
+              "Skipping file due to extension filter error: {} - {}",
+              path.display(),
+              e
+            );
+            continue;
+          }
         }
       }
 
@@ -1019,18 +948,7 @@ impl Processor {
       if let Some(parent_dir) = absolute_path.parent()
         && parent_dir.exists()
       {
-        let ignore_manager = {
-          let mut cache = self.ignore_manager_cache.lock().expect("mutex poisoned");
-
-          if let Some(cached_manager) = cache.get(parent_dir) {
-            cached_manager.clone()
-          } else {
-            let mut new_manager = self.ignore_manager.clone();
-            new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
-            cache.insert(parent_dir.to_path_buf(), new_manager.clone());
-            new_manager
-          }
-        };
+        let ignore_manager = self.get_or_create_ignore_manager(parent_dir)?;
 
         if ignore_manager.is_ignored(&absolute_path) {
           continue;
@@ -1067,18 +985,7 @@ impl Processor {
     if let Some(parent_dir) = absolute_path.parent()
       && parent_dir.exists()
     {
-      let ignore_manager = {
-        let mut cache = self.ignore_manager_cache.lock().expect("mutex poisoned");
-
-        if let Some(cached_manager) = cache.get(parent_dir) {
-          cached_manager.clone()
-        } else {
-          let mut new_manager = self.ignore_manager.clone();
-          new_manager.load_licenseignore_files(parent_dir, &self.workspace_root)?;
-          cache.insert(parent_dir.to_path_buf(), new_manager.clone());
-          new_manager
-        }
-      };
+      let ignore_manager = self.get_or_create_ignore_manager(parent_dir)?;
 
       if ignore_manager.is_ignored(&absolute_path) {
         return Ok(false);

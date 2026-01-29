@@ -30,6 +30,9 @@ pub trait LicenseDetector: Send + Sync {
 pub struct SimpleLicenseDetector;
 
 impl SimpleLicenseDetector {
+  /// Number of bytes to check at the beginning of files for license headers.
+  const CHECK_LENGTH: usize = 1000;
+
   /// Creates a new DefaultLicenseDetector.
   pub const fn new() -> Self {
     SimpleLicenseDetector
@@ -52,8 +55,8 @@ impl LicenseDetector for SimpleLicenseDetector {
   /// This implementation uses zero-allocation byte-level comparison for
   /// optimal performance.
   fn has_license(&self, content: &str) -> bool {
-    // Take the first 1000 bytes (or less if the file is shorter)
-    let check_len = std::cmp::min(content.len(), 1000);
+    // Take the first CHECK_LENGTH bytes (or less if the file is shorter)
+    let check_len = std::cmp::min(content.len(), Self::CHECK_LENGTH);
     let bytes = content.as_bytes();
     let check_bytes = &bytes[..check_len];
 
@@ -79,6 +82,9 @@ pub struct ContentBasedLicenseDetector {
 }
 
 impl ContentBasedLicenseDetector {
+  /// Default number of bytes to check at the beginning of files.
+  const DEFAULT_CHECK_LENGTH: usize = 2000;
+
   /// Creates a new ContentBasedLicenseDetector.
   ///
   /// # Parameters
@@ -94,7 +100,7 @@ impl ContentBasedLicenseDetector {
     let normalized = Self::normalize_and_replace_years(license_text);
     ContentBasedLicenseDetector {
       normalized_license: normalized,
-      check_length: check_length.unwrap_or(2000),
+      check_length: check_length.unwrap_or(Self::DEFAULT_CHECK_LENGTH),
     }
   }
 
