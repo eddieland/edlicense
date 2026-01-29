@@ -668,8 +668,8 @@ fn test_glob_pattern_matches_in_subdirectories_from_any_working_dir() -> Result<
 ///
 /// This test explicitly names each file to avoid double-processing issues with
 /// glob patterns that match both directories and their contents.
-#[tokio::test]
-async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
+#[test]
+fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
   let original_dir = env::current_dir()?;
 
   let temp_dir = tempdir()?;
@@ -722,7 +722,7 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
     "subdir1/subdir2/code.rs".to_string(),
   ];
 
-  let _result = processor.process(&files_to_process).await?;
+  let _result = processor.process(&files_to_process)?;
 
   let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
   assert_eq!(
@@ -752,7 +752,7 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
   // Process files from subdir2's perspective
   let files_to_process2 = vec!["image2.png".to_string(), "code.rs".to_string()];
 
-  let _result2 = processor2.process(&files_to_process2).await?;
+  let _result2 = processor2.process(&files_to_process2)?;
 
   let files_processed2 = processor2.files_processed.load(std::sync::atomic::Ordering::Relaxed);
   assert_eq!(
@@ -767,8 +767,8 @@ async fn test_processor_ignores_glob_pattern_in_subdirectories() -> Result<()> {
 
 /// Regression test: process_directory should skip PNG files in subdirectories
 /// when `*.png` is in root .licenseignore.
-#[tokio::test]
-async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Result<()> {
+#[test]
+fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Result<()> {
   let original_dir = env::current_dir()?;
 
   let temp_dir = tempdir()?;
@@ -812,7 +812,7 @@ async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Resu
   })?;
 
   // Process the entire directory tree
-  let _result = processor.process_directory(root).await?;
+  let _result = processor.process_directory(root)?;
 
   let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
   // Expected: 1 file processed - code.rs
@@ -830,8 +830,8 @@ async fn test_process_directory_ignores_glob_pattern_in_subdirectories() -> Resu
 }
 
 /// Test that explicitly named files still respect .licenseignore patterns
-#[tokio::test]
-async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
+#[test]
+fn test_explicit_file_names_with_licenseignore() -> Result<()> {
   // Save the original working directory
   let original_dir = env::current_dir()?;
   println!("Original working directory: {:?}", original_dir);
@@ -884,9 +884,7 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   // Process the TOML file directly by name - it should still be ignored
   println!("Processing TOML file: {:?}", toml_file_path);
-  let toml_result = processor
-    .process(&[toml_file_path.to_string_lossy().to_string()])
-    .await?;
+  let toml_result = processor.process(&[toml_file_path.to_string_lossy().to_string()])?;
   println!("TOML file processing result: {}", toml_result);
 
   // Check if files_processed was incremented
@@ -943,9 +941,7 @@ async fn test_explicit_file_names_with_licenseignore() -> Result<()> {
 
   // Process the rust file
   println!("Processing Rust file: {:?}", rust_file_path);
-  let rust_result = rust_processor
-    .process(&[rust_file_path.to_string_lossy().to_string()])
-    .await?;
+  let rust_result = rust_processor.process(&[rust_file_path.to_string_lossy().to_string()])?;
   println!("Rust file processing result: {}", rust_result);
 
   // Check if files_processed was incremented for the rust file
@@ -1370,8 +1366,8 @@ fn test_compound_directory_pattern_variations() -> Result<()> {
 
 /// Integration test: Processor respects compound extension patterns deeply
 /// nested
-#[tokio::test]
-async fn test_processor_compound_extension_deeply_nested() -> Result<()> {
+#[test]
+fn test_processor_compound_extension_deeply_nested() -> Result<()> {
   let original_dir = env::current_dir()?;
 
   let temp_dir = tempdir()?;
@@ -1417,7 +1413,7 @@ async fn test_processor_compound_extension_deeply_nested() -> Result<()> {
     "src/components/forms/validators/schema.ts".to_string(),
   ];
 
-  processor.process(&files_to_process).await?;
+  processor.process(&files_to_process)?;
 
   let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -1433,8 +1429,8 @@ async fn test_processor_compound_extension_deeply_nested() -> Result<()> {
 }
 
 /// Integration test: Processor respects compound directory patterns
-#[tokio::test]
-async fn test_processor_compound_directory_patterns() -> Result<()> {
+#[test]
+fn test_processor_compound_directory_patterns() -> Result<()> {
   let original_dir = env::current_dir()?;
 
   let temp_dir = tempdir()?;
@@ -1481,7 +1477,7 @@ async fn test_processor_compound_directory_patterns() -> Result<()> {
     "src/main.rs".to_string(),
   ];
 
-  processor.process(&files_to_process).await?;
+  processor.process(&files_to_process)?;
 
   let files_processed = processor.files_processed.load(std::sync::atomic::Ordering::Relaxed);
 

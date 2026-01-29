@@ -12,7 +12,7 @@ use edlicense::templates::{LicenseData, TemplateManager};
 use tempfile::tempdir;
 
 /// Helper function to create a test processor
-async fn create_test_processor(
+fn create_test_processor(
   template_content: &str,
   ignore_patterns: Vec<String>,
   check_only: bool,
@@ -44,7 +44,7 @@ async fn create_test_processor(
 }
 
 /// Helper function to create a test processor with git-only mode
-async fn create_test_processor_with_git(
+fn create_test_processor_with_git(
   template_content: &str,
   ignore_patterns: Vec<String>,
   check_only: bool,
@@ -171,15 +171,14 @@ fn generate_test_files(dir: &Path, count: usize, with_license: bool, file_size_b
 }
 
 /// Helper function to run a performance test and print results
-async fn run_performance_test<F, Fut>(name: &str, test_fn: F) -> Result<Duration>
+fn run_performance_test<F>(name: &str, test_fn: F) -> Result<Duration>
 where
-  F: FnOnce() -> Fut,
-  Fut: std::future::Future<Output = Result<()>>,
+  F: FnOnce() -> Result<()>,
 {
   println!("\n=== Running performance test: {} ===", name);
 
   let start = Instant::now();
-  test_fn().await?;
+  test_fn()?;
   let duration = start.elapsed();
 
   println!("Test '{}' completed in {:.2?}", name, duration);
@@ -187,16 +186,15 @@ where
 }
 
 /// Performance test for adding licenses to a large number of files
-#[tokio::test]
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_add_license_performance() -> Result<()> {
+fn test_add_license_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size_bytes = 1_000; // 1KB per file
 
   // Create processor and test directory
-  let (processor, temp_dir) =
-    create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+  let (processor, temp_dir) = create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
 
   // Generate test files without licenses
   let test_dir = temp_dir.path().join("perf_test_add");
@@ -206,11 +204,10 @@ async fn test_add_license_performance() -> Result<()> {
   generate_test_files(&test_dir, file_count, false, file_size_bytes)?;
 
   // Run the performance test
-  run_performance_test("Add License to 10K Files", || async {
-    let _ = processor.process_directory(&test_dir).await?;
+  run_performance_test("Add License to 10K Files", || {
+    let _ = processor.process_directory(&test_dir)?;
     Ok(())
-  })
-  .await?;
+  })?;
 
   // Verify a sample of files to ensure licenses were added
   let sample_file = test_dir.join("subdir_0").join("test_file_0.rs");
@@ -221,9 +218,9 @@ async fn test_add_license_performance() -> Result<()> {
 }
 
 /// Performance test for updating license years in a large number of files
-#[tokio::test]
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_update_year_performance() -> Result<()> {
+fn test_update_year_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size_bytes = 1_000; // 1KB per file
@@ -235,8 +232,7 @@ async fn test_update_year_performance() -> Result<()> {
     false,
     false, // preserve_years = false to ensure years are updated
     None,
-  )
-  .await?;
+  )?;
 
   // Generate test files with outdated licenses
   let test_dir = temp_dir.path().join("perf_test_update");
@@ -246,11 +242,10 @@ async fn test_update_year_performance() -> Result<()> {
   generate_test_files(&test_dir, file_count, true, file_size_bytes)?;
 
   // Run the performance test
-  run_performance_test("Update year in 10K Files", || async {
-    let _ = processor.process_directory(&test_dir).await?;
+  run_performance_test("Update year in 10K Files", || {
+    let _ = processor.process_directory(&test_dir)?;
     Ok(())
-  })
-  .await?;
+  })?;
 
   // Verify a sample of files to ensure years were updated
   let sample_file = test_dir.join("subdir_0").join("test_file_0.rs");
@@ -262,9 +257,9 @@ async fn test_update_year_performance() -> Result<()> {
 }
 
 /// Performance test for checking license headers in a large number of files
-#[tokio::test]
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_check_license_performance() -> Result<()> {
+fn test_check_license_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size_bytes = 1_000; // 1KB per file
@@ -276,8 +271,7 @@ async fn test_check_license_performance() -> Result<()> {
     true, // check_only = true
     false,
     None,
-  )
-  .await?;
+  )?;
 
   // Generate test files with licenses (half with, half without)
   let test_dir = temp_dir.path().join("perf_test_check");
@@ -292,12 +286,11 @@ async fn test_check_license_performance() -> Result<()> {
   generate_test_files(&without_license_dir, file_count / 2, false, file_size_bytes)?;
 
   // Run the performance test
-  let result = run_performance_test("Check License in 10K Files", || async {
+  let result = run_performance_test("Check License in 10K Files", || {
     // We expect this to return an error since some files don't have licenses
-    let _ = processor.process_directory(&test_dir).await;
+    let _ = processor.process_directory(&test_dir);
     Ok(())
-  })
-  .await;
+  });
 
   // We expect the test to complete, even if the processor returns an error
   assert!(result.is_ok());
@@ -306,9 +299,9 @@ async fn test_check_license_performance() -> Result<()> {
 }
 
 /// Performance test with different file sizes
-#[tokio::test]
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_file_size_impact() -> Result<()> {
+fn test_file_size_impact() -> Result<()> {
   // Test with different file sizes
   let file_sizes = [1_000, 10_000, 100_000]; // 1KB, 10KB, 100KB
   let file_count = 1_000; // Use fewer files for larger sizes
@@ -318,7 +311,7 @@ async fn test_file_size_impact() -> Result<()> {
   for &size in &file_sizes {
     // Create processor and test directory
     let (processor, temp_dir) =
-      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+      create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
 
     let test_dir = temp_dir.path().join(format!("size_test_{}", size));
     fs::create_dir_all(&test_dir)?;
@@ -327,52 +320,41 @@ async fn test_file_size_impact() -> Result<()> {
     generate_test_files(&test_dir, file_count, false, size)?;
 
     let test_name = format!("Process {}KB files ({})", size / 1_000, file_count);
-    run_performance_test(&test_name, || async {
-      let _ = processor.process_directory(&test_dir).await?;
+    run_performance_test(&test_name, || {
+      let _ = processor.process_directory(&test_dir)?;
       Ok(())
-    })
-    .await?;
+    })?;
   }
 
   Ok(())
 }
 
-/// Performance test with tokio runtime
-/// Note: To test different concurrency levels, set the TOKIO_WORKER_THREADS
-/// environment variable before running the test
-#[tokio::test]
+/// Performance test with rayon parallelism
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_tokio_runtime_performance() -> Result<()> {
-  // Get the current tokio worker threads setting if available
-  let worker_threads = match env::var("TOKIO_WORKER_THREADS") {
-    Ok(val) => match val.parse::<usize>() {
-      Ok(n) => n,
-      Err(_) => 4, // Default to 4 if parsing fails
-    },
-    Err(_) => 4, // Default to 4 if env var not set
-  };
+fn test_rayon_runtime_performance() -> Result<()> {
+  // Get the current rayon thread pool size
+  let thread_count = rayon::current_num_threads();
 
   let file_count = 5_000;
   let file_size = 1_000; // 1KB
 
-  println!("\n=== Testing with tokio worker threads: {} ===", worker_threads);
+  println!("\n=== Testing with rayon threads: {} ===", thread_count);
 
   // Create processor and test directory
-  let (processor, temp_dir) =
-    create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+  let (processor, temp_dir) = create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
 
-  let test_dir = temp_dir.path().join(format!("tokio_test_{}", worker_threads));
+  let test_dir = temp_dir.path().join(format!("rayon_test_{}", thread_count));
   fs::create_dir_all(&test_dir)?;
 
   println!("Setting up test environment...");
   generate_test_files(&test_dir, file_count, false, file_size)?;
 
-  let test_name = format!("Process with {} worker threads", worker_threads);
-  run_performance_test(&test_name, || async {
-    let _ = processor.process_directory(&test_dir).await?;
+  let test_name = format!("Process with {} rayon threads", thread_count);
+  run_performance_test(&test_name, || {
+    let _ = processor.process_directory(&test_dir)?;
     Ok(())
-  })
-  .await?;
+  })?;
 
   Ok(())
 }
@@ -525,9 +507,9 @@ fn apply_commit_changes(files: &[PathBuf], commit_index: usize, change_count: us
 /// This test simulates a repository where most files already have correct
 /// licenses, and only a small percentage need to be fixed (more typical of
 /// real-world usage).
-#[tokio::test]
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_realistic_repository_performance() -> Result<()> {
+fn test_realistic_repository_performance() -> Result<()> {
   // Configuration
   let file_count = 10_000;
   let file_size = 1_000; // 1KB
@@ -542,8 +524,7 @@ async fn test_realistic_repository_performance() -> Result<()> {
   println!("\n=== Testing performance with realistic repository conditions ===");
 
   // Create processor and test directory
-  let (processor, temp_dir) =
-    create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None).await?;
+  let (processor, temp_dir) = create_test_processor("Copyright (c) {{year}} Test Company", vec![], false, false, None)?;
 
   let test_dir = temp_dir.path().join("realistic_test");
   fs::create_dir_all(&test_dir)?;
@@ -558,11 +539,10 @@ async fn test_realistic_repository_performance() -> Result<()> {
   )?;
 
   let test_name = "Realistic repository processing";
-  run_performance_test(test_name, || async {
-    let _ = processor.process_directory(&test_dir).await?;
+  run_performance_test(test_name, || {
+    let _ = processor.process_directory(&test_dir)?;
     Ok(())
-  })
-  .await?;
+  })?;
 
   Ok(())
 }
@@ -576,9 +556,9 @@ async fn test_realistic_repository_performance() -> Result<()> {
 /// - MONOREPO_CHANGE_PER_COMMIT (default 50)
 /// - MONOREPO_RATCHET_COMMITS_BACK (default 20)
 /// - MONOREPO_CHECK_ONLY (default true)
-#[tokio::test]
+#[test]
 #[ignore] // Ignore by default as it's a long-running test
-async fn test_monorepo_git_history_benchmark() -> Result<()> {
+fn test_monorepo_git_history_benchmark() -> Result<()> {
   if !common::is_git_available() {
     println!("Skipping test_monorepo_git_history_benchmark: git not available");
     return Ok(());
@@ -647,14 +627,12 @@ async fn test_monorepo_git_history_benchmark() -> Result<()> {
     Some(ratchet_ref),
     true,
     repo_dir.clone(),
-  )
-  .await?;
+  )?;
 
-  let result = run_performance_test(&test_name, || async {
-    let _ = processor.process_directory(&repo_dir).await?;
+  let result = run_performance_test(&test_name, || {
+    let _ = processor.process_directory(&repo_dir)?;
     Ok(())
-  })
-  .await;
+  });
 
   std::env::set_current_dir(original_dir)?;
 
@@ -674,9 +652,9 @@ async fn test_monorepo_git_history_benchmark() -> Result<()> {
 /// - FILTER_BENCH_MAX_FILES (default 100000) - max files to test
 /// - FILTER_BENCH_STEP (default 10000) - step size between test points
 /// - FILTER_BENCH_ITERATIONS (default 10) - iterations per measurement
-#[tokio::test]
+#[test]
 #[ignore]
-async fn test_file_filter_benchmark() -> Result<()> {
+fn test_file_filter_benchmark() -> Result<()> {
   use std::time::Instant;
 
   use glob::Pattern;
