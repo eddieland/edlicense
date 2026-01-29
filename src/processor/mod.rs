@@ -612,20 +612,6 @@ impl Processor {
     // Read file prefix
     let (prefix_bytes, prefix_content, file_len) = FileIO::read_license_check_prefix(path)?;
 
-    // Skip empty files
-    if file_len == 0 {
-      if self.collect_report_data {
-        batch_reports.push(FileReport {
-          path: path.to_path_buf(),
-          has_license: false,
-          action_taken: Some(FileAction::Skipped),
-          ignored: true,
-          ignored_reason: Some("Empty file".to_string()),
-        });
-      }
-      return Ok(());
-    }
-
     let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
     let has_license = self.has_license(&prefix_content);
     let needs_full_content = if self.check_only {
@@ -794,7 +780,13 @@ impl Processor {
       };
 
       let (prefix, content_remainder) = self.content_transformer.extract_prefix(&content);
-      let new_content = format!("{}{}{}", prefix, formatted_license, content_remainder);
+      // For empty files, don't include the trailing blank line separator
+      let license_to_use = if content_remainder.trim().is_empty() {
+        formatted_license.trim_end().to_string() + "\n"
+      } else {
+        formatted_license
+      };
+      let new_content = format!("{}{}{}", prefix, license_to_use, content_remainder);
 
       FileIO::write_file(path, &new_content)?;
       info_log!("Added license to: {}", path.display());

@@ -209,7 +209,7 @@ fn test_file_replaced_with_directory() -> Result<()> {
 }
 
 /// Test that empty files are handled appropriately.
-/// Empty files are skipped by the processor (no license can be added to empty content).
+/// Empty files can receive license headers just like any other file.
 #[test]
 fn test_empty_file_handling() -> Result<()> {
   let temp_dir = tempdir()?;
@@ -220,14 +220,14 @@ fn test_empty_file_handling() -> Result<()> {
   // Create an empty file
   fs::write(&file_path, "")?;
 
-  // Processing empty file should succeed (file is skipped)
+  // Processing empty file should succeed and add license
   let patterns = vec![file_path.to_string_lossy().to_string()];
   let result = processor.process(&patterns);
   assert!(result.is_ok(), "Empty files should be handled gracefully");
 
-  // Empty files are skipped, not modified
+  // Empty files now get a license added
   let content = fs::read_to_string(&file_path)?;
-  assert!(content.is_empty(), "Empty file should remain empty (skipped)");
+  assert!(content.contains("// Copyright"), "Empty file should have license added");
 
   Ok(())
 }

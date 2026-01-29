@@ -31,13 +31,16 @@ fn test_empty_file() -> Result<()> {
     temp_dir.path().to_path_buf(),
   ))?;
 
-  // Process the empty file - should be skipped
+  // Process the empty file - license should be added
   let patterns = vec![empty_file_path.to_string_lossy().to_string()];
   processor.process(&patterns)?;
 
-  // Empty files are skipped, so they remain empty
+  // Empty files now get a license added
   let content = fs::read_to_string(&empty_file_path)?;
-  assert!(content.is_empty() || content.contains("// Copyright (c) 2025 Test Company"));
+  assert!(
+    content.contains("// Copyright (c) 2025 Test Company"),
+    "Empty file should have license added"
+  );
 
   Ok(())
 }
