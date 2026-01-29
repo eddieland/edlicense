@@ -223,19 +223,6 @@ impl FileFilter for ExtensionFilter {
   }
 }
 
-/// Constructs an IgnoreFilter using the provided ignore patterns.
-///
-/// # Parameters
-///
-/// * `ignore_patterns` - Glob patterns for files to ignore
-///
-/// # Returns
-///
-/// A new IgnoreFilter with the specified ignore patterns.
-pub fn create_default_filter(ignore_patterns: Vec<String>) -> Result<IgnoreFilter> {
-  IgnoreFilter::from_patterns(ignore_patterns)
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
