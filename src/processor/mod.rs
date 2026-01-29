@@ -88,15 +88,6 @@ impl ProcessorConfig {
   }
 }
 
-/// Passthrough filter that allows all files.
-struct PassthroughFilter;
-
-impl FileFilter for PassthroughFilter {
-  fn should_process(&self, _path: &Path) -> Result<FilterResult> {
-    Ok(FilterResult::process())
-  }
-}
-
 /// Processor for handling license operations on files.
 ///
 /// The `Processor` is responsible for:
@@ -275,6 +266,73 @@ impl Processor {
     Ok(FilterResult::process())
   }
 
+  /// Determines if a file should be skipped during processing.
+  ///
+  /// Returns `Some(reason)` if the file should be skipped, `None` if it should be processed.
+  /// This consolidates the common filtering logic used by `process_files_with_filter`
+  /// and `filter_files_with_filter_sync`.
+  fn should_skip_file(&self, path: &Path, filter: Option<&dyn FileFilter>) -> Option<String> {
+    // Skip symlinks - use symlink_metadata to check without following
+    match std::fs::symlink_metadata(path) {
+      Ok(metadata) => {
+        if metadata.file_type().is_symlink() {
+          trace!("Skipping: {} (symlink)", path.display());
+          return Some("Symlink".to_string());
+        }
+      }
+      Err(e) => {
+        trace!("Skipping file due to stat error: {} - {}", path.display(), e);
+        return Some(format!("Stat error: {}", e));
+      }
+    }
+
+    // Check the passed-in filter if provided
+    if let Some(f) = filter {
+      match f.should_process(path) {
+        Ok(result) => {
+          if !result.should_process {
+            let reason = result.reason.unwrap_or_else(|| "Unknown reason".to_string());
+            trace!("Skipping: {} ({})", path.display(), reason);
+            return Some(reason);
+          }
+        }
+        Err(e) => {
+          trace!("Skipping file due to filter error: {} - {}", path.display(), e);
+          return Some(format!("Filter error: {}", e));
+        }
+      }
+    }
+
+    // Check the extension filter if present
+    if let Some(ref ext_filter) = self.extension_filter {
+      match ext_filter.should_process(path) {
+        Ok(result) => {
+          if !result.should_process {
+            let reason = result.reason.unwrap_or_else(|| "Unknown reason".to_string());
+            trace!("Skipping: {} ({})", path.display(), reason);
+            return Some(reason);
+          }
+        }
+        Err(e) => {
+          trace!(
+            "Skipping file due to extension filter error: {} - {}",
+            path.display(),
+            e
+          );
+          return Some(format!("Extension filter error: {}", e));
+        }
+      }
+    }
+
+    // Skip files with no defined comment style (unknown extensions)
+    if !self.template_manager.can_handle_file_type(path) {
+      trace!("Skipping: {} (no comment style defined for extension)", path.display());
+      return Some("No comment style defined for extension".to_string());
+    }
+
+    None
+  }
+
   /// Processes a list of file or directory patterns.
   ///
   /// This is the main entry point for processing files. It handles:
@@ -344,7 +402,7 @@ impl Processor {
     let filter_with_licenseignore = self
       .file_filter
       .with_licenseignore_files(&self.workspace_root, &self.workspace_root)?;
-    self.process_files_with_filter(files, &filter_with_licenseignore)
+    self.process_files_with_filter(files, Some(&filter_with_licenseignore as &dyn FileFilter))
   }
 
   /// Process files from a pre-collected list (git-only/ratchet mode).
@@ -353,8 +411,7 @@ impl Processor {
   /// avoid repeating the git operation.
   pub fn process_collected(&self, files: Vec<PathBuf>) -> Result<bool> {
     let files = self.filter_files_with_ignore_context(files)?;
-    let passthrough_filter = PassthroughFilter;
-    self.process_files_with_filter(files, &passthrough_filter)
+    self.process_files_with_filter(files, None)
   }
 
   pub const fn should_use_git_list(&self) -> bool {
@@ -424,13 +481,13 @@ impl Processor {
     // Create a filter that includes .licenseignore patterns from the directory
     let filter_with_licenseignore = self.file_filter.with_licenseignore_files(dir, &self.workspace_root)?;
 
-    self.process_files_with_filter(all_files, &filter_with_licenseignore)
+    self.process_files_with_filter(all_files, Some(&filter_with_licenseignore as &dyn FileFilter))
   }
 
   /// Batch size for processing files to reduce overhead.
   const BATCH_SIZE: usize = 8;
 
-  fn process_files_with_filter(&self, files: Vec<PathBuf>, filter: &dyn FileFilter) -> Result<bool> {
+  fn process_files_with_filter(&self, files: Vec<PathBuf>, filter: Option<&dyn FileFilter>) -> Result<bool> {
     if files.is_empty() {
       debug!("No files to process");
       return Ok(false);
@@ -438,88 +495,17 @@ impl Processor {
 
     let mut local_reports = Vec::with_capacity(1000);
 
-    // Filter files using the file_filter directly
+    // Filter files using should_skip_file helper
     let filter_start = std::time::Instant::now();
     let files: Vec<_> = files
       .into_iter()
       .filter(|p| {
-        // Skip symlinks - use symlink_metadata to check without following
-        match std::fs::symlink_metadata(p) {
-          Ok(metadata) => {
-            if metadata.file_type().is_symlink() {
-              trace!("Skipping: {} (symlink)", p.display());
-              if self.collect_report_data {
-                local_reports.push(FileReport::skipped(p.to_path_buf(), "Symlink"));
-              }
-              return false;
-            }
-          }
-          Err(e) => {
-            trace!("Skipping file due to stat error: {} - {}", p.display(), e);
-            return false;
-          }
-        }
-
-        // Check the passed-in filter first
-        match filter.should_process(p) {
-          Ok(result) => {
-            if !result.should_process {
-              let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
-              trace!("Skipping: {} ({})", p.display(), reason_display);
-
-              if self.collect_report_data {
-                local_reports.push(FileReport::skipped(
-                  p.to_path_buf(),
-                  result.reason.unwrap_or_else(|| "Unknown reason".to_string()),
-                ));
-              }
-
-              return false;
-            }
-          }
-          Err(e) => {
-            trace!("Skipping file due to filter error: {} - {}", p.display(), e);
-            return false;
-          }
-        }
-
-        // Then check the extension filter if present
-        if let Some(ref ext_filter) = self.extension_filter {
-          match ext_filter.should_process(p) {
-            Ok(result) => {
-              if !result.should_process {
-                let reason_display = result.reason.as_deref().unwrap_or("Unknown reason");
-                trace!("Skipping: {} ({})", p.display(), reason_display);
-
-                if self.collect_report_data {
-                  local_reports.push(FileReport::skipped(
-                    p.to_path_buf(),
-                    result.reason.unwrap_or_else(|| "Unknown reason".to_string()),
-                  ));
-                }
-
-                return false;
-              }
-            }
-            Err(e) => {
-              trace!("Skipping file due to extension filter error: {} - {}", p.display(), e);
-              return false;
-            }
-          }
-        }
-
-        // Skip files with no defined comment style (unknown extensions)
-        if !self.template_manager.can_handle_file_type(p) {
-          trace!("Skipping: {} (no comment style defined for extension)", p.display());
+        if let Some(reason) = self.should_skip_file(p, filter) {
           if self.collect_report_data {
-            local_reports.push(FileReport::skipped(
-              p.to_path_buf(),
-              "No comment style defined for extension",
-            ));
+            local_reports.push(FileReport::skipped(p.to_path_buf(), reason));
           }
           return false;
         }
-
         true
       })
       .collect();
@@ -606,142 +592,163 @@ impl Processor {
     (batch_reports, has_missing)
   }
 
+  /// Renders the license template formatted for the given file type.
+  ///
+  /// Returns `Ok(Some(formatted_license))` on success, `Ok(None)` if the file type
+  /// has no comment style defined, or `Err` if template rendering fails.
+  fn render_formatted_license(&self, path: &Path) -> Result<Option<String>> {
+    let license_text = self
+      .template_manager
+      .render(&self.license_data)
+      .map_err(|e| anyhow::anyhow!("Failed to render license template: {}", e))?;
+
+    Ok(self.template_manager.format_for_file_type(&license_text, path))
+  }
+
+  /// Handles year update logic for files that already have licenses.
+  ///
+  /// Returns the report to add, or None if no report should be added.
+  fn handle_year_update(&self, path: &Path, content: &str, write_changes: bool, show_diff: bool) -> Result<FileReport> {
+    if self.preserve_years {
+      return Ok(FileReport::ok(path.to_path_buf()));
+    }
+
+    let updated_content = self.content_transformer.update_year_in_license(content)?;
+    if updated_content == content {
+      return Ok(FileReport::ok(path.to_path_buf()));
+    }
+
+    // Year needs updating
+    if show_diff && let Err(e) = self.diff_manager.display_diff(path, content, updated_content.as_ref()) {
+      tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
+    }
+
+    if write_changes {
+      FileIO::write_file(path, updated_content.as_ref())?;
+      info_log!("Updated year in: {}", path.display());
+    }
+
+    Ok(FileReport::year_updated(path.to_path_buf()))
+  }
+
   /// Process a single file, collecting reports locally.
   fn process_single_file(&self, path: &Path, batch_reports: &mut Vec<FileReport>) -> Result<()> {
-    // Increment the files processed counter
     self.files_processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    // Read file prefix
     let (prefix_bytes, prefix_content, file_len) = FileIO::read_license_check_prefix(path)?;
-
-    let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
     let has_license = self.has_license(&prefix_content);
+    let diff_requested = self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some();
+
+    // Determine if we need full content beyond the prefix
     let needs_full_content = if self.check_only {
-      if !has_license {
-        diff_requested
-      } else {
-        !self.preserve_years && diff_requested
-      }
-    } else if has_license {
-      !self.preserve_years
+      diff_requested && (!has_license || !self.preserve_years)
     } else {
-      true
+      !has_license || !self.preserve_years
     };
 
-    // Only read full content if needed
-    let content = if needs_full_content && prefix_bytes.len() as u64 >= file_len {
-      // We already have all the content from the prefix read
-      prefix_content
-    } else if needs_full_content {
+    let content = if needs_full_content && (prefix_bytes.len() as u64) < file_len {
       FileIO::read_full_content(path)?
     } else {
       prefix_content
     };
 
+    // Check-only mode
     if self.check_only {
-      if !has_license {
-        // Generate diffs if show_diff is enabled or save_diff_path is provided
-        if self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some() {
-          let license_text = match self.template_manager.render(&self.license_data) {
-            Ok(text) => text,
-            Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
-          };
+      return self.process_file_check_only(path, has_license, &content, diff_requested, batch_reports);
+    }
 
-          let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
-            trace!("Skipping: {} (no comment style defined for extension)", path.display());
-            if self.collect_report_data {
-              batch_reports.push(FileReport::skipped(
-                path.to_path_buf(),
-                "No comment style defined for extension",
-              ));
-            }
-            return Ok(());
-          };
+    // Modify mode
+    self.process_file_modify(path, has_license, &content, batch_reports)
+  }
 
-          let (prefix, content_without_prefix) = self.content_transformer.extract_prefix(&content);
-          let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
-
-          if let Err(e) = self.diff_manager.display_diff(path, &content, &new_content) {
-            tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
-          }
-        }
-
-        if self.collect_report_data {
-          batch_reports.push(FileReport::missing(path.to_path_buf()));
-        }
-
-        return Err(anyhow::anyhow!("Missing license header"));
-      } else if !self.preserve_years {
-        let updated_content = self.content_transformer.update_year_in_license(&content)?;
-        if updated_content != content {
-          if (self.diff_manager.show_diff || self.diff_manager.save_diff_path.is_some())
-            && let Err(e) = self.diff_manager.display_diff(path, &content, updated_content.as_ref())
-          {
-            tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
-          }
-
+  /// Process a file in check-only mode.
+  fn process_file_check_only(
+    &self,
+    path: &Path,
+    has_license: bool,
+    content: &str,
+    diff_requested: bool,
+    batch_reports: &mut Vec<FileReport>,
+  ) -> Result<()> {
+    if !has_license {
+      // Show diff if requested
+      if diff_requested {
+        let Some(formatted_license) = self.render_formatted_license(path)? else {
+          trace!("Skipping: {} (no comment style defined for extension)", path.display());
           if self.collect_report_data {
-            batch_reports.push(FileReport::year_updated(path.to_path_buf()));
+            batch_reports.push(FileReport::skipped(
+              path.to_path_buf(),
+              "No comment style defined for extension",
+            ));
           }
-        } else if self.collect_report_data {
-          batch_reports.push(FileReport::ok(path.to_path_buf()));
+          return Ok(());
+        };
+
+        let (prefix, content_without_prefix) = self.content_transformer.extract_prefix(content);
+        let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
+
+        if let Err(e) = self.diff_manager.display_diff(path, content, &new_content) {
+          tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
         }
-      } else if self.collect_report_data {
-        batch_reports.push(FileReport::ok(path.to_path_buf()));
+      }
+
+      if self.collect_report_data {
+        batch_reports.push(FileReport::missing(path.to_path_buf()));
+      }
+      return Err(anyhow::anyhow!("Missing license header"));
+    }
+
+    // Has license - check for year update
+    let report = self.handle_year_update(path, content, false, diff_requested)?;
+    if self.collect_report_data {
+      batch_reports.push(report);
+    }
+    Ok(())
+  }
+
+  /// Process a file in modify mode.
+  fn process_file_modify(
+    &self,
+    path: &Path,
+    has_license: bool,
+    content: &str,
+    batch_reports: &mut Vec<FileReport>,
+  ) -> Result<()> {
+    if has_license {
+      let report = self.handle_year_update(path, content, true, false)?;
+      if self.collect_report_data {
+        batch_reports.push(report);
       }
       return Ok(());
     }
 
-    if has_license {
-      if !self.preserve_years {
-        let updated_content = self.content_transformer.update_year_in_license(&content)?;
-        if updated_content != content {
-          FileIO::write_file(path, updated_content.as_ref())?;
-          info_log!("Updated year in: {}", path.display());
-
-          if self.collect_report_data {
-            batch_reports.push(FileReport::year_updated(path.to_path_buf()));
-          }
-        } else if self.collect_report_data {
-          batch_reports.push(FileReport::ok(path.to_path_buf()));
-        }
-      } else if self.collect_report_data {
-        batch_reports.push(FileReport::ok(path.to_path_buf()));
-      }
-    } else {
-      let license_text = match self.template_manager.render(&self.license_data) {
-        Ok(text) => text,
-        Err(e) => return Err(anyhow::anyhow!("Failed to render license template: {}", e)),
-      };
-
-      let Some(formatted_license) = self.template_manager.format_for_file_type(&license_text, path) else {
-        trace!("Skipping: {} (no comment style defined for extension)", path.display());
-        if self.collect_report_data {
-          batch_reports.push(FileReport::skipped(
-            path.to_path_buf(),
-            "No comment style defined for extension",
-          ));
-        }
-        return Ok(());
-      };
-
-      let (prefix, content_remainder) = self.content_transformer.extract_prefix(&content);
-      // For empty files, don't include the trailing blank line separator
-      let license_to_use = if content_remainder.trim().is_empty() {
-        formatted_license.trim_end().to_string() + "\n"
-      } else {
-        formatted_license
-      };
-      let new_content = format!("{}{}{}", prefix, license_to_use, content_remainder);
-
-      FileIO::write_file(path, &new_content)?;
-      info_log!("Added license to: {}", path.display());
-
+    // No license - add one
+    let Some(formatted_license) = self.render_formatted_license(path)? else {
+      trace!("Skipping: {} (no comment style defined for extension)", path.display());
       if self.collect_report_data {
-        batch_reports.push(FileReport::added(path.to_path_buf()));
+        batch_reports.push(FileReport::skipped(
+          path.to_path_buf(),
+          "No comment style defined for extension",
+        ));
       }
-    }
+      return Ok(());
+    };
 
+    let (prefix, content_remainder) = self.content_transformer.extract_prefix(content);
+    let license_to_use = if content_remainder.trim().is_empty() {
+      // For empty files, don't include the trailing blank line separator
+      formatted_license.trim_end().to_string() + "\n"
+    } else {
+      formatted_license
+    };
+    let new_content = format!("{}{}{}", prefix, license_to_use, content_remainder);
+
+    FileIO::write_file(path, &new_content)?;
+    info_log!("Added license to: {}", path.display());
+
+    if self.collect_report_data {
+      batch_reports.push(FileReport::added(path.to_path_buf()));
+    }
     Ok(())
   }
 
@@ -869,53 +876,9 @@ impl Processor {
     let mut filtered = Vec::with_capacity(files.len());
 
     for path in files {
-      match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-          if metadata.file_type().is_symlink() {
-            continue;
-          }
-        }
-        Err(e) => {
-          trace!("Skipping file due to stat error: {} - {}", path.display(), e);
-          continue;
-        }
+      if self.should_skip_file(&path, Some(filter)).is_none() {
+        filtered.push(path);
       }
-
-      match filter.should_process(&path) {
-        Ok(result) => {
-          if !result.should_process {
-            continue;
-          }
-        }
-        Err(e) => {
-          trace!("Skipping file due to filter error: {} - {}", path.display(), e);
-          continue;
-        }
-      }
-
-      if let Some(ref ext_filter) = self.extension_filter {
-        match ext_filter.should_process(&path) {
-          Ok(result) => {
-            if !result.should_process {
-              continue;
-            }
-          }
-          Err(e) => {
-            trace!(
-              "Skipping file due to extension filter error: {} - {}",
-              path.display(),
-              e
-            );
-            continue;
-          }
-        }
-      }
-
-      if !self.template_manager.can_handle_file_type(&path) {
-        continue;
-      }
-
-      filtered.push(path);
     }
 
     Ok(filtered)

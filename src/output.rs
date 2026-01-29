@@ -30,6 +30,96 @@ pub mod symbols {
 /// Maximum number of files to show in the default output before truncating
 const DEFAULT_FILE_LIST_LIMIT: usize = 20;
 
+/// Configuration for how to display a file list.
+struct FileListConfig<'a> {
+  /// Format string for the header, with placeholders: {symbol}, {count}, {files_word}
+  header_format: &'a str,
+  /// Symbol to display (e.g., SUCCESS, FAILURE, UPDATED)
+  symbol: &'a str,
+  /// Color function to apply to the symbol
+  color: FileListColor,
+  /// Whether to print simple paths in quiet mode (for scripting)
+  quiet_mode_simple: bool,
+}
+
+/// Color options for file list output.
+enum FileListColor {
+  Red,
+  Yellow,
+  Green,
+}
+
+impl FileListColor {
+  fn apply(&self, text: &str) -> String {
+    match self {
+      Self::Red => text.if_supports_color(Stream::Stdout, |s| s.red()).to_string(),
+      Self::Yellow => text.if_supports_color(Stream::Stdout, |s| s.yellow()).to_string(),
+      Self::Green => text.if_supports_color(Stream::Stdout, |s| s.green()).to_string(),
+    }
+  }
+}
+
+/// Print a list of files with a header.
+///
+/// Common helper for print_missing_files, print_outdated_files, print_added_files, print_updated_files.
+fn print_file_list(
+  files: &[&FileReport],
+  workspace_root: Option<&Path>,
+  config: &FileListConfig<'_>,
+  limit: Option<usize>,
+) {
+  if files.is_empty() {
+    return;
+  }
+
+  // Sort files alphabetically by path
+  let mut sorted_files: Vec<_> = files.to_vec();
+  sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
+
+  if is_quiet() {
+    if config.quiet_mode_simple {
+      // In quiet mode, just print the file paths (for scripting)
+      for file in &sorted_files {
+        let display_path = make_relative_path(&file.path, workspace_root);
+        println!("{}", display_path);
+      }
+    }
+    return;
+  }
+
+  let count = sorted_files.len();
+  let files_word = if count == 1 { "file" } else { "files" };
+
+  // Build header by replacing placeholders
+  let header = config
+    .header_format
+    .replace("{symbol}", &config.color.apply(config.symbol))
+    .replace("{count}", &count.to_string())
+    .replace("{files_word}", files_word);
+  println!("{}", header);
+
+  let show_all = is_verbose();
+  let effective_limit = if show_all {
+    count
+  } else {
+    limit.unwrap_or(DEFAULT_FILE_LIST_LIMIT)
+  };
+
+  for file in sorted_files.iter().take(effective_limit) {
+    let display_path = make_relative_path(&file.path, workspace_root);
+    println!("  {}", display_path);
+  }
+
+  if !show_all && count > effective_limit {
+    let remaining = count - effective_limit;
+    println!(
+      "  {} ... and {} more (use -v to see all)",
+      "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
+      remaining
+    );
+  }
+}
+
 /// Print the initial "Checking N files..." or "Processing N files..." message.
 ///
 /// - In modify mode: "Processing N files..."
@@ -58,52 +148,17 @@ pub fn print_blank_line() {
 /// In verbose mode, shows all files.
 /// Files are sorted alphabetically by path.
 pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>, limit: Option<usize>) {
-  if files.is_empty() {
-    return;
-  }
-
-  // Sort files alphabetically by path
-  let mut sorted_files: Vec<_> = files.to_vec();
-  sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
-
-  if is_quiet() {
-    // In quiet mode, just print the file paths (for scripting)
-    for file in &sorted_files {
-      let display_path = make_relative_path(&file.path, workspace_root);
-      println!("{}", display_path);
-    }
-    return;
-  }
-
-  let count = sorted_files.len();
-  let header = format!(
-    "{} {} {} missing license headers:",
-    symbols::FAILURE.if_supports_color(Stream::Stdout, |s| s.red()),
-    count,
-    if count == 1 { "file" } else { "files" }
+  print_file_list(
+    files,
+    workspace_root,
+    &FileListConfig {
+      header_format: "{symbol} {count} {files_word} missing license headers:",
+      symbol: symbols::FAILURE,
+      color: FileListColor::Red,
+      quiet_mode_simple: true,
+    },
+    limit,
   );
-  println!("{}", header);
-
-  let show_all = is_verbose();
-  let effective_limit = if show_all {
-    count
-  } else {
-    limit.unwrap_or(DEFAULT_FILE_LIST_LIMIT)
-  };
-
-  for file in sorted_files.iter().take(effective_limit) {
-    let display_path = make_relative_path(&file.path, workspace_root);
-    println!("  {}", display_path);
-  }
-
-  if !show_all && count > effective_limit {
-    let remaining = count - effective_limit;
-    println!(
-      "  {} ... and {} more (use -v to see all)",
-      "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
-      remaining
-    );
-  }
 }
 
 /// Print the list of files with outdated license years.
@@ -112,118 +167,47 @@ pub fn print_missing_files(files: &[&FileReport], workspace_root: Option<&Path>,
 /// In verbose mode, shows all files.
 /// Files are sorted alphabetically by path.
 pub fn print_outdated_files(files: &[&FileReport], workspace_root: Option<&Path>, limit: Option<usize>) {
-  if files.is_empty() {
-    return;
-  }
-
-  // Sort files alphabetically by path
-  let mut sorted_files: Vec<_> = files.to_vec();
-  sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
-
-  if is_quiet() {
-    // In quiet mode, just print the file paths (for scripting)
-    for file in &sorted_files {
-      let display_path = make_relative_path(&file.path, workspace_root);
-      println!("{}", display_path);
-    }
-    return;
-  }
-
-  let count = sorted_files.len();
-  let header = format!(
-    "{} {} {} with outdated year:",
-    symbols::UPDATED.if_supports_color(Stream::Stdout, |s| s.yellow()),
-    count,
-    if count == 1 { "file" } else { "files" }
+  print_file_list(
+    files,
+    workspace_root,
+    &FileListConfig {
+      header_format: "{symbol} {count} {files_word} with outdated year:",
+      symbol: symbols::UPDATED,
+      color: FileListColor::Yellow,
+      quiet_mode_simple: true,
+    },
+    limit,
   );
-  println!("{}", header);
-
-  let show_all = is_verbose();
-  let effective_limit = if show_all {
-    count
-  } else {
-    limit.unwrap_or(DEFAULT_FILE_LIST_LIMIT)
-  };
-
-  for file in sorted_files.iter().take(effective_limit) {
-    let display_path = make_relative_path(&file.path, workspace_root);
-    println!("  {}", display_path);
-  }
-
-  if !show_all && count > effective_limit {
-    let remaining = count - effective_limit;
-    println!(
-      "  {} ... and {} more (use -v to see all)",
-      "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
-      remaining
-    );
-  }
 }
 
 /// Print the list of files that had licenses added.
 pub fn print_added_files(files: &[&FileReport], workspace_root: Option<&Path>) {
-  if is_quiet() || files.is_empty() {
-    return;
-  }
-
-  let count = files.len();
-  let header = format!(
-    "{} Added license to {} {}:",
-    symbols::SUCCESS.if_supports_color(Stream::Stdout, |s| s.green()),
-    count,
-    if count == 1 { "file" } else { "files" }
+  print_file_list(
+    files,
+    workspace_root,
+    &FileListConfig {
+      header_format: "{symbol} Added license to {count} {files_word}:",
+      symbol: symbols::SUCCESS,
+      color: FileListColor::Green,
+      quiet_mode_simple: false,
+    },
+    None,
   );
-  println!("{}", header);
-
-  let show_all = is_verbose();
-  let limit = if show_all { count } else { DEFAULT_FILE_LIST_LIMIT };
-
-  for file in files.iter().take(limit) {
-    let display_path = make_relative_path(&file.path, workspace_root);
-    println!("  {}", display_path);
-  }
-
-  if !show_all && count > limit {
-    let remaining = count - limit;
-    println!(
-      "  {} ... and {} more (use -v to see all)",
-      "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
-      remaining
-    );
-  }
 }
 
 /// Print the list of files that had years updated.
 pub fn print_updated_files(files: &[&FileReport], workspace_root: Option<&Path>) {
-  if is_quiet() || files.is_empty() {
-    return;
-  }
-
-  let count = files.len();
-  let header = format!(
-    "{} Updated year in {} {}:",
-    symbols::UPDATED.if_supports_color(Stream::Stdout, |s| s.yellow()),
-    count,
-    if count == 1 { "file" } else { "files" }
+  print_file_list(
+    files,
+    workspace_root,
+    &FileListConfig {
+      header_format: "{symbol} Updated year in {count} {files_word}:",
+      symbol: symbols::UPDATED,
+      color: FileListColor::Yellow,
+      quiet_mode_simple: false,
+    },
+    None,
   );
-  println!("{}", header);
-
-  let show_all = is_verbose();
-  let limit = if show_all { count } else { DEFAULT_FILE_LIST_LIMIT };
-
-  for file in files.iter().take(limit) {
-    let display_path = make_relative_path(&file.path, workspace_root);
-    println!("  {}", display_path);
-  }
-
-  if !show_all && count > limit {
-    let remaining = count - limit;
-    println!(
-      "  {} ... and {} more (use -v to see all)",
-      "".if_supports_color(Stream::Stdout, |s| s.dimmed()),
-      remaining
-    );
-  }
 }
 
 /// Print the success message when all files have license headers.
