@@ -28,7 +28,31 @@ use rayon::prelude::*;
 use tracing::{debug, trace};
 
 use crate::diff::DiffManager;
-use crate::file_filter::{ExtensionFilter, FileFilter, FilterResult, IgnoreFilter, create_default_filter};
+use crate::file_filter::{ExtensionFilter, FileFilter, FilterResult, IgnoreFilter};
+
+/// Returns true if path is a symlink or cannot be stat'd.
+fn is_symlink_or_inaccessible(path: &Path) -> bool {
+  match std::fs::symlink_metadata(path) {
+    Ok(metadata) => metadata.file_type().is_symlink(),
+    Err(_) => true,
+  }
+}
+
+/// Checks a filter and returns Some(reason) if the file should be skipped.
+fn check_filter(path: &Path, filter: &dyn FileFilter, filter_name: &str) -> Option<String> {
+  match filter.should_process(path) {
+    Ok(result) if !result.should_process => {
+      let reason = result.reason.unwrap_or_else(|| "Unknown reason".to_string());
+      trace!("Skipping: {} ({})", path.display(), reason);
+      Some(reason)
+    }
+    Ok(_) => None,
+    Err(e) => {
+      trace!("Skipping file due to {} error: {} - {}", filter_name, path.display(), e);
+      Some(format!("{} error: {}", filter_name, e))
+    }
+  }
+}
 use crate::git::RatchetOptions;
 use crate::ignore::IgnoreManager;
 use crate::license_detection::{LicenseDetector, SimpleLicenseDetector};
@@ -187,7 +211,7 @@ impl Processor {
     let ignore_manager = IgnoreManager::new(config.ignore_patterns.clone())?;
 
     // Create a composite file filter with all filtering conditions
-    let file_filter = create_default_filter(config.ignore_patterns)?;
+    let file_filter = IgnoreFilter::from_patterns(config.ignore_patterns)?;
 
     let diff_manager = config.diff_manager.unwrap_or_else(|| DiffManager::new(false, None));
 
@@ -246,6 +270,14 @@ impl Processor {
     Ok(manager)
   }
 
+  /// Extends the file reports collection with local reports if report collection is enabled.
+  fn extend_reports(&self, local_reports: Vec<FileReport>) {
+    if self.collect_report_data && !local_reports.is_empty() {
+      let mut reports = self.file_reports.lock().expect("mutex poisoned");
+      reports.extend(local_reports);
+    }
+  }
+
   /// Checks if a file should be processed based on both the ignore filter
   /// and the optional extension filter.
   fn should_process_file(&self, path: &Path) -> Result<FilterResult> {
@@ -272,56 +304,24 @@ impl Processor {
   /// This consolidates the common filtering logic used by `process_files_with_filter`
   /// and `filter_files_with_filter_sync`.
   fn should_skip_file(&self, path: &Path, filter: Option<&dyn FileFilter>) -> Option<String> {
-    // Skip symlinks - use symlink_metadata to check without following
-    match std::fs::symlink_metadata(path) {
-      Ok(metadata) => {
-        if metadata.file_type().is_symlink() {
-          trace!("Skipping: {} (symlink)", path.display());
-          return Some("Symlink".to_string());
-        }
-      }
-      Err(e) => {
-        trace!("Skipping file due to stat error: {} - {}", path.display(), e);
-        return Some(format!("Stat error: {}", e));
-      }
+    // Skip symlinks and inaccessible files
+    if is_symlink_or_inaccessible(path) {
+      trace!("Skipping: {} (symlink or inaccessible)", path.display());
+      return Some("Symlink or inaccessible".to_string());
     }
 
     // Check the passed-in filter if provided
-    if let Some(f) = filter {
-      match f.should_process(path) {
-        Ok(result) => {
-          if !result.should_process {
-            let reason = result.reason.unwrap_or_else(|| "Unknown reason".to_string());
-            trace!("Skipping: {} ({})", path.display(), reason);
-            return Some(reason);
-          }
-        }
-        Err(e) => {
-          trace!("Skipping file due to filter error: {} - {}", path.display(), e);
-          return Some(format!("Filter error: {}", e));
-        }
-      }
+    if let Some(f) = filter
+      && let Some(reason) = check_filter(path, f, "filter")
+    {
+      return Some(reason);
     }
 
     // Check the extension filter if present
-    if let Some(ref ext_filter) = self.extension_filter {
-      match ext_filter.should_process(path) {
-        Ok(result) => {
-          if !result.should_process {
-            let reason = result.reason.unwrap_or_else(|| "Unknown reason".to_string());
-            trace!("Skipping: {} ({})", path.display(), reason);
-            return Some(reason);
-          }
-        }
-        Err(e) => {
-          trace!(
-            "Skipping file due to extension filter error: {} - {}",
-            path.display(),
-            e
-          );
-          return Some(format!("Extension filter error: {}", e));
-        }
-      }
+    if let Some(ref ext_filter) = self.extension_filter
+      && let Some(reason) = check_filter(path, ext_filter, "extension filter")
+    {
+      return Some(reason);
     }
 
     // Skip files with no defined comment style (unknown extensions)
@@ -518,12 +518,7 @@ impl Processor {
 
     if files.is_empty() {
       debug!("No files to process after filtering");
-
-      if self.collect_report_data && !local_reports.is_empty() {
-        let mut reports = self.file_reports.lock().expect("mutex poisoned");
-        reports.extend(local_reports);
-      }
-
+      self.extend_reports(local_reports);
       return Ok(false);
     }
 
@@ -564,10 +559,7 @@ impl Processor {
       process_start.elapsed().as_millis()
     );
 
-    if self.collect_report_data && !local_reports.is_empty() {
-      let mut reports = self.file_reports.lock().expect("mutex poisoned");
-      reports.extend(local_reports);
-    }
+    self.extend_reports(local_reports);
 
     Ok(has_missing_license)
   }
@@ -757,20 +749,13 @@ impl Processor {
     let mut local_reports = Vec::new();
 
     for path in files {
-      // Skip symlinks
-      match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-          if metadata.file_type().is_symlink() {
-            trace!("Skipping: {} (symlink)", path.display());
-            if self.collect_report_data {
-              local_reports.push(FileReport::skipped(path.to_path_buf(), "Symlink"));
-            }
-            continue;
-          }
+      // Skip symlinks and inaccessible files
+      if is_symlink_or_inaccessible(&path) {
+        trace!("Skipping: {} (symlink or inaccessible)", path.display());
+        if self.collect_report_data {
+          local_reports.push(FileReport::skipped(path.to_path_buf(), "Symlink or inaccessible"));
         }
-        Err(_) => {
-          continue;
-        }
+        continue;
       }
 
       let mut ignored = false;
@@ -799,10 +784,7 @@ impl Processor {
       }
     }
 
-    if self.collect_report_data && !local_reports.is_empty() {
-      let mut reports = self.file_reports.lock().expect("mutex poisoned");
-      reports.extend(local_reports);
-    }
+    self.extend_reports(local_reports);
 
     Ok(filtered)
   }
@@ -888,13 +870,8 @@ impl Processor {
     let mut filtered = Vec::with_capacity(files.len());
 
     for path in files {
-      match std::fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-          if metadata.file_type().is_symlink() {
-            continue;
-          }
-        }
-        Err(_) => continue,
+      if is_symlink_or_inaccessible(&path) {
+        continue;
       }
 
       let filter_result = self.should_process_file(&path)?;
@@ -925,13 +902,8 @@ impl Processor {
   }
 
   fn should_include_file_for_plan(&self, path: &Path) -> Result<bool> {
-    match std::fs::symlink_metadata(path) {
-      Ok(metadata) => {
-        if metadata.file_type().is_symlink() {
-          return Ok(false);
-        }
-      }
-      Err(_) => return Ok(false),
+    if is_symlink_or_inaccessible(path) {
+      return Ok(false);
     }
 
     let absolute_path = absolutize_path(path)?;
