@@ -94,7 +94,7 @@ impl FileCollector {
     while let Some(current_dir) = dirs_to_process.pop_front() {
       let read_dir_result = std::fs::read_dir(&current_dir);
       if let Err(e) = read_dir_result {
-        eprintln!("Error reading directory {}: {}", current_dir.display(), e);
+        tracing::warn!("Error reading directory {}: {}", current_dir.display(), e);
         continue;
       }
 

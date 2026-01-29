@@ -30,6 +30,63 @@ pub struct FileReport {
   pub ignored_reason: Option<String>,
 }
 
+impl FileReport {
+  /// Creates a report for a skipped/ignored file.
+  pub fn skipped(path: PathBuf, reason: impl Into<String>) -> Self {
+    Self {
+      path,
+      has_license: false,
+      action_taken: Some(FileAction::Skipped),
+      ignored: true,
+      ignored_reason: Some(reason.into()),
+    }
+  }
+
+  /// Creates a report for a file missing a license header.
+  pub const fn missing(path: PathBuf) -> Self {
+    Self {
+      path,
+      has_license: false,
+      action_taken: None,
+      ignored: false,
+      ignored_reason: None,
+    }
+  }
+
+  /// Creates a report for a file that already has a correct license.
+  pub const fn ok(path: PathBuf) -> Self {
+    Self {
+      path,
+      has_license: true,
+      action_taken: Some(FileAction::NoActionNeeded),
+      ignored: false,
+      ignored_reason: None,
+    }
+  }
+
+  /// Creates a report for a file where a license was added.
+  pub const fn added(path: PathBuf) -> Self {
+    Self {
+      path,
+      has_license: true,
+      action_taken: Some(FileAction::Added),
+      ignored: false,
+      ignored_reason: None,
+    }
+  }
+
+  /// Creates a report for a file where the year was updated.
+  pub const fn year_updated(path: PathBuf) -> Self {
+    Self {
+      path,
+      has_license: true,
+      action_taken: Some(FileAction::YearUpdated),
+      ignored: false,
+      ignored_reason: None,
+    }
+  }
+}
+
 /// Possible actions taken on a file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

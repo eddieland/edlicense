@@ -428,7 +428,7 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
   if let Some(ref output_path) = args.report_html {
     let report_generator = ReportGenerator::new(ReportFormat::Html, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
-      eprintln!("Error generating HTML report: {}", e);
+      tracing::warn!("Error generating HTML report: {}", e);
     } else {
       info_log!("Generated HTML report at {}", output_path.display());
     }
@@ -438,7 +438,7 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
   if let Some(ref output_path) = args.report_json {
     let report_generator = ReportGenerator::new(ReportFormat::Json, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
-      eprintln!("Error generating JSON report: {}", e);
+      tracing::warn!("Error generating JSON report: {}", e);
     } else {
       info_log!("Generated JSON report at {}", output_path.display());
     }
@@ -448,7 +448,7 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
   if let Some(ref output_path) = args.report_csv {
     let report_generator = ReportGenerator::new(ReportFormat::Csv, output_path);
     if let Err(e) = report_generator.generate(&file_reports, &summary) {
-      eprintln!("Error generating CSV report: {}", e);
+      tracing::warn!("Error generating CSV report: {}", e);
     } else {
       info_log!("Generated CSV report at {}", output_path.display());
     }
