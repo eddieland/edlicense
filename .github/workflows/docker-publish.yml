@@ -50,6 +50,7 @@ jobs:
           echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
           echo "build_revision=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "build_version=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)" >> $GITHUB_OUTPUT
+          echo "git_date=$(git log -1 --format=%cs)" >> $GITHUB_OUTPUT
 
       # Build, test, and push production image
       - name: Build production Docker image
@@ -63,6 +64,8 @@ jobs:
             BUILD_DATE=${{ steps.build_info.outputs.build_date }}
             BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
             BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+            GIT_HASH=${{ steps.vars.outputs.short_sha }}
+            GIT_DATE=${{ steps.build_info.outputs.git_date }}
           tags: |
             local-production-image:latest
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
@@ -97,6 +100,8 @@ jobs:
             BUILD_DATE=${{ steps.build_info.outputs.build_date }}
             BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
             BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+            GIT_HASH=${{ steps.vars.outputs.short_sha }}
+            GIT_DATE=${{ steps.build_info.outputs.git_date }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
@@ -115,6 +120,8 @@ jobs:
             BUILD_DATE=${{ steps.build_info.outputs.build_date }}
             BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
             BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+            GIT_HASH=${{ steps.vars.outputs.short_sha }}
+            GIT_DATE=${{ steps.build_info.outputs.git_date }}
           tags: |
             local-distroless-image:latest
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
@@ -149,6 +156,8 @@ jobs:
             BUILD_DATE=${{ steps.build_info.outputs.build_date }}
             BUILD_REVISION=${{ steps.build_info.outputs.build_revision }}
             BUILD_VERSION=${{ steps.build_info.outputs.build_version }}
+            GIT_HASH=${{ steps.vars.outputs.short_sha }}
+            GIT_DATE=${{ steps.build_info.outputs.git_date }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:distroless-${{ steps.vars.outputs.short_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:distroless-latest

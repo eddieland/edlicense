@@ -7,17 +7,34 @@ fn main() {
 
 fn embed_build_info() {
   // Capture the current Git commit hash for version identification.
-  // Falls back gracefully if Git is unavailable or not in a repository.
-  if let Ok(output) = Command::new("git").args(["rev-parse", "--short", "HEAD"]).output() {
-    let git_hash = String::from_utf8(output.stdout).unwrap_or_default().trim().to_string();
-    println!("cargo:rustc-env=GIT_HASH={git_hash}");
+  // First check for environment variable (useful in Docker builds where .git isn't available),
+  // then fall back to git command.
+  let git_hash = std::env::var("GIT_HASH").ok().filter(|s| !s.is_empty()).or_else(|| {
+    Command::new("git")
+      .args(["rev-parse", "--short", "HEAD"])
+      .output()
+      .ok()
+      .and_then(|o| String::from_utf8(o.stdout).ok())
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty())
+  });
+  if let Some(hash) = git_hash {
+    println!("cargo:rustc-env=GIT_HASH={hash}");
   }
 
   // Capture the commit date in YYYY-MM-DD format.
-  // Falls back gracefully if Git is unavailable.
-  if let Ok(output) = Command::new("git").args(["log", "-1", "--format=%cs"]).output() {
-    let git_date = String::from_utf8(output.stdout).unwrap_or_default().trim().to_string();
-    println!("cargo:rustc-env=GIT_DATE={git_date}");
+  // First check for environment variable, then fall back to git command.
+  let git_date = std::env::var("GIT_DATE").ok().filter(|s| !s.is_empty()).or_else(|| {
+    Command::new("git")
+      .args(["log", "-1", "--format=%cs"])
+      .output()
+      .ok()
+      .and_then(|o| String::from_utf8(o.stdout).ok())
+      .map(|s| s.trim().to_string())
+      .filter(|s| !s.is_empty())
+  });
+  if let Some(date) = git_date {
+    println!("cargo:rustc-env=GIT_DATE={date}");
   }
 }
 
