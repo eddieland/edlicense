@@ -16,7 +16,7 @@ test = false
 anyhow = "1.0"
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive"] }
-clap_complete = "4.5"
+clap_complete = { version = "4.5", features = ["unstable-dynamic"] }
 git2 = { version = "0.20", features = ["vendored-openssl", "vendored-libgit2"] }
 glob = "0.3"
 ignore = "0.4"

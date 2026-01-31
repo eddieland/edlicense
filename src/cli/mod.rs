@@ -6,9 +6,8 @@
 mod check;
 
 pub use check::{CheckArgs, run_check};
-use clap::{CommandFactory, Parser};
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
-use clap_complete::{Generator, Shell, generate};
+use clap::{CommandFactory, Parser};
 
 const CUSTOM_STYLES: Styles = Styles::styled()
   .header(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold())
@@ -73,10 +72,6 @@ fn long_version() -> &'static str {
 "
 )]
 pub struct Cli {
-  /// Generate shell completions for the specified shell
-  #[arg(long, value_name = "SHELL")]
-  pub completions: Option<Shell>,
-
   #[command(flatten)]
   pub check_args: CheckArgs,
 }
@@ -86,16 +81,9 @@ impl Cli {
   pub fn parse_args() -> Self {
     Self::parse()
   }
-}
 
-/// Print shell completions for the given generator
-fn print_completions<G: Generator>(generator: G) {
-  let mut cmd = Cli::command();
-  let name = cmd.get_name().to_string();
-  generate(generator, &mut cmd, name, &mut std::io::stdout());
-}
-
-/// Generate and print shell completions, then exit
-pub fn generate_completions(shell: Shell) {
-  print_completions(shell);
+  /// Get the clap::Command for shell completion generation
+  pub fn command() -> clap::Command {
+    <Self as CommandFactory>::command()
+  }
 }
