@@ -19,16 +19,12 @@ mod workspace;
 
 use anyhow::Result;
 
-use crate::cli::{Cli, generate_completions, run_check};
+use crate::cli::{Cli, run_check};
 
 fn main() -> Result<()> {
+  // Handle shell completions via COMPLETE=<shell> environment variable
+  clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+
   let cli = Cli::parse_args();
-
-  // Handle shell completions first
-  if let Some(shell) = cli.completions {
-    generate_completions(shell);
-    return Ok(());
-  }
-
   run_check(cli.check_args)
 }
