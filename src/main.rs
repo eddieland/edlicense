@@ -22,6 +22,9 @@ use anyhow::Result;
 use crate::cli::{Cli, run_check};
 
 fn main() -> Result<()> {
+  // Handle shell completions via COMPLETE=<shell> environment variable
+  clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+
   let cli = Cli::parse_args();
   run_check(cli.check_args)
 }

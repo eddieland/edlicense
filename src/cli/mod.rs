@@ -6,8 +6,8 @@
 mod check;
 
 pub use check::{CheckArgs, run_check};
-use clap::Parser;
 use clap::builder::styling::{AnsiColor, Color, Style, Styles};
+use clap::{CommandFactory, Parser};
 
 const CUSTOM_STYLES: Styles = Styles::styled()
   .header(Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold())
@@ -80,5 +80,10 @@ impl Cli {
   /// Parse CLI arguments and return the Cli struct
   pub fn parse_args() -> Self {
     Self::parse()
+  }
+
+  /// Get the clap::Command for shell completion generation
+  pub fn command() -> clap::Command {
+    <Self as CommandFactory>::command()
   }
 }
