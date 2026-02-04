@@ -77,3 +77,13 @@ Comment styles are determined by file extension in `templates.rs:get_comment_sty
 - `git.rs`: Interfaces with git via `git2` crate
 - `get_git_tracked_files()`: Returns set of tracked files for `--git-only` mode
 - `get_changed_files(ref)`: Returns files changed since a ref for `--ratchet` mode
+
+### Output Conventions
+
+- **User output (stdout)**: All structured output for the user (file lists, diffs, reports, summaries) goes to stdout. Keep it clean for scripting and piping.
+- **Logging (stderr)**: Use the `tracing` library for all internal/debug logging. Logs go to stderr and are controlled by `RUST_LOG` or CLI verbosity flags. Never print logs to stdout.
+
+### Error Handling Philosophy
+
+- **Fail fast**: For configuration errors (missing config file, invalid config, bad CLI args), fail immediately with a clear error message. Don't silently continue with defaults.
+- **Explicit over implicit**: If the user specifies a config file or option, it must work or error—never silently ignore.
