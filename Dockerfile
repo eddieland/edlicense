@@ -11,6 +11,9 @@ ARG RUST_VERSION=1.92
 ARG BUILD_DATE=unknown
 ARG BUILD_REVISION=unknown
 ARG BUILD_VERSION=dev
+# Git info for embedding in binary version string
+ARG GIT_HASH=
+ARG GIT_DATE=
 
 # Base build stage
 FROM rust:${RUST_VERSION}-slim AS builder
@@ -63,9 +66,13 @@ RUN export MUSL_TARGET=$(cat /tmp/musl_target) && \
 # Copy the actual source code
 COPY . .
 
-# Build the application
+# Re-declare build args for this stage (Docker requires this)
+ARG GIT_HASH
+ARG GIT_DATE
+
+# Build the application with git info passed via environment variables
 RUN export MUSL_TARGET=$(cat /tmp/musl_target) && \
-    cargo build --release --target ${MUSL_TARGET} && \
+    GIT_HASH="${GIT_HASH}" GIT_DATE="${GIT_DATE}" cargo build --release --target ${MUSL_TARGET} && \
     cp target/${MUSL_TARGET}/release/edlicense /usr/local/bin/
 
 # Debug image with full toolchain
