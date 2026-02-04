@@ -13,10 +13,10 @@ use clap::Args;
 use tracing::debug;
 
 use crate::config::{CliOverrides, Config, load_config};
-use crate::license_detection::ContentBasedLicenseDetector;
 use crate::diff::DiffManager;
 use crate::file_filter::ExtensionFilter;
 use crate::info_log;
+use crate::license_detection::ContentBasedLicenseDetector;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::output::{
   CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
@@ -311,17 +311,17 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
     .with_context(|| format!("Failed to load license template from {}", license_file.display()))?;
 
   // Create license detector based on strict mode
-  let license_detector: Option<Box<dyn crate::license_detection::LicenseDetector + Send + Sync>> = if use_strict_detection
-  {
-    debug!("Using strict content-based license detection");
-    // Render the template to get the license text for content-based detection
-    let license_text = template_manager
-      .render(&license_data)
-      .with_context(|| "Failed to render license template for strict detection")?;
-    Some(Box::new(ContentBasedLicenseDetector::new(&license_text, None)))
-  } else {
-    None // Use default SimpleLicenseDetector
-  };
+  let license_detector: Option<Box<dyn crate::license_detection::LicenseDetector + Send + Sync>> =
+    if use_strict_detection {
+      debug!("Using strict content-based license detection");
+      // Render the template to get the license text for content-based detection
+      let license_text = template_manager
+        .render(&license_data)
+        .with_context(|| "Failed to render license template for strict detection")?;
+      Some(Box::new(ContentBasedLicenseDetector::new(&license_text, None)))
+    } else {
+      None // Use default SimpleLicenseDetector
+    };
 
   let processor = Processor::new(ProcessorConfig {
     workspace_is_git: workspace.is_git(),
