@@ -1,6 +1,6 @@
 [package]
 name = "edlicense"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Edward Jones <edwardrjones97@gmail.com>"]
 categories = ["command-line-utilities", "development-tools"]
 description = "A high-performance Rust tool that ensures source code files have copyright license headers. Features Git integration and automatic year updates. Recursively scans codebases with performance optimizations for large projects - a modern alternative to addlicense."
@@ -23,7 +23,7 @@ ignore = "0.4"
 num_cpus = "1.16"
 owo-colors = { version = "4", features = ["supports-colors"] }
 pathdiff = "0.2"
-regex = "1.10"
+regex = "1.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 similar = "2.4"
@@ -36,7 +36,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 assert_cmd = "2.0"
 predicates = "3.0"
 rand = "0.9"
-rand_chacha = "0.9"
+rand_chacha = "0.10"
 tempfile = "3.8"
 
 [profile.release]
