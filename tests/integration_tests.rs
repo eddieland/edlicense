@@ -483,3 +483,92 @@ fn test_git_only_directory_with_parent_dir_segments() -> Result<()> {
 
   Ok(())
 }
+
+/// Test that --ratchet with --modify only adds license headers to files
+/// that have changed since the specified commit.
+///
+/// This verifies the ratchet workflow where developers can incrementally
+/// add license headers to files they modify, without touching unchanged files.
+#[test]
+fn test_ratchet_with_modify() -> Result<()> {
+  // Skip test if git is not available
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  // 1. Create repo with files
+  let temp_dir = tempdir()?;
+  init_git_repo(temp_dir.path())?;
+
+  // Create a license template
+  let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
+  fs::write(temp_dir.path().join("license_template.txt"), template_content)?;
+
+  // Create test files without license headers
+  fs::create_dir_all(temp_dir.path().join("src"))?;
+  fs::write(temp_dir.path().join("src/unchanged.rs"), "fn unchanged() {}\n")?;
+  fs::write(temp_dir.path().join("src/to_modify.rs"), "fn to_modify() {}\n")?;
+  fs::write(temp_dir.path().join("src/another_unchanged.rs"), "fn another() {}\n")?;
+
+  // 2. Make initial commit
+  git_add_and_commit(temp_dir.path(), ".", "Initial commit")?;
+
+  // 3. Modify a file (simulating developer change)
+  fs::write(
+    temp_dir.path().join("src/to_modify.rs"),
+    "fn to_modify() {\n    // Added some new logic\n    println!(\"Hello\");\n}\n",
+  )?;
+
+  // Stage the modified file
+  common::run_git(temp_dir.path(), &["add", "src/to_modify.rs"])?;
+
+  // 4. Run: edlicense --ratchet HEAD --modify
+  // HEAD refers to the initial commit, so files changed since then will be processed
+  let args = &[
+    "--modify",
+    "--ratchet",
+    "HEAD",
+    "--year=2025",
+    "--license-file",
+    "license_template.txt",
+    "--verbose",
+    "src",
+  ];
+
+  let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
+
+  // Check that the command succeeded
+  assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
+
+  // 5. Assert: only the changed file got a license header
+  let modified_content = fs::read_to_string(temp_dir.path().join("src/to_modify.rs"))?;
+  assert!(
+    modified_content.contains("Copyright (c)"),
+    "src/to_modify.rs should have license header but has:\n{}",
+    modified_content
+  );
+  assert!(
+    modified_content.contains("2025"),
+    "License should contain year 2025 but has:\n{}",
+    modified_content
+  );
+
+  // 6. Assert: unchanged files were not modified
+  let unchanged_content = fs::read_to_string(temp_dir.path().join("src/unchanged.rs"))?;
+  assert!(
+    !unchanged_content.contains("Copyright"),
+    "src/unchanged.rs should NOT have license header but has:\n{}",
+    unchanged_content
+  );
+
+  let another_unchanged_content =
+    fs::read_to_string(temp_dir.path().join("src/another_unchanged.rs"))?;
+  assert!(
+    !another_unchanged_content.contains("Copyright"),
+    "src/another_unchanged.rs should NOT have license header but has:\n{}",
+    another_unchanged_content
+  );
+
+  Ok(())
+}
