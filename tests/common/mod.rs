@@ -31,12 +31,15 @@ pub fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
 /// Configures:
 /// - Default branch name set to `main`
 /// - User name and email for commits
+/// - Disables commit signing for test isolation
 pub fn init_git_repo(dir: &Path) -> Result<()> {
   run_git(dir, &["init"])?;
   run_git(dir, &["config", "init.defaultBranch", "main"])?;
   run_git(dir, &["branch", "-M", "main"])?;
   run_git(dir, &["config", "user.name", "Test User"])?;
   run_git(dir, &["config", "user.email", "test@example.com"])?;
+  // Disable commit signing for test isolation
+  run_git(dir, &["config", "commit.gpgsign", "false"])?;
   Ok(())
 }
 
