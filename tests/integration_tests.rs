@@ -562,8 +562,7 @@ fn test_ratchet_with_modify() -> Result<()> {
     unchanged_content
   );
 
-  let another_unchanged_content =
-    fs::read_to_string(temp_dir.path().join("src/another_unchanged.rs"))?;
+  let another_unchanged_content = fs::read_to_string(temp_dir.path().join("src/another_unchanged.rs"))?;
   assert!(
     !another_unchanged_content.contains("Copyright"),
     "src/another_unchanged.rs should NOT have license header but has:\n{}",
