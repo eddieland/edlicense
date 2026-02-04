@@ -602,13 +602,21 @@ fn test_ratchet_with_modify_preserve_years() -> Result<()> {
   fs::write(temp_dir.path().join("src/new_file.rs"), "fn new_file() {}\n")?;
 
   // File with existing license (year 2020) that will be modified
-  let existing_license_content = "// Copyright (c) 2020 Test Company\n// All rights reserved.\n\nfn existing_file() {}\n";
+  let existing_license_content =
+    "// Copyright (c) 2020 Test Company\n// All rights reserved.\n\nfn existing_file() {}\n";
   fs::write(temp_dir.path().join("src/existing_file.rs"), existing_license_content)?;
 
   // Files that won't be modified (should remain unchanged)
-  fs::write(temp_dir.path().join("src/unchanged_no_license.rs"), "fn unchanged_no_license() {}\n")?;
-  let unchanged_with_license = "// Copyright (c) 2019 Test Company\n// All rights reserved.\n\nfn unchanged_with_license() {}\n";
-  fs::write(temp_dir.path().join("src/unchanged_with_license.rs"), unchanged_with_license)?;
+  fs::write(
+    temp_dir.path().join("src/unchanged_no_license.rs"),
+    "fn unchanged_no_license() {}\n",
+  )?;
+  let unchanged_with_license =
+    "// Copyright (c) 2019 Test Company\n// All rights reserved.\n\nfn unchanged_with_license() {}\n";
+  fs::write(
+    temp_dir.path().join("src/unchanged_with_license.rs"),
+    unchanged_with_license,
+  )?;
 
   // 2. Make initial commit
   git_add_and_commit(temp_dir.path(), ".", "Initial commit")?;
