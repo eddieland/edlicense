@@ -571,3 +571,132 @@ fn test_ratchet_with_modify() -> Result<()> {
 
   Ok(())
 }
+
+/// Test that --ratchet with --modify and --preserve-years only adds license headers
+/// to files that have changed since the specified commit, while preserving existing
+/// years in files that already have license headers.
+///
+/// This verifies the ratchet workflow with preserve-years where developers can
+/// incrementally add license headers to files they modify, keeping the original
+/// copyright year in files that already have headers.
+#[test]
+fn test_ratchet_with_modify_preserve_years() -> Result<()> {
+  // Skip test if git is not available
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  // 1. Create repo with files
+  let temp_dir = tempdir()?;
+  init_git_repo(temp_dir.path())?;
+
+  // Create a license template
+  let template_content = "Copyright (c) {{year}} Test Company\nAll rights reserved.";
+  fs::write(temp_dir.path().join("license_template.txt"), template_content)?;
+
+  // Create test files - some with existing license headers, some without
+  fs::create_dir_all(temp_dir.path().join("src"))?;
+
+  // File without license that will be modified
+  fs::write(temp_dir.path().join("src/new_file.rs"), "fn new_file() {}\n")?;
+
+  // File with existing license (year 2020) that will be modified
+  let existing_license_content = "// Copyright (c) 2020 Test Company\n// All rights reserved.\n\nfn existing_file() {}\n";
+  fs::write(temp_dir.path().join("src/existing_file.rs"), existing_license_content)?;
+
+  // Files that won't be modified (should remain unchanged)
+  fs::write(temp_dir.path().join("src/unchanged_no_license.rs"), "fn unchanged_no_license() {}\n")?;
+  let unchanged_with_license = "// Copyright (c) 2019 Test Company\n// All rights reserved.\n\nfn unchanged_with_license() {}\n";
+  fs::write(temp_dir.path().join("src/unchanged_with_license.rs"), unchanged_with_license)?;
+
+  // 2. Make initial commit
+  git_add_and_commit(temp_dir.path(), ".", "Initial commit")?;
+
+  // 3. Modify files (simulating developer changes)
+  // Modify the file without license
+  fs::write(
+    temp_dir.path().join("src/new_file.rs"),
+    "fn new_file() {\n    // Added new functionality\n    println!(\"Hello\");\n}\n",
+  )?;
+
+  // Modify the file with existing license
+  fs::write(
+    temp_dir.path().join("src/existing_file.rs"),
+    "// Copyright (c) 2020 Test Company\n// All rights reserved.\n\nfn existing_file() {\n    // Updated logic\n    println!(\"Updated\");\n}\n",
+  )?;
+
+  // Stage the modified files
+  common::run_git(temp_dir.path(), &["add", "src/new_file.rs", "src/existing_file.rs"])?;
+
+  // 4. Run: edlicense --ratchet HEAD --modify --preserve-years --year=2025
+  let args = &[
+    "--modify",
+    "--ratchet",
+    "HEAD",
+    "--year=2025",
+    "--preserve-years",
+    "--license-file",
+    "license_template.txt",
+    "--verbose",
+    "src",
+  ];
+
+  let (status, _stdout, stderr) = run_edlicense(args, temp_dir.path())?;
+
+  // Check that the command succeeded
+  assert_eq!(status, 0, "Command failed with stderr: {}", stderr);
+
+  // 5. Assert: the modified file without license gets the new year (2025)
+  let new_file_content = fs::read_to_string(temp_dir.path().join("src/new_file.rs"))?;
+  assert!(
+    new_file_content.contains("Copyright (c)"),
+    "src/new_file.rs should have license header but has:\n{}",
+    new_file_content
+  );
+  assert!(
+    new_file_content.contains("2025"),
+    "src/new_file.rs should have year 2025 but has:\n{}",
+    new_file_content
+  );
+
+  // 6. Assert: the modified file with existing license preserves the original year (2020)
+  let existing_file_content = fs::read_to_string(temp_dir.path().join("src/existing_file.rs"))?;
+  assert!(
+    existing_file_content.contains("Copyright (c)"),
+    "src/existing_file.rs should have license header but has:\n{}",
+    existing_file_content
+  );
+  assert!(
+    existing_file_content.contains("2020"),
+    "src/existing_file.rs should preserve year 2020 but has:\n{}",
+    existing_file_content
+  );
+  assert!(
+    !existing_file_content.contains("2025"),
+    "src/existing_file.rs should NOT have year 2025 but has:\n{}",
+    existing_file_content
+  );
+
+  // 7. Assert: unchanged files were not modified at all
+  let unchanged_no_license_content = fs::read_to_string(temp_dir.path().join("src/unchanged_no_license.rs"))?;
+  assert!(
+    !unchanged_no_license_content.contains("Copyright"),
+    "src/unchanged_no_license.rs should NOT have license header but has:\n{}",
+    unchanged_no_license_content
+  );
+
+  let unchanged_with_license_content = fs::read_to_string(temp_dir.path().join("src/unchanged_with_license.rs"))?;
+  assert!(
+    unchanged_with_license_content.contains("2019"),
+    "src/unchanged_with_license.rs should still have year 2019 but has:\n{}",
+    unchanged_with_license_content
+  );
+  assert!(
+    !unchanged_with_license_content.contains("2025"),
+    "src/unchanged_with_license.rs should NOT have year 2025 but has:\n{}",
+    unchanged_with_license_content
+  );
+
+  Ok(())
+}
