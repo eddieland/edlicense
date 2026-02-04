@@ -16,6 +16,7 @@ use crate::config::{CliOverrides, Config, load_config};
 use crate::diff::DiffManager;
 use crate::file_filter::ExtensionFilter;
 use crate::info_log;
+use crate::license_detection::ContentBasedLicenseDetector;
 use crate::logging::{ColorMode, init_tracing, set_quiet, set_verbose};
 use crate::output::{
   CategorizedReports, print_added_files, print_all_files_ok, print_blank_line, print_hint, print_missing_files,
@@ -127,6 +128,10 @@ pub struct CheckArgs {
   /// repository)
   #[arg(long, default_missing_value = "true", num_args = 0..=1)]
   pub git_only: Option<bool>,
+
+  /// Use strict content-based license detection (more accurate, slower)
+  #[arg(long)]
+  pub strict: bool,
 
   /// Control when to use colored output (auto, never, always)
   #[arg(
@@ -293,6 +298,9 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
     }
   };
 
+  // Determine if strict mode is enabled (CLI flag takes precedence over config)
+  let use_strict_detection = args.strict || config.as_ref().is_some_and(|c| c.detection.strict);
+
   // Create the comment style resolver
   let resolver = create_resolver(config);
 
@@ -301,6 +309,19 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
   template_manager
     .load_template(license_file)
     .with_context(|| format!("Failed to load license template from {}", license_file.display()))?;
+
+  // Create license detector based on strict mode
+  let license_detector: Option<Box<dyn crate::license_detection::LicenseDetector + Send + Sync>> =
+    if use_strict_detection {
+      debug!("Using strict content-based license detection");
+      // Render the template to get the license text for content-based detection
+      let license_text = template_manager
+        .render(&license_data)
+        .with_context(|| "Failed to render license template for strict detection")?;
+      Some(Box::new(ContentBasedLicenseDetector::new(&license_text, None)))
+    } else {
+      None // Use default SimpleLicenseDetector
+    };
 
   let processor = Processor::new(ProcessorConfig {
     workspace_is_git: workspace.is_git(),
@@ -312,6 +333,7 @@ pub fn run_check(args: CheckArgs) -> Result<()> {
     ignore_patterns: args.ignore,
     diff_manager: Some(diff_manager),
     extension_filter,
+    license_detector,
     ..ProcessorConfig::new(template_manager, license_data, workspace_root.clone())
   })?;
 

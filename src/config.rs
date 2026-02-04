@@ -84,6 +84,21 @@ pub struct ExtensionConfig {
   pub exclude: Vec<String>,
 }
 
+/// Configuration for license detection behavior.
+///
+/// This allows users to configure how license detection is performed,
+/// including enabling strict content-based detection for more accurate
+/// license verification.
+#[derive(Debug, Default, Clone, Deserialize, PartialEq, Eq)]
+pub struct DetectionConfig {
+  /// Enable strict content-based license detection.
+  /// When enabled, uses `ContentBasedLicenseDetector` which compares actual
+  /// license text instead of just checking for "copyright" keyword.
+  /// More accurate but slower.
+  #[serde(default)]
+  pub strict: bool,
+}
+
 /// A comment style entry that can be either a full definition or an alias
 /// to a built-in style.
 ///
@@ -110,6 +125,9 @@ struct RawConfig {
 
   #[serde(default)]
   extensions: ExtensionConfig,
+
+  #[serde(default)]
+  detection: DetectionConfig,
 }
 
 impl RawConfig {
@@ -153,6 +171,7 @@ impl RawConfig {
       comment_styles,
       filenames,
       extensions: self.extensions,
+      detection: self.detection,
     })
   }
 }
@@ -195,6 +214,10 @@ pub struct Config {
   /// Extension-based file filtering configuration.
   #[serde(default)]
   pub extensions: ExtensionConfig,
+
+  /// License detection configuration.
+  #[serde(default)]
+  pub detection: DetectionConfig,
 }
 
 /// Error type for configuration operations.
@@ -397,6 +420,7 @@ impl Config {
       comment_styles,
       filenames,
       extensions: self.extensions,
+      detection: self.detection,
     }
   }
 
@@ -655,6 +679,7 @@ mod tests {
       },
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
     assert!(config_with_styles.has_overrides());
 
@@ -666,6 +691,7 @@ mod tests {
         map
       },
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
     assert!(config_with_filenames.has_overrides());
   }
@@ -745,6 +771,7 @@ mod tests {
         include: Some(vec![".rs".to_string()]),
         exclude: Vec::new(),
       },
+      detection: DetectionConfig::default(),
     };
 
     let result = config.validate();
@@ -762,6 +789,7 @@ mod tests {
         include: None,
         exclude: vec![".js".to_string()],
       },
+      detection: DetectionConfig::default(),
     };
 
     let result = config.validate();
@@ -782,6 +810,7 @@ mod tests {
         include: Some(vec!["rs".to_string()]),
         exclude: Vec::new(),
       },
+      detection: DetectionConfig::default(),
     };
     assert!(config_with_include.has_extension_filter());
 
@@ -792,6 +821,7 @@ mod tests {
         include: None,
         exclude: vec!["js".to_string()],
       },
+      detection: DetectionConfig::default(),
     };
     assert!(config_with_exclude.has_extension_filter());
   }
@@ -918,6 +948,7 @@ mod tests {
       },
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     // CLI override changes java to line comments
@@ -945,6 +976,7 @@ mod tests {
       },
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     // CLI override only changes java
@@ -1060,5 +1092,57 @@ mod tests {
     assert_eq!(style.top, "{#");
     assert_eq!(style.middle, "");
     assert_eq!(style.bottom, "#}");
+  }
+
+  #[test]
+  fn test_detection_config_default() {
+    let config = DetectionConfig::default();
+    assert!(!config.strict);
+  }
+
+  #[test]
+  fn test_parse_config_with_detection_strict() {
+    let config_content = concat!("[detection]\n", "strict = true\n",);
+
+    let config: Config = toml::from_str(config_content).expect("config should parse");
+    assert!(config.detection.strict);
+  }
+
+  #[test]
+  fn test_parse_config_with_detection_strict_false() {
+    let config_content = concat!("[detection]\n", "strict = false\n",);
+
+    let config: Config = toml::from_str(config_content).expect("config should parse");
+    assert!(!config.detection.strict);
+  }
+
+  #[test]
+  fn test_parse_config_without_detection_section() {
+    let config_content = concat!("[comment-styles]\n", "rs = { middle = \"// \" }\n",);
+
+    let config: Config = toml::from_str(config_content).expect("config should parse");
+    assert!(!config.detection.strict);
+  }
+
+  #[test]
+  fn test_load_config_with_detection_section() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let config_path = temp_dir.path().join(".edlicense.toml");
+
+    std::fs::write(
+      &config_path,
+      concat!(
+        "[comment-styles]\n",
+        "rs = { middle = \"// \" }\n",
+        "\n",
+        "[detection]\n",
+        "strict = true\n",
+      ),
+    )
+    .expect("write config");
+
+    let config = Config::load(&config_path).expect("load should succeed");
+    assert!(config.detection.strict);
+    assert!(config.comment_styles.contains_key("rs"));
   }
 }

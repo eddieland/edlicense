@@ -95,7 +95,6 @@ impl ContentBasedLicenseDetector {
   /// # Returns
   ///
   /// A new `ContentBasedLicenseDetector` instance.
-  #[allow(dead_code)] // Kept for library API - content-based detection is an alternative to simple detection
   pub fn new(license_text: &str, check_length: Option<usize>) -> Self {
     let normalized = Self::normalize_and_replace_years(license_text);
     ContentBasedLicenseDetector {

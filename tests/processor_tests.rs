@@ -710,3 +710,143 @@ fn test_overlapping_patterns_no_duplicate_headers() -> Result<()> {
 
   Ok(())
 }
+
+/// Test strict mode detection using ContentBasedLicenseDetector.
+///
+/// In strict mode, the detector compares actual license content rather than
+/// just checking for the "copyright" keyword. This test verifies that:
+/// 1. Files with correct license text are detected as having a license
+/// 2. Files with "copyright" keyword but wrong text are NOT detected as having a license
+#[test]
+fn test_strict_mode_detection() -> Result<()> {
+  use edlicense::license_detection::{ContentBasedLicenseDetector, LicenseDetector};
+
+  let license_text = "Copyright (c) 2025 Test Company\n\nLicensed under MIT License.";
+  let detector = ContentBasedLicenseDetector::new(license_text, None);
+
+  // Test content with correct license (should detect)
+  let content_with_correct_license =
+    "// Copyright (c) 2025 Test Company\n//\n// Licensed under MIT License.\n\nfn main() {}";
+  assert!(
+    detector.has_license(content_with_correct_license),
+    "Should detect file with correct license text"
+  );
+
+  // Test content with different year but same structure (should detect due to year normalization)
+  let content_with_different_year =
+    "// Copyright (c) 2024 Test Company\n//\n// Licensed under MIT License.\n\nfn main() {}";
+  assert!(
+    detector.has_license(content_with_different_year),
+    "Should detect file with different year (year normalization)"
+  );
+
+  // Test content with just "copyright" keyword but different text (should NOT detect)
+  let content_with_wrong_text = "// Copyright (c) 2025 Another Company\n// Some other license.\n\nfn main() {}";
+  assert!(
+    !detector.has_license(content_with_wrong_text),
+    "Should NOT detect file with wrong license text"
+  );
+
+  // Test content with no license at all (should NOT detect)
+  let content_without_license = "fn main() {\n    println!(\"Hello, world!\");\n}";
+  assert!(
+    !detector.has_license(content_without_license),
+    "Should NOT detect file without any license"
+  );
+
+  Ok(())
+}
+
+/// Test that strict mode catches false positives from simple detection.
+///
+/// SimpleLicenseDetector just checks for "copyright" keyword, which can
+/// give false positives. ContentBasedLicenseDetector checks actual content.
+#[test]
+fn test_strict_mode_catches_simple_false_positives() -> Result<()> {
+  use edlicense::license_detection::{ContentBasedLicenseDetector, LicenseDetector, SimpleLicenseDetector};
+
+  let license_text = "Copyright (c) 2025 Test Company\n\nLicensed under MIT License.";
+
+  // File that mentions "copyright" in code but doesn't have our license header
+  let file_with_false_positive = r#"
+// This function checks copyright status
+fn check_copyright() {
+    let status = get_copyright_info();
+    println!("{}", status);
+}
+"#;
+
+  let simple_detector = SimpleLicenseDetector::new();
+  let strict_detector = ContentBasedLicenseDetector::new(license_text, None);
+
+  // Simple detector gives false positive (detects "copyright" keyword)
+  assert!(
+    simple_detector.has_license(file_with_false_positive),
+    "Simple detector should find 'copyright' keyword"
+  );
+
+  // Strict detector correctly identifies missing license
+  assert!(
+    !strict_detector.has_license(file_with_false_positive),
+    "Strict detector should NOT detect this as having the license"
+  );
+
+  Ok(())
+}
+
+/// Test creating processor with ContentBasedLicenseDetector via config.
+#[test]
+fn test_processor_with_content_based_detector() -> Result<()> {
+  use edlicense::license_detection::ContentBasedLicenseDetector;
+
+  let temp_dir = tempdir()?;
+  let template_path = temp_dir.path().join("test_template.txt");
+  let license_text = "Copyright (c) {{year}} Test Company\n\nLicensed under MIT License.";
+  fs::write(&template_path, license_text)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  let license_data = LicenseData {
+    year: "2025".to_string(),
+  };
+
+  // Render the license to get the text for detection
+  let rendered_license = template_manager.render(&license_data)?;
+  let detector = ContentBasedLicenseDetector::new(&rendered_license, None);
+
+  let processor = Processor::new(ProcessorConfig {
+    check_only: true,
+    license_detector: Some(Box::new(detector)),
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
+
+  // Create a file with the correct license
+  let file_with_license = temp_dir.path().join("licensed.rs");
+  fs::write(
+    &file_with_license,
+    "// Copyright (c) 2025 Test Company\n//\n// Licensed under MIT License.\n\nfn main() {}",
+  )?;
+
+  // Create a file with just "copyright" keyword
+  let file_with_false_positive = temp_dir.path().join("false_positive.rs");
+  fs::write(
+    &file_with_false_positive,
+    "// This file checks copyright status\nfn check_copyright() {}",
+  )?;
+
+  // Test detection
+  let licensed_content = fs::read_to_string(&file_with_license)?;
+  let false_positive_content = fs::read_to_string(&file_with_false_positive)?;
+
+  assert!(
+    processor.has_license(&licensed_content),
+    "Processor should detect file with correct license"
+  );
+  assert!(
+    !processor.has_license(&false_positive_content),
+    "Processor should NOT detect file with false positive"
+  );
+
+  Ok(())
+}
