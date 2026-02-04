@@ -558,7 +558,7 @@ mod tests {
   use std::path::Path;
 
   use super::*;
-  use crate::config::{CommentStyleConfig, Config, ExtensionConfig};
+  use crate::config::{CommentStyleConfig, Config, DetectionConfig, ExtensionConfig};
 
   #[test]
   fn test_builtin_resolver_rust() {
@@ -625,6 +625,7 @@ mod tests {
       comment_styles,
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -647,6 +648,7 @@ mod tests {
       comment_styles,
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -668,6 +670,7 @@ mod tests {
       comment_styles: HashMap::new(),
       filenames,
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -689,6 +692,7 @@ mod tests {
       comment_styles: HashMap::new(),
       filenames,
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -707,6 +711,7 @@ mod tests {
       comment_styles: HashMap::new(),
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -734,6 +739,7 @@ mod tests {
       comment_styles: HashMap::new(),
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = ConfigurableResolver::new(config);
@@ -752,6 +758,7 @@ mod tests {
       comment_styles,
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = create_resolver(Some(config));
@@ -815,6 +822,7 @@ mod tests {
       comment_styles,
       filenames: HashMap::new(),
       extensions: ExtensionConfig::default(),
+      detection: DetectionConfig::default(),
     };
 
     let resolver = create_resolver(Some(config));
