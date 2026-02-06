@@ -80,8 +80,11 @@ fn generate_test_files(dir: &Path, count: usize, with_license: bool, file_size_b
   );
 
   // Generate content for files
+  // Header must include both lines to match the full template used in strict
+  // detection benchmarks, so both SimpleLicenseDetector and
+  // ContentBasedLicenseDetector agree on the result.
   let license_header = if with_license {
-    "// Copyright (c) 2024 Test Company\n\n"
+    "// Copyright (c) 2024 Test Company\n// Licensed under MIT\n\n"
   } else {
     ""
   };
@@ -639,7 +642,7 @@ fn generate_file_content(ext: &str, target_size: usize, with_license: bool, rng:
         "// Copyright (c) 2024 Test Company\n// Licensed under MIT\n\n"
       }
       "py" | "rb" | "sh" => "# Copyright (c) 2024 Test Company\n# Licensed under MIT\n\n",
-      _ => "// Copyright (c) 2024 Test Company\n\n",
+      _ => "// Copyright (c) 2024 Test Company\n// Licensed under MIT\n\n",
     }
   } else {
     ""
@@ -1373,7 +1376,19 @@ fn strict_detection_benchmark() -> Result<()> {
 
     let check_only = with_license;
 
-    for mode in ["default", "strict"] {
+    // Alternate execution order across scenarios to eliminate ordering bias.
+    // Even scenarios run default-first, odd scenarios run strict-first.
+    let scenario_idx = scenarios
+      .iter()
+      .position(|(name, _, _, _)| *name == *scenario_name)
+      .unwrap_or(0);
+    let modes: [&str; 2] = if scenario_idx % 2 == 0 {
+      ["default", "strict"]
+    } else {
+      ["strict", "default"]
+    };
+
+    for mode in modes {
       println!("\n--- Mode: {} ---", mode);
 
       // Generate fresh files for each mode to avoid cache effects
