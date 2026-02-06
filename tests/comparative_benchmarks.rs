@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use anyhow::Result;
+use edlicense::license_detection::ContentBasedLicenseDetector;
 use edlicense::logging::set_quiet;
 use edlicense::processor::{Processor, ProcessorConfig};
 use edlicense::templates::{LicenseData, TemplateManager};
@@ -1282,6 +1283,188 @@ fn chaotic_benchmark() -> Result<()> {
       }
     }
   }
+
+  Ok(())
+}
+
+/// Helper to create a test processor with strict (content-based) license detection.
+fn create_strict_test_processor(
+  template_content: &str,
+  ignore_patterns: Vec<String>,
+  check_only: bool,
+  preserve_years: bool,
+) -> Result<(Processor, tempfile::TempDir)> {
+  let temp_dir = tempdir()?;
+  let template_path = temp_dir.path().join("test_template.txt");
+
+  fs::write(&template_path, template_content)?;
+
+  let mut template_manager = TemplateManager::new();
+  template_manager.load_template(&template_path)?;
+
+  let license_data = LicenseData {
+    year: "2025".to_string(),
+  };
+
+  // Render the template to get the license text for content-based detection
+  let license_text = template_manager.render(&license_data)?;
+  let detector = ContentBasedLicenseDetector::new(&license_text, None);
+
+  let processor = Processor::new(ProcessorConfig {
+    check_only,
+    preserve_years,
+    ignore_patterns,
+    license_detector: Some(Box::new(detector)),
+    ..ProcessorConfig::new(template_manager, license_data, temp_dir.path().to_path_buf())
+  })?;
+
+  Ok((processor, temp_dir))
+}
+
+/// Result for strict vs default benchmark comparison
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct StrictBenchmarkResult {
+  mode: String,
+  operation: String,
+  file_count: usize,
+  file_size_kb: usize,
+  duration_ms: u128,
+  scenario: String,
+}
+
+/// Comparative benchmark: default (simple) vs strict (content-based) license detection.
+///
+/// Measures the overhead of --strict across different file counts, file sizes,
+/// and operations (check vs add).
+#[test]
+#[ignore]
+fn strict_detection_benchmark() -> Result<()> {
+  set_quiet();
+
+  let output_dir = PathBuf::from("target/benchmark_results");
+  fs::create_dir_all(&output_dir)?;
+
+  let template = "Copyright (c) {{year}} Test Company\nLicensed under MIT";
+  let iterations = 5;
+
+  // Scenarios: (name, file_count, file_size_bytes, with_license)
+  let scenarios: Vec<(&str, usize, usize, bool)> = vec![
+    // Check mode scenarios (files already have licenses — detection is the bottleneck)
+    ("check_1k_small", 1000, 500, true),
+    ("check_5k_small", 5000, 500, true),
+    ("check_10k_small", 10000, 500, true),
+    ("check_10k_medium", 10000, 5000, true),
+    ("check_10k_large", 10000, 50000, true),
+    // Add mode scenarios (files missing licenses — detection still runs first)
+    ("add_10k_small", 10000, 500, false),
+  ];
+
+  let mut all_results: Vec<StrictBenchmarkResult> = Vec::new();
+
+  for (scenario_name, file_count, file_size, with_license) in &scenarios {
+    println!(
+      "\n{}\n=== Scenario: {} ({} files, {}B each) ===\n{}",
+      "=".repeat(60),
+      scenario_name,
+      file_count,
+      file_size,
+      "=".repeat(60),
+    );
+
+    let check_only = with_license;
+
+    for mode in ["default", "strict"] {
+      println!("\n--- Mode: {} ---", mode);
+
+      // Generate fresh files for each mode to avoid cache effects
+      let temp_dir = tempdir()?;
+      let test_dir = temp_dir.path().join("src");
+      fs::create_dir_all(&test_dir)?;
+      generate_test_files(&test_dir, *file_count, *with_license, *file_size)?;
+
+      // Warmup run (not measured)
+      {
+        let (processor, _td) = if mode == "strict" {
+          create_strict_test_processor(template, vec![], *check_only, false)?
+        } else {
+          create_test_processor(template, vec![], *check_only, false, None)?
+        };
+        let _ = processor.process_directory(&test_dir);
+      }
+
+      let mut durations = Vec::with_capacity(iterations);
+
+      for i in 1..=iterations {
+        let (processor, _td) = if mode == "strict" {
+          create_strict_test_processor(template, vec![], *check_only, false)?
+        } else {
+          create_test_processor(template, vec![], *check_only, false, None)?
+        };
+
+        let start = Instant::now();
+        processor.process_directory(&test_dir)?;
+        let duration = start.elapsed();
+        durations.push(duration);
+
+        println!("  Iteration {}/{}: {:.2?}", i, iterations, duration);
+      }
+
+      let avg_ms = durations.iter().map(|d| d.as_millis()).sum::<u128>() / iterations as u128;
+      let min_ms = durations.iter().map(|d| d.as_millis()).min().unwrap_or(0);
+      let max_ms = durations.iter().map(|d| d.as_millis()).max().unwrap_or(0);
+      println!("  {} avg: {}ms (min: {}ms, max: {}ms)", mode, avg_ms, min_ms, max_ms);
+
+      all_results.push(StrictBenchmarkResult {
+        mode: mode.to_string(),
+        operation: if *check_only { "check" } else { "add" }.to_string(),
+        file_count: *file_count,
+        file_size_kb: file_size / 1000,
+        duration_ms: avg_ms,
+        scenario: scenario_name.to_string(),
+      });
+    }
+  }
+
+  // Write raw results
+  let output_file = output_dir.join("benchmark_strict_detection.json");
+  let json = serde_json::to_string_pretty(&all_results)?;
+  fs::write(&output_file, &json)?;
+  println!("\nResults written to {}", output_file.display());
+
+  // Print summary table
+  println!("\n{}", "=".repeat(80));
+  println!("=== Strict Detection Benchmark Summary ===");
+  println!("{}", "=".repeat(80));
+  println!(
+    "{:<25} {:<12} {:<12} {:<12} {:<10}",
+    "Scenario", "Default(ms)", "Strict(ms)", "Delta(ms)", "Overhead%"
+  );
+  println!("{}", "-".repeat(71));
+
+  let scenario_names: Vec<&str> = scenarios.iter().map(|(name, _, _, _)| *name).collect();
+  for scenario in &scenario_names {
+    let default_result = all_results
+      .iter()
+      .find(|r| r.scenario == *scenario && r.mode == "default");
+    let strict_result = all_results
+      .iter()
+      .find(|r| r.scenario == *scenario && r.mode == "strict");
+
+    if let (Some(d), Some(s)) = (default_result, strict_result) {
+      let delta = s.duration_ms as i128 - d.duration_ms as i128;
+      let overhead_pct = if d.duration_ms > 0 {
+        (delta as f64 / d.duration_ms as f64) * 100.0
+      } else {
+        0.0
+      };
+      println!(
+        "{:<25} {:<12} {:<12} {:<12} {:<+.1}%",
+        scenario, d.duration_ms, s.duration_ms, delta, overhead_pct
+      );
+    }
+  }
+
+  println!("{}", "=".repeat(80));
 
   Ok(())
 }

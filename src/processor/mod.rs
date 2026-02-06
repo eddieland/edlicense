@@ -791,12 +791,6 @@ impl Processor {
 
   /// Checks if the content already has a license header.
   pub fn has_license(&self, content: &str) -> bool {
-    // Fast path: check for common license indicators before using the full detector
-    if content.starts_with("// Copyright") || content.starts_with("/* Copyright") || content.starts_with("# Copyright")
-    {
-      return true;
-    }
-
     self.license_detector.has_license(content)
   }
 
