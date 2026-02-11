@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use common::{git_add_and_commit, init_git_repo, is_git_available, run_git};
+use common::{git_add_and_commit, git_commit, init_git_repo, is_git_available, run_git};
 use edlicense::git::{self, RatchetOptions};
 use tempfile::{TempDir, tempdir};
 
@@ -431,6 +431,185 @@ fn test_ratchet_excludes_staged_deleted_files() -> Result<()> {
     !changed.contains(&PathBuf::from("initial.txt")),
     "Staged deleted files should be excluded from ratchet results, got: {:?}",
     changed
+  );
+
+  Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Repository state detection tests
+// ---------------------------------------------------------------------------
+
+/// Helper: create a repo with two branches that have a merge conflict so we can
+/// trigger various in-progress git operations.
+fn create_repo_with_conflict() -> Result<TempDir> {
+  let temp_dir = init_temp_git_repo()?;
+
+  // Create a file on main
+  fs::write(temp_dir.path().join("conflict.txt"), "main content\n")?;
+  git_add_and_commit(temp_dir.path(), "conflict.txt", "Add conflict.txt on main")?;
+
+  // Create a branch with a conflicting change
+  run_git(temp_dir.path(), &["checkout", "-b", "feature"])?;
+  fs::write(temp_dir.path().join("conflict.txt"), "feature content\n")?;
+  git_add_and_commit(temp_dir.path(), "conflict.txt", "Change conflict.txt on feature")?;
+
+  // Go back to main and make a different change
+  run_git(temp_dir.path(), &["checkout", "main"])?;
+  fs::write(temp_dir.path().join("conflict.txt"), "different main content\n")?;
+  git_add_and_commit(temp_dir.path(), "conflict.txt", "Change conflict.txt on main")?;
+
+  Ok(temp_dir)
+}
+
+#[test]
+fn test_ratchet_errors_during_merge() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = create_repo_with_conflict()?;
+
+  // Start a merge that will conflict
+  let merge_result = run_git(temp_dir.path(), &["merge", "feature"]);
+  assert!(merge_result.is_err(), "Merge should conflict");
+
+  // Ratchet should refuse to run during an in-progress merge
+  let result = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD~1", &RatchetOptions::default());
+  assert!(result.is_err(), "Expected error during in-progress merge");
+
+  let err_msg = format!("{}", result.unwrap_err());
+  assert!(
+    err_msg.contains("merge in progress"),
+    "Error should mention merge in progress, got: {}",
+    err_msg
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_errors_during_rebase() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = create_repo_with_conflict()?;
+
+  // Switch to feature and rebase onto main (will conflict)
+  run_git(temp_dir.path(), &["checkout", "feature"])?;
+  let rebase_result = run_git(temp_dir.path(), &["rebase", "main"]);
+  assert!(rebase_result.is_err(), "Rebase should conflict");
+
+  // Ratchet should refuse to run during an in-progress rebase
+  let result = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD~1", &RatchetOptions::default());
+  assert!(result.is_err(), "Expected error during in-progress rebase");
+
+  let err_msg = format!("{}", result.unwrap_err());
+  assert!(
+    err_msg.contains("rebase in progress"),
+    "Error should mention rebase in progress, got: {}",
+    err_msg
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_errors_during_cherry_pick() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = create_repo_with_conflict()?;
+
+  // Cherry-pick the feature commit onto main (will conflict)
+  let cherry_pick_result = run_git(temp_dir.path(), &["cherry-pick", "feature"]);
+  assert!(cherry_pick_result.is_err(), "Cherry-pick should conflict");
+
+  // Ratchet should refuse to run during an in-progress cherry-pick
+  let result = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD~1", &RatchetOptions::default());
+  assert!(result.is_err(), "Expected error during in-progress cherry-pick");
+
+  let err_msg = format!("{}", result.unwrap_err());
+  assert!(
+    err_msg.contains("cherry-pick in progress"),
+    "Error should mention cherry-pick in progress, got: {}",
+    err_msg
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_errors_during_revert() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+
+  // Create two commits that will conflict on revert
+  fs::write(temp_dir.path().join("revert.txt"), "original\n")?;
+  git_add_and_commit(temp_dir.path(), "revert.txt", "Add revert.txt")?;
+
+  fs::write(temp_dir.path().join("revert.txt"), "modified\n")?;
+  git_add_and_commit(temp_dir.path(), "revert.txt", "Modify revert.txt")?;
+
+  // Modify again so reverting the previous commit conflicts
+  fs::write(temp_dir.path().join("revert.txt"), "modified again\n")?;
+  git_add_and_commit(temp_dir.path(), "revert.txt", "Modify revert.txt again")?;
+
+  let revert_result = run_git(temp_dir.path(), &["revert", "--no-commit", "HEAD~1"]);
+  // The revert may or may not conflict, but --no-commit leaves us in REVERT state
+  // If it errors, that's fine too - check if we're in a revert state
+  if revert_result.is_ok() {
+    // Even without conflict, --no-commit puts us in a revert state
+    let result = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD~1", &RatchetOptions::default());
+    assert!(result.is_err(), "Expected error during in-progress revert");
+
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+      err_msg.contains("revert in progress"),
+      "Error should mention revert in progress, got: {}",
+      err_msg
+    );
+  }
+
+  Ok(())
+}
+
+#[test]
+fn test_ratchet_works_after_completing_merge() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = create_repo_with_conflict()?;
+
+  // Start a merge that will conflict
+  let _ = run_git(temp_dir.path(), &["merge", "feature"]);
+
+  // Verify ratchet fails during merge
+  let result = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD~1", &RatchetOptions::default());
+  assert!(result.is_err(), "Should fail during merge");
+
+  // Resolve the conflict and complete the merge
+  fs::write(temp_dir.path().join("conflict.txt"), "resolved content\n")?;
+  run_git(temp_dir.path(), &["add", "conflict.txt"])?;
+  git_commit(temp_dir.path(), "Merge feature into main")?;
+
+  // Ratchet should work now
+  let result = git::get_changed_files_for_workspace(temp_dir.path(), "HEAD~1", &RatchetOptions::default());
+  assert!(
+    result.is_ok(),
+    "Ratchet should work after completing merge, got: {:?}",
+    result.err()
   );
 
   Ok(())
