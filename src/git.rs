@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use git2::{Delta, Repository};
+use git2::{Delta, Repository, RepositoryState};
 use tracing::{debug, trace, warn};
 
 use crate::info_log;
@@ -49,6 +49,59 @@ impl RatchetOptions {
       include_unstaged: false,
     }
   }
+}
+
+/// Returns a human-readable description of a non-clean repository state.
+///
+/// During operations like rebase, merge, cherry-pick, or bisect, the repository's
+/// HEAD, index, and working directory may be in an intermediate state that makes
+/// diff computations unreliable. This function translates the git2 state enum into
+/// a user-facing message.
+const fn describe_repository_state(state: RepositoryState) -> Option<&'static str> {
+  match state {
+    RepositoryState::Clean => None,
+    RepositoryState::Merge => Some("merge"),
+    RepositoryState::Revert | RepositoryState::RevertSequence => Some("revert"),
+    RepositoryState::CherryPick | RepositoryState::CherryPickSequence => Some("cherry-pick"),
+    RepositoryState::Bisect => Some("bisect"),
+    RepositoryState::Rebase | RepositoryState::RebaseInteractive | RepositoryState::RebaseMerge => Some("rebase"),
+    RepositoryState::ApplyMailbox | RepositoryState::ApplyMailboxOrRebase => Some("apply-mailbox"),
+  }
+}
+
+/// Checks that the repository is in a clean state suitable for ratchet mode.
+///
+/// Ratchet mode computes diffs against a reference commit to find changed files.
+/// During in-progress operations like rebase, merge, cherry-pick, or bisect, HEAD
+/// and the index are in an intermediate state that can produce incorrect diffs —
+/// leading to files being missed or spuriously included. In modify mode this could
+/// write license headers into files that are about to be rewritten by the ongoing
+/// operation.
+///
+/// Returns `Ok(())` if the state is clean, or an error with a descriptive message
+/// explaining what operation is in progress and how to resolve it.
+fn check_repo_state_for_ratchet(repo: &Repository) -> Result<()> {
+  let state = repo.state();
+  if let Some(operation) = describe_repository_state(state) {
+    let hint = match operation {
+      "bisect" => String::from(
+        "Please finish the bisect before running with --ratchet:\n\
+         - End bisect: git bisect reset",
+      ),
+      _ => format!(
+        "Please complete or abort the {operation} before running with --ratchet:\n\
+         - Complete: git {operation} --continue\n\
+         - Abort:   git {operation} --abort",
+      ),
+    };
+    return Err(anyhow::anyhow!(
+      "Repository has a {operation} in progress. \
+       Running ratchet mode during an in-progress git operation can produce \
+       incorrect results because HEAD and the index are in an intermediate state.\n\n\
+       {hint}"
+    ));
+  }
+  Ok(())
 }
 
 /// Checks `.git/objects/info/alternates` for paths that don't exist on the filesystem.
@@ -265,6 +318,11 @@ pub fn get_changed_files_for_workspace(
   let workdir = repo
     .workdir()
     .ok_or_else(|| anyhow::anyhow!("Repository has no working directory"))?;
+
+  // Bail out early if the repository is in the middle of a rebase, merge,
+  // cherry-pick, bisect, or similar operation.  The index and HEAD are in an
+  // intermediate state that makes diff computation unreliable.
+  check_repo_state_for_ratchet(&repo)?;
 
   // Get the commit object for the reference commit.
   // In shallow or partial clones the ref may not be reachable at all.
