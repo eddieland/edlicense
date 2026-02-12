@@ -199,6 +199,135 @@ fn test_git_from_subdirectory() -> Result<()> {
   Ok(())
 }
 
+#[test]
+fn test_worktree_discover_repo_root() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let main_dir = init_temp_git_repo()?;
+
+  // Create a branch and a linked worktree
+  run_git(main_dir.path(), &["branch", "feature"])?;
+  let wt_parent = tempdir()?;
+  let wt_path = wt_parent.path().join("worktree");
+  run_git(
+    main_dir.path(),
+    &["worktree", "add", &wt_path.display().to_string(), "feature"],
+  )?;
+
+  // Verify .git in worktree is a file
+  let git_entry = wt_path.join(".git");
+  assert!(git_entry.exists(), "worktree should have .git");
+  assert!(git_entry.is_file(), "worktree .git should be a file, not a directory");
+
+  // discover_repo_root should find the worktree as a repo
+  let result = git::discover_repo_root(&wt_path)?;
+  assert!(
+    result.is_some(),
+    "discover_repo_root should find a repo from a worktree"
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_worktree_get_git_tracked_files() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let main_dir = init_temp_git_repo()?;
+
+  // Add more files to main branch
+  fs::write(main_dir.path().join("main_file.rs"), "fn main() {}")?;
+  git_add_and_commit(main_dir.path(), "main_file.rs", "Add main file")?;
+
+  // Create feature branch with additional file
+  run_git(main_dir.path(), &["checkout", "-b", "feature"])?;
+  fs::write(main_dir.path().join("feature_file.rs"), "fn feature() {}")?;
+  git_add_and_commit(main_dir.path(), "feature_file.rs", "Add feature file")?;
+  run_git(main_dir.path(), &["checkout", "main"])?;
+
+  // Create worktree
+  let wt_parent = tempdir()?;
+  let wt_path = wt_parent.path().join("worktree");
+  run_git(
+    main_dir.path(),
+    &["worktree", "add", &wt_path.display().to_string(), "feature"],
+  )?;
+
+  // get_git_tracked_files from worktree should return the feature branch's files
+  let tracked = git::get_git_tracked_files(&wt_path)?;
+
+  assert!(
+    tracked.contains(&PathBuf::from("initial.txt")),
+    "Should contain initial.txt"
+  );
+  assert!(
+    tracked.contains(&PathBuf::from("main_file.rs")),
+    "Should contain main_file.rs"
+  );
+  assert!(
+    tracked.contains(&PathBuf::from("feature_file.rs")),
+    "Should contain feature_file.rs (from feature branch)"
+  );
+
+  Ok(())
+}
+
+#[test]
+fn test_worktree_from_bare_repo() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  // Create a regular repo first
+  let source_dir = init_temp_git_repo()?;
+  fs::write(source_dir.path().join("code.rs"), "fn main() {}")?;
+  git_add_and_commit(source_dir.path(), "code.rs", "Add code")?;
+
+  // Clone as bare
+  let bare_dir = tempdir()?;
+  let bare_path = bare_dir.path().join("bare.git");
+  run_git(
+    source_dir.path(),
+    &[
+      "clone",
+      "--bare",
+      &source_dir.path().display().to_string(),
+      &bare_path.display().to_string(),
+    ],
+  )?;
+
+  // Create a worktree from the bare repo
+  let wt_parent = tempdir()?;
+  let wt_path = wt_parent.path().join("worktree");
+  run_git(&bare_path, &["worktree", "add", &wt_path.display().to_string(), "main"])?;
+
+  // Verify .git in worktree is a file
+  let git_entry = wt_path.join(".git");
+  assert!(git_entry.exists(), "worktree should have .git");
+  assert!(git_entry.is_file(), "worktree .git should be a file");
+
+  // Test discover_repo_root from worktree of bare repo
+  let result = git::discover_repo_root(&wt_path)?;
+
+  assert!(
+    result.is_some(),
+    "discover_repo_root should find a repo from a bare repo worktree"
+  );
+
+  // get_git_tracked_files should also work
+  let tracked = git::get_git_tracked_files(&wt_path)?;
+  assert!(tracked.contains(&PathBuf::from("code.rs")), "Should contain code.rs");
+
+  Ok(())
+}
+
 /// Helper: create a repo with multiple commits, then shallow-clone it.
 /// Returns (origin_dir, shallow_dir) — both kept alive by TempDir handles.
 fn create_shallow_clone() -> Result<(TempDir, TempDir)> {
@@ -610,6 +739,162 @@ fn test_ratchet_works_after_completing_merge() -> Result<()> {
     result.is_ok(),
     "Ratchet should work after completing merge, got: {:?}",
     result.err()
+  );
+
+  Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Directory traversal: nested repo/worktree skipping
+// ---------------------------------------------------------------------------
+
+/// Tests that directory traversal skips nested worktrees.
+///
+/// When a directory contains a nested worktree (identified by a `.git` file
+/// rather than a `.git` directory), the traversal should skip it entirely
+/// to avoid processing files that belong to a different repo.
+#[test]
+fn test_traverse_skips_nested_worktree() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let main_dir = init_temp_git_repo()?;
+  fs::write(main_dir.path().join("parent.rs"), "fn parent() {}")?;
+  git_add_and_commit(main_dir.path(), "parent.rs", "Add parent file")?;
+
+  // Create a branch for the worktree
+  run_git(main_dir.path(), &["branch", "feature"])?;
+
+  // Create a nested worktree inside the parent repo
+  let nested_wt_path = main_dir.path().join("nested_worktree");
+  run_git(
+    main_dir.path(),
+    &["worktree", "add", &nested_wt_path.display().to_string(), "feature"],
+  )?;
+
+  // Add a file inside the worktree
+  fs::write(nested_wt_path.join("worktree_file.rs"), "fn worktree() {}")?;
+
+  // Verify the worktree has a .git file (not directory)
+  assert!(
+    nested_wt_path.join(".git").is_file(),
+    "Nested worktree should have a .git file"
+  );
+
+  // Traverse the parent directory
+  let collector = edlicense::processor::file_collector::FileCollector::new(main_dir.path().to_path_buf());
+  let files = collector.traverse_directory(main_dir.path())?;
+
+  let file_names: Vec<String> = files
+    .iter()
+    .filter_map(|p| p.file_name())
+    .map(|n| n.to_string_lossy().to_string())
+    .collect();
+
+  // Parent's files should be included
+  assert!(
+    file_names.contains(&"parent.rs".to_string()),
+    "Should contain parent.rs, got: {:?}",
+    file_names
+  );
+
+  // Worktree's files should NOT be included
+  assert!(
+    !file_names.contains(&"worktree_file.rs".to_string()),
+    "Should NOT contain worktree_file.rs (nested worktree should be skipped), got: {:?}",
+    file_names
+  );
+
+  Ok(())
+}
+
+/// Tests that directory traversal skips nested git repos (with .git directory).
+#[test]
+fn test_traverse_skips_nested_git_repo() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let parent_dir = init_temp_git_repo()?;
+  fs::write(parent_dir.path().join("parent.rs"), "fn parent() {}")?;
+  git_add_and_commit(parent_dir.path(), "parent.rs", "Add parent file")?;
+
+  // Create a nested git repo (separate init, not a submodule)
+  let nested_dir = parent_dir.path().join("nested_repo");
+  fs::create_dir_all(&nested_dir)?;
+  init_git_repo(&nested_dir)?;
+  fs::write(nested_dir.join("nested.rs"), "fn nested() {}")?;
+  git_add_and_commit(&nested_dir, "nested.rs", "Add nested file")?;
+
+  // Traverse the parent directory
+  let collector = edlicense::processor::file_collector::FileCollector::new(parent_dir.path().to_path_buf());
+  let files = collector.traverse_directory(parent_dir.path())?;
+
+  let file_names: Vec<String> = files
+    .iter()
+    .filter_map(|p| p.file_name())
+    .map(|n| n.to_string_lossy().to_string())
+    .collect();
+
+  // Parent's files should be included
+  assert!(
+    file_names.contains(&"parent.rs".to_string()),
+    "Should contain parent.rs, got: {:?}",
+    file_names
+  );
+
+  // Nested repo's files should NOT be included
+  assert!(
+    !file_names.contains(&"nested.rs".to_string()),
+    "Should NOT contain nested.rs (nested repo should be skipped), got: {:?}",
+    file_names
+  );
+
+  Ok(())
+}
+
+/// Tests that directory traversal does not include .git internal files.
+#[test]
+fn test_traverse_skips_dot_git_directory() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let repo_dir = init_temp_git_repo()?;
+  fs::write(repo_dir.path().join("code.rs"), "fn code() {}")?;
+  git_add_and_commit(repo_dir.path(), "code.rs", "Add code")?;
+
+  // Traverse the repo directory
+  let collector = edlicense::processor::file_collector::FileCollector::new(repo_dir.path().to_path_buf());
+  let files = collector.traverse_directory(repo_dir.path())?;
+
+  // No files should come from the .git directory
+  let git_files: Vec<_> = files
+    .iter()
+    .filter(|p| p.components().any(|c| c.as_os_str() == ".git"))
+    .collect();
+
+  assert!(
+    git_files.is_empty(),
+    "Should not include any files from .git directory, found: {:?}",
+    git_files
+  );
+
+  // Regular files should still be included
+  let file_names: Vec<String> = files
+    .iter()
+    .filter_map(|p| p.file_name())
+    .map(|n| n.to_string_lossy().to_string())
+    .collect();
+
+  assert!(
+    file_names.contains(&"code.rs".to_string()),
+    "Should contain code.rs, got: {:?}",
+    file_names
   );
 
   Ok(())

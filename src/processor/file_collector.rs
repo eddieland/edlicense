@@ -103,11 +103,23 @@ impl FileCollector {
         let Ok(entry) = entry else {
           continue;
         };
+        let name = entry.file_name();
         let path = entry.path();
+
+        // Skip .git entries: directories (regular repos) and files (worktrees).
+        if name == ".git" {
+          continue;
+        }
 
         // Prefer cached dirent file type to avoid extra syscalls where possible.
         if let Ok(file_type) = entry.file_type() {
           if file_type.is_dir() {
+            // Skip nested git repositories and worktrees. A directory
+            // containing a .git entry (directory or file) is a separate
+            // repo and should not have its files mixed into the parent.
+            if path.join(".git").exists() {
+              continue;
+            }
             dirs_to_process.push_back(path);
           } else if file_type.is_file() {
             all_files.push(path);
