@@ -12,7 +12,7 @@
 //! orchestrating the submodules to provide a cohesive API.
 
 mod content_transformer;
-mod file_collector;
+pub mod file_collector;
 mod file_io;
 
 // Re-export public types
