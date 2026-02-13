@@ -104,6 +104,92 @@ fn check_repo_state_for_ratchet(repo: &Repository) -> Result<()> {
   Ok(())
 }
 
+/// Diagnoses a broken git worktree reference.
+///
+/// In a git worktree, the `.git` entry is a **file** (not a directory) containing
+/// a `gitdir:` reference to the main repository's `.git/worktrees/<name>` directory.
+/// When a worktree is volume-mounted into a Docker container without also mounting
+/// the main repository's `.git` directory, this reference points to a path that
+/// doesn't exist inside the container, causing `Repository::discover()` to fail.
+///
+/// This function walks up from `start_dir` looking for a `.git` file with a
+/// `gitdir:` reference. If the referenced path doesn't exist, it returns an
+/// actionable diagnostic message telling the user what to mount.
+fn diagnose_broken_worktree_gitdir(start_dir: &Path) -> Option<String> {
+  let mut dir = start_dir;
+  loop {
+    let git_entry = dir.join(".git");
+    if git_entry.is_file() {
+      // Read the .git file — it should contain "gitdir: <path>"
+      let contents = std::fs::read_to_string(&git_entry).ok()?;
+      let gitdir_ref = contents.trim().strip_prefix("gitdir: ")?;
+      let gitdir_path = Path::new(gitdir_ref);
+
+      if !gitdir_path.exists() {
+        // Find the root .git directory to suggest mounting.
+        // The gitdir typically looks like:
+        //   /path/to/repo/.git/worktrees/<name>
+        // We want to suggest mounting /path/to/repo/.git
+        let mount_path = find_parent_git_dir(gitdir_path);
+
+        let mut msg = format!(
+          "This appears to be a git worktree, but the worktree's gitdir \
+           reference points to a path that doesn't exist:\n\
+           \n\
+           \x20 gitdir: {gitdir_ref}\n\
+           \n\
+           This commonly happens when a git worktree is volume-mounted into a \
+           Docker container without also mounting the main repository's .git \
+           directory.\n\
+           \n\
+           To fix this, add the main repository's .git directory as a volume mount:"
+        );
+
+        msg.push_str(&format!(
+          "\n\
+           \x20 --volume {mp}:{mp}:ro",
+          mp = mount_path.display()
+        ));
+
+        return Some(msg);
+      }
+
+      // gitdir exists, no diagnostic needed
+      return None;
+    }
+
+    // If there's a .git directory, this is a regular repo, not a broken worktree
+    if git_entry.is_dir() {
+      return None;
+    }
+
+    // Walk up to the parent directory
+    dir = dir.parent()?;
+  }
+}
+
+/// Given a gitdir path like `/repo/.git/worktrees/name`, extracts the
+/// parent `.git` directory (`/repo/.git`). Falls back to the grandparent
+/// of the input path if the expected `worktrees` structure isn't found.
+fn find_parent_git_dir(gitdir_path: &Path) -> PathBuf {
+  // Walk up looking for a component that is ".git" — e.g.
+  //   /repo/.git/worktrees/name  →  /repo/.git
+  let mut path = gitdir_path;
+  while let Some(parent) = path.parent() {
+    if path.file_name().is_some_and(|n| n == ".git") {
+      return path.to_path_buf();
+    }
+    path = parent;
+  }
+
+  // Fallback: strip the last two components (worktrees/<name>)
+  gitdir_path
+    .parent()
+    .and_then(|p| p.parent())
+    .unwrap_or(gitdir_path)
+    .to_path_buf()
+}
+
 /// Checks `.git/objects/info/alternates` for paths that don't exist on the filesystem.
 ///
 /// When a git repository is volume-mounted into a Docker container, the alternates file
@@ -181,6 +267,13 @@ pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
           e.message(),
           e.code()
         );
+
+        // Check if this is a worktree with a broken gitdir reference
+        // (common when volume-mounting worktrees into Docker without the
+        // main .git directory).
+        if let Some(diagnostic) = diagnose_broken_worktree_gitdir(start_dir) {
+          return Err(anyhow::anyhow!(diagnostic));
+        }
       }
       Ok(None)
     }

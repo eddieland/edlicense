@@ -899,3 +899,94 @@ fn test_traverse_skips_dot_git_directory() -> Result<()> {
 
   Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Broken worktree gitdir detection (Docker scenario)
+// ---------------------------------------------------------------------------
+
+/// Tests that discover_repo_root returns a descriptive error when the worktree's
+/// .git file references a gitdir path that doesn't exist (e.g. in Docker where
+/// only the worktree is mounted but the main .git directory is not).
+#[test]
+fn test_broken_worktree_gitdir_returns_error() -> Result<()> {
+  // Simulate a worktree by creating a directory with a .git file
+  // that points to a non-existent path.
+  let temp_dir = tempdir()?;
+  let worktree_dir = temp_dir.path().join("my-worktree");
+  fs::create_dir(&worktree_dir)?;
+
+  // Write a .git file like a real worktree would have, but pointing
+  // to a path that doesn't exist (simulating the Docker scenario).
+  let fake_gitdir = "/nonexistent/repo/.git/worktrees/my-worktree";
+  fs::write(worktree_dir.join(".git"), format!("gitdir: {fake_gitdir}\n"))?;
+
+  // discover_repo_root should return an error (not Ok(None)) with
+  // a diagnostic message about the broken worktree reference.
+  let result = git::discover_repo_root(&worktree_dir);
+  assert!(
+    result.is_err(),
+    "Expected error for broken worktree gitdir, got: {:?}",
+    result
+  );
+
+  let err_msg = format!("{}", result.unwrap_err());
+  assert!(
+    err_msg.contains("git worktree"),
+    "Error should mention git worktree, got: {}",
+    err_msg
+  );
+  assert!(
+    err_msg.contains(fake_gitdir),
+    "Error should include the broken gitdir path, got: {}",
+    err_msg
+  );
+  assert!(
+    err_msg.contains("--volume"),
+    "Error should suggest a Docker volume mount, got: {}",
+    err_msg
+  );
+  assert!(
+    err_msg.contains("/nonexistent/repo/.git"),
+    "Error should suggest mounting the main .git directory, got: {}",
+    err_msg
+  );
+
+  Ok(())
+}
+
+/// Tests that discover_repo_root still returns Ok(None) for a directory
+/// that simply has no git repo (not a broken worktree).
+#[test]
+fn test_non_git_dir_returns_none() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let result = git::discover_repo_root(temp_dir.path())?;
+  assert!(result.is_none(), "Expected None for non-git directory");
+  Ok(())
+}
+
+/// Tests that discover_repo_root works normally when the worktree's
+/// gitdir reference is valid (not broken).
+#[test]
+fn test_valid_worktree_gitdir_returns_some() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let main_dir = init_temp_git_repo()?;
+
+  // Create a branch and worktree
+  run_git(main_dir.path(), &["branch", "wt-test"])?;
+  let wt_parent = tempdir()?;
+  let wt_path = wt_parent.path().join("wt");
+  run_git(
+    main_dir.path(),
+    &["worktree", "add", &wt_path.display().to_string(), "wt-test"],
+  )?;
+
+  // discover_repo_root should succeed
+  let result = git::discover_repo_root(&wt_path)?;
+  assert!(result.is_some(), "Should find repo from valid worktree");
+
+  Ok(())
+}
