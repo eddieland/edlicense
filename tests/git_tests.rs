@@ -941,13 +941,63 @@ fn test_broken_worktree_gitdir_returns_error() -> Result<()> {
     err_msg
   );
   assert!(
-    err_msg.contains("--volume"),
-    "Error should suggest a Docker volume mount, got: {}",
+    err_msg.contains("/nonexistent/repo/.git"),
+    "Error should show the expected main .git directory, got: {}",
+    err_msg
+  );
+
+  Ok(())
+}
+
+/// Tests that a relative gitdir path (e.g. "../../.git/worktrees/foo") is
+/// resolved relative to the .git file's directory, not the process CWD.
+#[test]
+fn test_broken_worktree_relative_gitdir_returns_error() -> Result<()> {
+  // Create a directory structure simulating a worktree with a relative gitdir.
+  // The .git file uses a relative path that, when resolved against its parent
+  // directory, points to a path that doesn't exist.
+  let temp_dir = tempdir()?;
+  let worktree_dir = temp_dir.path().join("worktrees").join("feature");
+  fs::create_dir_all(&worktree_dir)?;
+
+  // Relative gitdir pointing to ../../.git/worktrees/feature
+  // which resolves to temp_dir/.git/worktrees/feature (doesn't exist)
+  let relative_gitdir = "../../.git/worktrees/feature";
+  fs::write(worktree_dir.join(".git"), format!("gitdir: {relative_gitdir}\n"))?;
+
+  let result = git::discover_repo_root(&worktree_dir);
+  assert!(
+    result.is_err(),
+    "Expected error for broken relative worktree gitdir, got: {:?}",
+    result
+  );
+
+  let err_msg = format!("{}", result.unwrap_err());
+  assert!(
+    err_msg.contains("git worktree"),
+    "Error should mention git worktree, got: {}",
     err_msg
   );
   assert!(
-    err_msg.contains("/nonexistent/repo/.git"),
-    "Error should suggest mounting the main .git directory, got: {}",
+    err_msg.contains(relative_gitdir),
+    "Error should include the raw gitdir reference, got: {}",
+    err_msg
+  );
+  // The resolved .git directory should be a clean, normalized path (temp_dir/.git)
+  // not one containing ".." components from the relative reference.
+  let expected_git_dir = temp_dir.path().join(".git");
+  assert!(
+    err_msg.contains(&expected_git_dir.display().to_string()),
+    "Error should show the resolved .git directory ({}), got: {}",
+    expected_git_dir.display(),
+    err_msg
+  );
+  // The resolved gitdir path should also be normalized
+  let expected_resolved = temp_dir.path().join(".git/worktrees/feature");
+  assert!(
+    err_msg.contains(&expected_resolved.display().to_string()),
+    "Error should show the resolved gitdir path ({}), got: {}",
+    expected_resolved.display(),
     err_msg
   );
 

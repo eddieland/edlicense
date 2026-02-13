@@ -104,6 +104,32 @@ fn check_repo_state_for_ratchet(repo: &Repository) -> Result<()> {
   Ok(())
 }
 
+/// Normalize a path by resolving `.` and `..` components without following symlinks.
+///
+/// This is needed to produce clean paths in diagnostic messages when a relative
+/// gitdir reference (e.g. `../../.git/worktrees/foo`) is joined with a base
+/// directory.
+fn normalize_path(path: &Path) -> PathBuf {
+  use std::path::Component;
+
+  let mut components = Vec::new();
+  for component in path.components() {
+    match component {
+      Component::CurDir => {}
+      Component::ParentDir => {
+        if let Some(Component::Normal(_)) = components.last() {
+          components.pop();
+        } else {
+          components.push(component);
+        }
+      }
+      _ => components.push(component),
+    }
+  }
+
+  components.iter().collect()
+}
+
 /// Diagnoses a broken git worktree reference.
 ///
 /// In a git worktree, the `.git` entry is a **file** (not a directory) containing
@@ -113,8 +139,8 @@ fn check_repo_state_for_ratchet(repo: &Repository) -> Result<()> {
 /// doesn't exist inside the container, causing `Repository::discover()` to fail.
 ///
 /// This function walks up from `start_dir` looking for a `.git` file with a
-/// `gitdir:` reference. If the referenced path doesn't exist, it returns an
-/// actionable diagnostic message telling the user what to mount.
+/// `gitdir:` reference. If the referenced path doesn't exist, it returns a
+/// diagnostic message explaining the problem.
 fn diagnose_broken_worktree_gitdir(start_dir: &Path) -> Option<String> {
   let mut dir = start_dir;
   loop {
@@ -123,33 +149,37 @@ fn diagnose_broken_worktree_gitdir(start_dir: &Path) -> Option<String> {
       // Read the .git file — it should contain "gitdir: <path>"
       let contents = std::fs::read_to_string(&git_entry).ok()?;
       let gitdir_ref = contents.trim().strip_prefix("gitdir: ")?;
-      let gitdir_path = Path::new(gitdir_ref);
+
+      // Resolve the gitdir path relative to the .git file's parent directory.
+      // Worktree .git files may use relative paths (e.g. "../../.git/worktrees/foo")
+      // which must be resolved against the directory containing the .git file,
+      // not the process CWD.
+      let base = git_entry.parent().unwrap_or(dir);
+      let gitdir_path = normalize_path(&base.join(gitdir_ref));
 
       if !gitdir_path.exists() {
-        // Find the root .git directory to suggest mounting.
+        // Resolve the parent .git directory from the gitdir path.
         // The gitdir typically looks like:
         //   /path/to/repo/.git/worktrees/<name>
-        // We want to suggest mounting /path/to/repo/.git
-        let mount_path = find_parent_git_dir(gitdir_path);
+        // We want to show /path/to/repo/.git
+        let git_dir = find_parent_git_dir(&gitdir_path);
 
-        let mut msg = format!(
+        let msg = format!(
           "This appears to be a git worktree, but the worktree's gitdir \
            reference points to a path that doesn't exist:\n\
            \n\
            \x20 gitdir: {gitdir_ref}\n\
+           \x20 resolved to: {}\n\
            \n\
-           This commonly happens when a git worktree is volume-mounted into a \
-           Docker container without also mounting the main repository's .git \
-           directory.\n\
+           The main repository's .git directory is expected at:\n\
+           \x20 {}\n\
            \n\
-           To fix this, add the main repository's .git directory as a volume mount:"
+           Ensure the main repository's .git directory is accessible at that path. \
+           This commonly happens when running inside a container where only the \
+           worktree directory is mounted, but the main .git directory is not.",
+          gitdir_path.display(),
+          git_dir.display(),
         );
-
-        msg.push_str(&format!(
-          "\n\
-           \x20 --volume {mp}:{mp}:ro",
-          mp = mount_path.display()
-        ));
 
         return Some(msg);
       }
