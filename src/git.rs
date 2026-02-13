@@ -202,14 +202,12 @@ fn diagnose_broken_worktree_gitdir(start_dir: &Path) -> Option<String> {
 /// parent `.git` directory (`/repo/.git`). Falls back to the grandparent
 /// of the input path if the expected `worktrees` structure isn't found.
 fn find_parent_git_dir(gitdir_path: &Path) -> PathBuf {
-  // Walk up looking for a component that is ".git" — e.g.
+  // Walk up looking for a component named ".git" — e.g.
   //   /repo/.git/worktrees/name  →  /repo/.git
-  let mut path = gitdir_path;
-  while let Some(parent) = path.parent() {
-    if path.file_name().is_some_and(|n| n == ".git") {
-      return path.to_path_buf();
+  for ancestor in gitdir_path.ancestors() {
+    if ancestor.file_name().is_some_and(|n| n == ".git") {
+      return ancestor.to_path_buf();
     }
-    path = parent;
   }
 
   // Fallback: strip the last two components (worktrees/<name>)
