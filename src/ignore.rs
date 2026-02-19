@@ -167,10 +167,19 @@ impl IgnoreManager {
       let content = fs::read_to_string(&ignore_path)
         .with_context(|| format!("Failed to read .licenseignore file: {}", ignore_path.display()))?;
 
+      // Compute the relative path from the builder root to this .licenseignore's
+      // directory. When a .licenseignore is not at the root, anchored patterns
+      // (those with a leading `/` or containing an internal `/`) must be
+      // rewritten to include this prefix so they match relative to the
+      // .licenseignore location, not the builder root. The `ignore` crate's
+      // `from` parameter is stored but not used for matching.
+      let dir_relative = dir_path.strip_prefix(root_dir).ok().map(|p| p.to_path_buf());
+
       for line in content.lines() {
         if !line.trim().is_empty() && !line.trim().starts_with('#') {
+          let adjusted = adjust_pattern_for_root(line.trim(), dir_relative.as_deref());
           builder
-            .add_line(Some(dir_path.clone()), line)
+            .add_line(Some(dir_path.clone()), &adjusted)
             .with_context(|| format!("Failed to add line from .licenseignore file: {}", ignore_path.display()))?;
         }
       }
@@ -309,5 +318,134 @@ impl IgnoreManager {
     }
 
     false
+  }
+}
+
+/// Adjusts a `.licenseignore` pattern so that it is correctly anchored relative
+/// to the builder root when the `.licenseignore` file lives in a subdirectory.
+///
+/// The `ignore` crate's `GitignoreBuilder` matches all patterns relative to its
+/// root directory.  When a `.licenseignore` is located in a subdirectory (e.g.
+/// `packages/app/.licenseignore`), anchored patterns like `/snapshots/` must be
+/// rewritten to `packages/app/snapshots/` so that the match occurs at the
+/// correct level.
+///
+/// The gitignore spec says:
+/// - A leading `/` anchors the pattern to the directory containing the gitignore.
+/// - A pattern with a `/` in the middle (not leading or trailing) is also anchored.
+/// - A pattern with no `/` (or only a trailing `/`) matches at any depth and gets a `**/` prefix from the crate.
+///
+/// # Arguments
+///
+/// * `pattern` – A single trimmed, non-empty, non-comment line from a `.licenseignore` file.
+/// * `dir_relative` – The relative path from the builder root to the directory containing the `.licenseignore` file.
+///   `None` or an empty path means the file is at the root and no adjustment is needed.
+fn adjust_pattern_for_root(pattern: &str, dir_relative: Option<&Path>) -> String {
+  let dir_relative = match dir_relative {
+    Some(p) if p != Path::new("") => p,
+    _ => return pattern.to_string(), // Already at root, no adjustment needed
+  };
+
+  let dir_prefix = dir_relative.to_string_lossy();
+
+  // Handle negation prefix: strip `!`, adjust the inner pattern, re-add `!`.
+  if let Some(inner) = pattern.strip_prefix('!') {
+    let adjusted_inner = adjust_pattern_for_root(inner, Some(dir_relative));
+    return format!("!{adjusted_inner}");
+  }
+
+  // Handle escaped leading characters (`\!`, `\#`): pass through unchanged
+  // since they are rare and the escape already disables special handling.
+  if pattern.starts_with("\\!") || pattern.starts_with("\\#") {
+    // These are literal patterns; apply the same anchoring logic to the
+    // unescaped part but keep the escape.
+    return pattern.to_string();
+  }
+
+  // Determine whether the pattern is anchored.
+  // In gitignore semantics a pattern is anchored when:
+  //   1. It starts with `/`   – explicitly anchored
+  //   2. It contains a `/` in positions other than the very end – implicitly anchored
+  // Unanchored patterns (e.g. `*.json`, `vendor/`) match anywhere in the tree
+  // and do not need adjustment.
+
+  if let Some(rest) = pattern.strip_prefix('/') {
+    // Explicitly anchored: `/snapshots/` → `dir_prefix/snapshots/`
+    return format!("/{dir_prefix}/{rest}");
+  }
+
+  // Check for an internal `/` (not counting a single trailing `/`).
+  let without_trailing = pattern.strip_suffix('/').unwrap_or(pattern);
+  if without_trailing.contains('/') {
+    // Implicitly anchored: `tests/fixtures/` → `dir_prefix/tests/fixtures/`
+    return format!("{dir_prefix}/{pattern}");
+  }
+
+  // Unanchored pattern (e.g. `*.json`, `vendor/`, `*.generated.ts`).
+  // The ignore crate adds `**/` automatically – no adjustment needed.
+  pattern.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_adjust_pattern_no_relative_dir() {
+    // At root, patterns are unchanged
+    assert_eq!(adjust_pattern_for_root("/snapshots/", None), "/snapshots/");
+    assert_eq!(
+      adjust_pattern_for_root("/snapshots/", Some(Path::new(""))),
+      "/snapshots/"
+    );
+    assert_eq!(adjust_pattern_for_root("*.json", None), "*.json");
+  }
+
+  #[test]
+  fn test_adjust_pattern_anchored_leading_slash() {
+    let dir = Some(Path::new("myproject"));
+    assert_eq!(adjust_pattern_for_root("/snapshots/", dir), "/myproject/snapshots/");
+    assert_eq!(adjust_pattern_for_root("/build", dir), "/myproject/build");
+  }
+
+  #[test]
+  fn test_adjust_pattern_anchored_internal_slash() {
+    let dir = Some(Path::new("myproject"));
+    assert_eq!(
+      adjust_pattern_for_root("tests/fixtures/", dir),
+      "myproject/tests/fixtures/"
+    );
+    assert_eq!(adjust_pattern_for_root("src/generated", dir), "myproject/src/generated");
+  }
+
+  #[test]
+  fn test_adjust_pattern_unanchored_unchanged() {
+    let dir = Some(Path::new("myproject"));
+    // Unanchored: no leading `/`, no internal `/`
+    assert_eq!(adjust_pattern_for_root("*.json", dir), "*.json");
+    assert_eq!(adjust_pattern_for_root("*.generated.ts", dir), "*.generated.ts");
+    assert_eq!(adjust_pattern_for_root("vendor/", dir), "vendor/");
+    assert_eq!(adjust_pattern_for_root("*.log", dir), "*.log");
+  }
+
+  #[test]
+  fn test_adjust_pattern_negation() {
+    let dir = Some(Path::new("myproject"));
+    assert_eq!(adjust_pattern_for_root("!important.json", dir), "!important.json");
+    assert_eq!(
+      adjust_pattern_for_root("!/snapshots/keep.rs", dir),
+      "!/myproject/snapshots/keep.rs"
+    );
+  }
+
+  #[test]
+  fn test_adjust_pattern_nested_dir_relative() {
+    let dir = Some(Path::new("packages/app"));
+    assert_eq!(adjust_pattern_for_root("/snapshots/", dir), "/packages/app/snapshots/");
+    assert_eq!(
+      adjust_pattern_for_root("tests/fixtures/", dir),
+      "packages/app/tests/fixtures/"
+    );
+    assert_eq!(adjust_pattern_for_root("*.json", dir), "*.json");
   }
 }

@@ -1491,3 +1491,211 @@ fn test_processor_compound_directory_patterns() -> Result<()> {
   env::set_current_dir(&original_dir)?;
   Ok(())
 }
+
+/// Regression test: `/snapshots/` in .licenseignore should ignore files under
+/// the snapshots directory.
+#[test]
+fn test_leading_slash_single_directory_pattern() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let root = temp_dir.path();
+
+  // Create .licenseignore with /snapshots/ pattern (anchored directory)
+  fs::write(root.join(".licenseignore"), "/snapshots/\n")?;
+
+  // Create directory structure
+  fs::create_dir(root.join("snapshots"))?;
+  fs::write(root.join("snapshots/test.rs"), "// test")?;
+  fs::create_dir_all(root.join("snapshots/nested"))?;
+  fs::write(root.join("snapshots/nested/deep.rs"), "// deep")?;
+  fs::write(root.join("main.rs"), "fn main() {}")?;
+
+  let mut ignore_manager = IgnoreManager::new(vec![])?;
+  ignore_manager.load_licenseignore_files(root, root)?;
+
+  assert!(
+    ignore_manager.is_ignored(&root.join("snapshots/test.rs")),
+    "File in /snapshots/ should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&root.join("snapshots/nested/deep.rs")),
+    "Nested file in /snapshots/ should be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&root.join("main.rs")),
+    "main.rs should NOT be ignored"
+  );
+
+  // Now test with paths that have `.` components, which happens when
+  // traverse_directory is called with "." (relative current dir).
+  // e.g., root/./snapshots/test.rs instead of root/snapshots/test.rs
+  assert!(
+    ignore_manager.is_ignored(&root.join(".").join("snapshots/test.rs")),
+    "File in /snapshots/ should be ignored even with dot in path (root/./snapshots/test.rs)"
+  );
+  assert!(
+    ignore_manager.is_ignored(&root.join(".").join("snapshots/nested/deep.rs")),
+    "Nested file in /snapshots/ should be ignored even with dot in path"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&root.join(".").join("main.rs")),
+    "main.rs should NOT be ignored even with dot in path"
+  );
+
+  Ok(())
+}
+
+/// Regression test: anchored patterns like `/snapshots/` in a .licenseignore
+/// that lives in a subdirectory of the workspace root must be matched relative
+/// to the .licenseignore's directory, not the workspace root.
+///
+/// This is the core bug: when the git root is a parent of the project, the
+/// workspace root differs from the .licenseignore location. Before the fix,
+/// `/snapshots/` would be matched at the workspace root level instead of at
+/// the .licenseignore directory level.
+#[test]
+fn test_licenseignore_anchored_pattern_in_subdirectory() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let workspace_root = temp_dir.path();
+
+  // Simulate: git root is /workspace, project is /workspace/myproject
+  let project = workspace_root.join("myproject");
+  fs::create_dir(&project)?;
+
+  // .licenseignore at /workspace/myproject/.licenseignore
+  let ignore_content = "/snapshots/\ntests/fixtures/\n";
+  fs::write(project.join(".licenseignore"), ignore_content)?;
+
+  // Create files
+  fs::create_dir_all(project.join("snapshots/nested"))?;
+  fs::write(project.join("snapshots/test.rs"), "// test")?;
+  fs::write(project.join("snapshots/nested/deep.rs"), "// deep")?;
+  fs::create_dir_all(project.join("tests/fixtures"))?;
+  fs::write(project.join("tests/fixtures/data.json"), "{}")?;
+  fs::create_dir_all(project.join("src"))?;
+  fs::write(project.join("src/main.rs"), "fn main() {}")?;
+
+  // Load .licenseignore from the project directory with workspace root as parent
+  let mut ignore_manager = IgnoreManager::new(vec![])?;
+  ignore_manager.load_licenseignore_files(&project, workspace_root)?;
+
+  // /snapshots/ anchored to project dir should ignore files under myproject/snapshots/
+  assert!(
+    ignore_manager.is_ignored(&project.join("snapshots/test.rs")),
+    "File in myproject/snapshots/ should be ignored by /snapshots/ pattern"
+  );
+  assert!(
+    ignore_manager.is_ignored(&project.join("snapshots/nested/deep.rs")),
+    "Nested file in myproject/snapshots/ should be ignored"
+  );
+
+  // tests/fixtures/ (implicitly anchored) should ignore files under myproject/tests/fixtures/
+  assert!(
+    ignore_manager.is_ignored(&project.join("tests/fixtures/data.json")),
+    "File in myproject/tests/fixtures/ should be ignored by tests/fixtures/ pattern"
+  );
+
+  // src/main.rs should NOT be ignored
+  assert!(
+    !ignore_manager.is_ignored(&project.join("src/main.rs")),
+    "src/main.rs should NOT be ignored"
+  );
+
+  // Files at the workspace root level should NOT be matched by the anchored pattern
+  // (the pattern is anchored to the .licenseignore's dir, not the workspace root)
+  fs::create_dir_all(workspace_root.join("snapshots"))?;
+  fs::write(workspace_root.join("snapshots/root_level.rs"), "// root")?;
+  assert!(
+    !ignore_manager.is_ignored(&workspace_root.join("snapshots/root_level.rs")),
+    "File in workspace_root/snapshots/ should NOT be ignored (pattern is anchored to myproject/)"
+  );
+
+  Ok(())
+}
+
+/// Test that unanchored patterns in subdirectory .licenseignore still match
+/// anywhere, and negation patterns work across subdirectories.
+#[test]
+fn test_licenseignore_unanchored_pattern_in_subdirectory() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let workspace_root = temp_dir.path();
+
+  let project = workspace_root.join("myproject");
+  fs::create_dir(&project)?;
+
+  // Unanchored patterns should match at any depth regardless of .licenseignore location
+  let ignore_content = "*.json\n!important.json\n";
+  fs::write(project.join(".licenseignore"), ignore_content)?;
+
+  fs::create_dir_all(project.join("src/data"))?;
+  fs::write(project.join("config.json"), "{}")?;
+  fs::write(project.join("src/data/test.json"), "{}")?;
+  fs::write(project.join("important.json"), "important")?;
+  fs::write(project.join("src/main.rs"), "fn main() {}")?;
+
+  let mut ignore_manager = IgnoreManager::new(vec![])?;
+  ignore_manager.load_licenseignore_files(&project, workspace_root)?;
+
+  assert!(
+    ignore_manager.is_ignored(&project.join("config.json")),
+    "JSON at project root should be ignored"
+  );
+  assert!(
+    ignore_manager.is_ignored(&project.join("src/data/test.json")),
+    "Deeply nested JSON should be ignored"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&project.join("important.json")),
+    "important.json should NOT be ignored (negation pattern)"
+  );
+  assert!(
+    !ignore_manager.is_ignored(&project.join("src/main.rs")),
+    "Rust file should NOT be ignored"
+  );
+
+  Ok(())
+}
+
+/// Test that hierarchical .licenseignore files work correctly when the workspace
+/// root is a parent directory.
+#[test]
+fn test_licenseignore_hierarchical_with_parent_workspace_root() -> Result<()> {
+  let temp_dir = tempdir()?;
+  let workspace_root = temp_dir.path();
+
+  // Root-level .licenseignore
+  fs::write(workspace_root.join(".licenseignore"), "*.log\n")?;
+
+  // Project-level .licenseignore
+  let project = workspace_root.join("myproject");
+  fs::create_dir(&project)?;
+  fs::write(project.join(".licenseignore"), "/snapshots/\n")?;
+
+  // Create files
+  fs::create_dir_all(project.join("snapshots"))?;
+  fs::write(project.join("snapshots/test.rs"), "// test")?;
+  fs::write(project.join("app.log"), "log")?;
+  fs::write(project.join("src.rs"), "fn main() {}")?;
+
+  let mut ignore_manager = IgnoreManager::new(vec![])?;
+  ignore_manager.load_licenseignore_files(&project, workspace_root)?;
+
+  // Root-level pattern should still work
+  assert!(
+    ignore_manager.is_ignored(&project.join("app.log")),
+    "Log file should be ignored by root .licenseignore"
+  );
+
+  // Project-level anchored pattern should work relative to project dir
+  assert!(
+    ignore_manager.is_ignored(&project.join("snapshots/test.rs")),
+    "File in snapshots/ should be ignored by project .licenseignore"
+  );
+
+  // Non-matching file should not be ignored
+  assert!(
+    !ignore_manager.is_ignored(&project.join("src.rs")),
+    "src.rs should NOT be ignored"
+  );
+
+  Ok(())
+}
