@@ -354,11 +354,11 @@ fn adjust_pattern_for_root(pattern: &str, dir_relative: Option<&Path>) -> String
     return format!("!{adjusted_inner}");
   }
 
-  // Handle escaped leading characters (`\!`, `\#`): pass through unchanged
-  // since they are rare and the escape already disables special handling.
+  // Handle escaped leading characters (`\!`, `\#`): treat as literal patterns
+  // and return them unchanged, intentionally skipping any anchoring adjustments.
   if pattern.starts_with("\\!") || pattern.starts_with("\\#") {
-    // These are literal patterns; apply the same anchoring logic to the
-    // unescaped part but keep the escape.
+    // These are literal patterns; we intentionally do not inspect internal `/`
+    // or alter anchoring for these rare escaped forms, and just return them.
     return pattern.to_string();
   }
 
