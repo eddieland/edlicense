@@ -308,6 +308,23 @@ pub fn discover_repo_root(start_dir: &Path) -> Result<Option<PathBuf>> {
   }
 }
 
+/// Returns `workdir` and `workspace_root` in a form where prefix checks between
+/// them are reliable.
+///
+/// The same directory can be spelled differently: libgit2 reports the workdir
+/// with its long, correctly-cased name, while the workspace root may come from
+/// the caller or the environment with an 8.3 short name or different case on
+/// Windows (e.g. `C:\Users\RUNNER~1\...` from `%TEMP%`), or through a symlink.
+/// When the two differ, canonicalize both so they resolve to the same form.
+fn comparable_roots(workdir: &Path, workspace_root: &Path) -> (PathBuf, PathBuf) {
+  if workspace_root != workdir
+    && let (Ok(workdir), Ok(workspace_root)) = (workdir.canonicalize(), workspace_root.canonicalize())
+  {
+    return (workdir, workspace_root);
+  }
+  (workdir.to_path_buf(), workspace_root.to_path_buf())
+}
+
 /// Gets all files tracked by git in the current repository.
 ///
 /// This function is used to limit processing to only files that are tracked by
@@ -339,10 +356,12 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
 
   let tree = head.peel_to_tree().with_context(|| "Failed to get HEAD tree")?;
 
+  let (cmp_workdir, cmp_root) = comparable_roots(workdir, workspace_root);
+
   // Fast path: if workspace_root equals workdir, we can skip path normalization
   // entirely This is the common case when running edlicense from the repository
   // root
-  let use_fast_path = workspace_root == workdir;
+  let use_fast_path = cmp_root == cmp_workdir;
 
   tree
     .walk(git2::TreeWalkMode::PreOrder, |root, entry| {
@@ -372,12 +391,12 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
             tracked_files.insert(repo_relative_path);
           } else {
             // Slow path: need to convert through absolute path
-            let abs_path = workdir.join(&repo_relative_path);
+            let abs_path = cmp_workdir.join(&repo_relative_path);
             let rel_path = abs_path
-              .strip_prefix(workspace_root)
+              .strip_prefix(&cmp_root)
               .ok()
               .map(|path| path.to_path_buf())
-              .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
+              .or_else(|| pathdiff::diff_paths(&abs_path, &cmp_root))
               .unwrap_or_else(|| repo_relative_path.clone());
             tracked_files.insert(rel_path);
           }
@@ -576,8 +595,10 @@ fn collect_diff_files(
 fn collect_diff_paths(diff: &git2::Diff<'_>, workdir: &Path, workspace_root: &Path) -> Result<HashSet<PathBuf>> {
   let mut changed_files = HashSet::new();
 
+  let (cmp_workdir, cmp_root) = comparable_roots(workdir, workspace_root);
+
   // Fast path: if workspace_root equals workdir, we can skip path normalization
-  let use_fast_path = workspace_root == workdir;
+  let use_fast_path = cmp_root == cmp_workdir;
 
   diff
     .foreach(
@@ -602,12 +623,12 @@ fn collect_diff_paths(diff: &git2::Diff<'_>, workdir: &Path, workspace_root: &Pa
             changed_files.insert(new_file.to_path_buf());
           } else {
             // Slow path: need to convert through absolute path
-            let abs_path = workdir.join(new_file);
+            let abs_path = cmp_workdir.join(new_file);
             let rel_path = abs_path
-              .strip_prefix(workspace_root)
+              .strip_prefix(&cmp_root)
               .ok()
               .map(|path| path.to_path_buf())
-              .or_else(|| pathdiff::diff_paths(&abs_path, workspace_root))
+              .or_else(|| pathdiff::diff_paths(&abs_path, &cmp_root))
               .unwrap_or_else(|| new_file.to_path_buf());
             trace!("Added relative path: {}", rel_path.display());
             changed_files.insert(rel_path);

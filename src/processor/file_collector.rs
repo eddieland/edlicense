@@ -148,12 +148,14 @@ pub fn build_pattern_matchers(
     return Ok(Vec::new());
   }
 
+  let current_dir = align_with_workspace_root(current_dir, workspace_root);
+
   let mut matchers = Vec::with_capacity(patterns.len());
   for pattern in patterns {
     let raw_path = PathBuf::from(pattern);
     if raw_path.exists() {
       let abs_path = if raw_path.is_absolute() {
-        Cow::Borrowed(raw_path.as_path())
+        align_with_workspace_root(&raw_path, workspace_root)
       } else {
         Cow::Owned(current_dir.join(&raw_path))
       };
@@ -173,8 +175,18 @@ pub fn build_pattern_matchers(
     } else {
       let mut glob_source = pattern.as_str().to_string();
       if raw_path.is_absolute() {
-        if let Ok(rel_path) = raw_path.strip_prefix(workspace_root) {
-          glob_source = rel_path.to_string_lossy().replace("\\", "/");
+        // Align the literal directory part (before the first glob component) with
+        // the workspace root's spelling, then re-append the glob part.
+        let literal_prefix: PathBuf = raw_path
+          .components()
+          .take_while(|c| !c.as_os_str().to_string_lossy().contains(['*', '?', '[']))
+          .collect();
+        let aligned_prefix = align_with_workspace_root(&literal_prefix, workspace_root);
+        if let (Ok(rel_prefix), Ok(glob_part)) = (
+          aligned_prefix.strip_prefix(workspace_root),
+          raw_path.strip_prefix(&literal_prefix),
+        ) {
+          glob_source = rel_prefix.join(glob_part).to_string_lossy().replace("\\", "/");
         }
       } else {
         if let Ok(workspace_relative_cwd) = current_dir.strip_prefix(workspace_root)
@@ -192,6 +204,29 @@ pub fn build_pattern_matchers(
   }
 
   Ok(matchers)
+}
+
+/// Re-expresses an absolute `path` using `workspace_root`'s spelling.
+///
+/// The same directory can be spelled differently: on Windows the current
+/// directory may use 8.3 short names (`C:\Users\RUNNER~1`) or different case
+/// from the git workdir (`C:\Users\runneradmin`), and on Unix one of them may go
+/// through a symlink. Prefix checks against the workspace root then fail. When
+/// `path` isn't already under `workspace_root`, canonicalize both and, if `path`
+/// is inside the root, rebuild it on top of `workspace_root`. Otherwise `path`
+/// is returned unchanged.
+pub fn align_with_workspace_root<'a>(path: &'a Path, workspace_root: &Path) -> Cow<'a, Path> {
+  if !path.is_absolute() || path.starts_with(workspace_root) {
+    return Cow::Borrowed(path);
+  }
+
+  if let (Ok(canonical_path), Ok(canonical_root)) = (path.canonicalize(), workspace_root.canonicalize())
+    && let Ok(rel_path) = canonical_path.strip_prefix(&canonical_root)
+  {
+    return Cow::Owned(workspace_root.join(rel_path));
+  }
+
+  Cow::Borrowed(path)
 }
 
 /// Converts a potentially relative path to an absolute path.
@@ -327,6 +362,24 @@ mod tests {
     assert!(path.is_absolute());
     let result = absolutize_path(&path).unwrap();
     assert_eq!(result, path);
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn test_align_with_workspace_root_rewrites_symlinked_spelling() {
+    let temp = tempfile::tempdir().unwrap();
+    let real_root = temp.path().join("real");
+    std::fs::create_dir_all(real_root.join("src")).unwrap();
+    let link_root = temp.path().join("link");
+    std::os::unix::fs::symlink(&real_root, &link_root).unwrap();
+
+    let via_link = link_root.join("src");
+    assert_eq!(align_with_workspace_root(&via_link, &real_root), real_root.join("src"));
+
+    // Already under the root, or outside it: unchanged
+    let inside = real_root.join("src");
+    assert_eq!(align_with_workspace_root(&inside, &real_root), inside);
+    assert_eq!(align_with_workspace_root(temp.path(), &real_root), temp.path());
   }
 
   #[test]

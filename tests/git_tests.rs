@@ -99,6 +99,32 @@ fn test_get_git_tracked_files() -> Result<()> {
   Ok(())
 }
 
+/// The workspace root may be spelled differently from the workdir libgit2
+/// reports (8.3 short names or letter case on Windows, symlinked paths on Unix).
+/// Tracked paths must still come back relative to the workspace root.
+#[cfg(unix)]
+#[test]
+fn test_get_git_tracked_files_with_differently_spelled_root() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+  let link_parent = tempdir()?;
+  let link = link_parent.path().join("repo-link");
+  std::os::unix::fs::symlink(temp_dir.path(), &link)?;
+
+  let tracked_files = git::get_git_tracked_files(&link)?;
+  assert!(
+    tracked_files.contains(&PathBuf::from("initial.txt")),
+    "Should contain initial.txt, got: {:?}",
+    tracked_files
+  );
+
+  Ok(())
+}
+
 /// On Windows, git checks symlinks out as plain files containing the link target
 /// (core.symlinks=false), so they must be filtered using the git file mode.
 #[test]
