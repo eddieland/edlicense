@@ -50,10 +50,9 @@ fn setup_test_environment() -> Result<tempfile::TempDir> {
 
 // Helper function to run edlicense with the given arguments
 fn run_edlicense(args: &[&str], current_dir: &Path) -> Result<(i32, String, String)> {
-  // Get the path to the target directory
-  let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-  let target_dir = Path::new(&manifest_dir).join("target").join("debug");
-  let binary_path = target_dir.join("edlicense");
+  // Cargo builds the binary for integration tests and tells us where it is
+  // (this also handles the `.exe` suffix on Windows)
+  let binary_path = Path::new(env!("CARGO_BIN_EXE_edlicense"));
 
   // Print the command we're about to run for debugging
   println!(

@@ -10,6 +10,14 @@ use std::sync::LazyLock;
 use anyhow::Result;
 use regex::Regex;
 
+/// The UTF-8 byte-order mark, as it appears at the start of a decoded string.
+const UTF8_BOM: &str = "\u{FEFF}";
+
+/// Returns true if the content's first line ends with CRLF.
+fn uses_crlf(content: &str) -> bool {
+  content.find('\n').is_some_and(|i| content[..i].ends_with('\r'))
+}
+
 /// Content transformation utilities for license processing.
 ///
 /// The `ContentTransformer` handles:
@@ -86,6 +94,46 @@ impl ContentTransformer {
     }
 
     (String::new(), content)
+  }
+
+  /// Builds new file content with `formatted_license` inserted as the header.
+  ///
+  /// Anything that must stay at the very start of the file is kept there: a
+  /// UTF-8 byte-order mark (common for files saved by Windows editors) and the
+  /// special prefix lines handled by [`Self::extract_prefix`]. The inserted text
+  /// uses the file's existing line ending, so CRLF files stay CRLF instead of
+  /// ending up with mixed line endings.
+  ///
+  /// # Parameters
+  ///
+  /// * `content` - The original file content
+  /// * `formatted_license` - The license header, already formatted with comment markers (LF line endings)
+  ///
+  /// # Returns
+  ///
+  /// The complete new file content.
+  pub fn insert_license(&self, content: &str, formatted_license: &str) -> String {
+    let (bom, body) = match content.strip_prefix(UTF8_BOM) {
+      Some(rest) => (UTF8_BOM, rest),
+      None => ("", content),
+    };
+
+    let (prefix, remainder) = self.extract_prefix(body);
+    let mut header = prefix;
+    if remainder.trim().is_empty() {
+      // For empty files, don't include the trailing blank line separator
+      header.push_str(formatted_license.trim_end());
+      header.push('\n');
+    } else {
+      header.push_str(formatted_license);
+    }
+
+    if uses_crlf(body) {
+      // The prefix line keeps its original `\r\n`; normalize first so it isn't doubled.
+      header = header.replace("\r\n", "\n").replace('\n', "\r\n");
+    }
+
+    format!("{bom}{header}{remainder}")
   }
 
   /// Updates the year in existing license headers.
@@ -332,5 +380,52 @@ mod tests {
       "Expected year to be updated when followed by period: got {:?}",
       updated_content
     );
+  }
+
+  const LICENSE: &str = "// Copyright 2025\n\n";
+
+  #[test]
+  fn test_insert_license_lf() {
+    let transformer = ContentTransformer::new("2025".to_string());
+    let result = transformer.insert_license("fn main() {}\n", LICENSE);
+    assert_eq!(result, "// Copyright 2025\n\nfn main() {}\n");
+  }
+
+  #[test]
+  fn test_insert_license_preserves_crlf() {
+    let transformer = ContentTransformer::new("2025".to_string());
+    let result = transformer.insert_license("fn main() {}\r\n", LICENSE);
+    assert_eq!(result, "// Copyright 2025\r\n\r\nfn main() {}\r\n");
+  }
+
+  #[test]
+  fn test_insert_license_preserves_crlf_after_shebang() {
+    let transformer = ContentTransformer::new("2025".to_string());
+    let result = transformer.insert_license("#!/bin/sh\r\necho hi\r\n", "# Copyright 2025\n\n");
+    assert_eq!(result, "#!/bin/sh\r\n\r\n# Copyright 2025\r\n\r\necho hi\r\n");
+  }
+
+  #[test]
+  fn test_insert_license_keeps_bom_first() {
+    let transformer = ContentTransformer::new("2025".to_string());
+    let result = transformer.insert_license("\u{FEFF}fn main() {}\r\n", LICENSE);
+    assert_eq!(result, "\u{FEFF}// Copyright 2025\r\n\r\nfn main() {}\r\n");
+  }
+
+  #[test]
+  fn test_insert_license_detects_xml_declaration_after_bom() {
+    let transformer = ContentTransformer::new("2025".to_string());
+    let content = "\u{FEFF}<?xml version=\"1.0\"?>\n<root/>\n";
+    let result = transformer.insert_license(content, "<!--\n Copyright 2025\n-->\n\n");
+    assert_eq!(
+      result,
+      "\u{FEFF}<?xml version=\"1.0\"?>\n\n<!--\n Copyright 2025\n-->\n\n<root/>\n"
+    );
+  }
+
+  #[test]
+  fn test_insert_license_empty_file() {
+    let transformer = ContentTransformer::new("2025".to_string());
+    assert_eq!(transformer.insert_license("", LICENSE), "// Copyright 2025\n");
   }
 }

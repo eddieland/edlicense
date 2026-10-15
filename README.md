@@ -72,6 +72,10 @@ Benchmark methodology and raw results are available in `benchmarks/`. Performanc
 cargo install edlicense
 ```
 
+### Pre-built binaries
+
+Each [GitHub release](https://github.com/eddieland/edlicense/releases) includes standalone binaries for Linux (x86_64, x86_64 musl, aarch64), macOS (x86_64, aarch64) and Windows (`edlicense-windows-x86_64.exe`).
+
 ### From source
 
 ```bash

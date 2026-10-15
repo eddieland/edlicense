@@ -351,6 +351,13 @@ pub fn get_git_tracked_files(workspace_root: &Path) -> Result<HashSet<PathBuf>> 
         return 0;
       }
 
+      // Skip symlinks. On Windows, git checks them out as plain text files
+      // containing the link target (core.symlinks=false), so the filesystem-level
+      // symlink check won't catch them and we'd write a header into the link.
+      if entry.filemode() == i32::from(git2::FileMode::Link) {
+        return 0;
+      }
+
       if let Some(name) = entry.name() {
         // Skip . and .. entries
         if name != "." && name != ".." {
@@ -578,6 +585,12 @@ fn collect_diff_paths(diff: &git2::Diff<'_>, workdir: &Path, workspace_root: &Pa
         // Skip deleted files - they no longer exist on disk and would cause file access errors
         if delta.status() == Delta::Deleted {
           trace!("Skipping deleted file in git diff: {:?}", delta.old_file().path());
+          return true;
+        }
+
+        // Skip symlinks (see get_git_tracked_files for why this matters on Windows)
+        if delta.new_file().mode() == git2::FileMode::Link {
+          trace!("Skipping symlink in git diff: {:?}", delta.new_file().path());
           return true;
         }
 

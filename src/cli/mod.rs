@@ -53,7 +53,7 @@ fn long_version() -> &'static str {
   edlicense --save-diff changes.diff --license-file LICENSE.txt src/
 
   # Only process files changed since a specific git commit
-  edlicense --ratchet=HEAD^ --license-file LICENSE.txt --modify .
+  edlicense --ratchet=HEAD~1 --license-file LICENSE.txt --modify .
 
   # Only process git-tracked files
   edlicense --git-only --license-file LICENSE.txt --modify .

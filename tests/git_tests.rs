@@ -99,6 +99,50 @@ fn test_get_git_tracked_files() -> Result<()> {
   Ok(())
 }
 
+/// On Windows, git checks symlinks out as plain files containing the link target
+/// (core.symlinks=false), so they must be filtered using the git file mode.
+#[test]
+fn test_get_git_tracked_files_skips_symlinks_checked_out_as_files() -> Result<()> {
+  if !is_git_available() {
+    println!("Skipping git test because git command is not available");
+    return Ok(());
+  }
+
+  let temp_dir = init_temp_git_repo()?;
+  run_git(temp_dir.path(), &["config", "core.symlinks", "false"])?;
+
+  fs::write(temp_dir.path().join("target.rs"), "fn target() {}")?;
+  // Simulate a Windows checkout of a symlink: a regular file holding the target path.
+  fs::write(temp_dir.path().join("link.rs"), "target.rs")?;
+
+  let output = std::process::Command::new("git")
+    .args(["hash-object", "-w", "link.rs"])
+    .current_dir(temp_dir.path())
+    .output()?;
+  assert!(output.status.success(), "git hash-object failed");
+  let blob = String::from_utf8(output.stdout)?.trim().to_string();
+  run_git(
+    temp_dir.path(),
+    &[
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      &format!("120000,{blob},link.rs"),
+    ],
+  )?;
+  run_git(temp_dir.path(), &["add", "target.rs"])?;
+  git_commit(temp_dir.path(), "Add symlink")?;
+
+  let tracked_files = git::get_git_tracked_files(temp_dir.path())?;
+  assert!(tracked_files.contains(&PathBuf::from("target.rs")));
+  assert!(
+    !tracked_files.contains(&PathBuf::from("link.rs")),
+    "Symlinks should not be returned as tracked files"
+  );
+
+  Ok(())
+}
+
 #[test]
 fn test_get_changed_files() -> Result<()> {
   // Skip test if git is not available
@@ -993,7 +1037,7 @@ fn test_broken_worktree_relative_gitdir_returns_error() -> Result<()> {
     err_msg
   );
   // The resolved gitdir path should also be normalized
-  let expected_resolved = temp_dir.path().join(".git/worktrees/feature");
+  let expected_resolved = temp_dir.path().join(".git").join("worktrees").join("feature");
   assert!(
     err_msg.contains(&expected_resolved.display().to_string()),
     "Error should show the resolved gitdir path ({}), got: {}",

@@ -323,7 +323,8 @@ mod tests {
 
   #[test]
   fn test_absolutize_path_already_absolute() {
-    let path = PathBuf::from("/absolute/path");
+    let path = std::env::temp_dir().join("absolute").join("path");
+    assert!(path.is_absolute());
     let result = absolutize_path(&path).unwrap();
     assert_eq!(result, path);
   }
