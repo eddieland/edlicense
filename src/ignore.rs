@@ -73,9 +73,12 @@ impl IgnoreManager {
   ///
   /// Returns an error if any of the command-line patterns are invalid.
   pub fn new(cli_patterns: Vec<String>) -> Result<Self> {
-    // Compile glob patterns from command-line
+    // Compile glob patterns from command-line. On Windows, users naturally type
+    // `vendor\gen` or `vendor\`; candidate paths are matched with `/` separators,
+    // so normalize the patterns to match. (On Unix `\` is a glob escape.)
     let cli_patterns = cli_patterns
       .into_iter()
+      .map(|p| if cfg!(windows) { p.replace('\\', "/") } else { p })
       .map(|p| Pattern::new(&p))
       .collect::<Result<Vec<_>, _>>()
       .with_context(|| "Invalid glob pattern")?;
@@ -346,7 +349,14 @@ fn adjust_pattern_for_root(pattern: &str, dir_relative: Option<&Path>) -> String
     _ => return pattern.to_string(), // Already at root, no adjustment needed
   };
 
-  let dir_prefix = dir_relative.to_string_lossy();
+  // Gitignore patterns always use `/` as the separator, so build the prefix from
+  // path components rather than `to_string_lossy()`, which would produce `\` on
+  // Windows (an escape character in gitignore syntax).
+  let dir_prefix = dir_relative
+    .components()
+    .map(|c| c.as_os_str().to_string_lossy())
+    .collect::<Vec<_>>()
+    .join("/");
 
   // Handle negation prefix: strip `!`, adjust the inner pattern, re-add `!`.
   if let Some(inner) = pattern.strip_prefix('!') {
@@ -447,5 +457,33 @@ mod tests {
       "packages/app/tests/fixtures/"
     );
     assert_eq!(adjust_pattern_for_root("*.json", dir), "*.json");
+  }
+
+  #[test]
+  fn test_adjust_pattern_uses_forward_slashes_for_native_paths() {
+    // `join` produces the platform separator (`\` on Windows); the rewritten
+    // pattern must still use `/`.
+    let nested = Path::new("packages").join("app");
+    let dir = Some(nested.as_path());
+    assert_eq!(adjust_pattern_for_root("/snapshots/", dir), "/packages/app/snapshots/");
+    assert_eq!(
+      adjust_pattern_for_root("tests/fixtures/", dir),
+      "packages/app/tests/fixtures/"
+    );
+  }
+
+  #[test]
+  fn test_cli_dir_pattern_ignores_nested_files() {
+    let manager = IgnoreManager::new(vec!["third_party/gen/".to_string()]).expect("valid pattern");
+    let path = Path::new("third_party").join("gen").join("lib.rs");
+    assert!(manager.is_ignored(&path));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn test_cli_backslash_pattern_on_windows() {
+    let manager = IgnoreManager::new(vec!["third_party\\gen\\".to_string()]).expect("valid pattern");
+    assert!(manager.is_ignored(Path::new("third_party\\gen\\lib.rs")));
+    assert!(manager.is_ignored(Path::new("third_party/gen/lib.rs")));
   }
 }

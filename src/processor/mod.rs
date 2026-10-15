@@ -676,8 +676,7 @@ impl Processor {
           return Ok(());
         };
 
-        let (prefix, content_without_prefix) = self.content_transformer.extract_prefix(content);
-        let new_content = format!("{}{}{}", prefix, formatted_license, content_without_prefix);
+        let new_content = self.content_transformer.insert_license(content, &formatted_license);
 
         if let Err(e) = self.diff_manager.display_diff(path, content, &new_content) {
           tracing::warn!("Failed to display diff for {}: {}", path.display(), e);
@@ -726,14 +725,7 @@ impl Processor {
       return Ok(());
     };
 
-    let (prefix, content_remainder) = self.content_transformer.extract_prefix(content);
-    let license_to_use = if content_remainder.trim().is_empty() {
-      // For empty files, don't include the trailing blank line separator
-      formatted_license.trim_end().to_string() + "\n"
-    } else {
-      formatted_license
-    };
-    let new_content = format!("{}{}{}", prefix, license_to_use, content_remainder);
+    let new_content = self.content_transformer.insert_license(content, &formatted_license);
 
     FileIO::write_file(path, &new_content)?;
     info_log!("Added license to: {}", path.display());
